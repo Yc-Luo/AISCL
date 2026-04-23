@@ -1,0 +1,32 @@
+export const ROUTES = {
+    HOME: '/',
+    LOGIN: '/login',
+    REGISTER: '/register',
+    STUDENT: {
+        DASHBOARD: '/student/dashboard',
+        INQUIRY: '/student/inquiry/:projectId',
+        DOCUMENT: '/student/document/:projectId',
+        CHAT: '/student/chat/:projectId',
+        SETTINGS: '/student/settings',
+        PROJECT_LIST: '/student/projects',
+    },
+    TEACHER: {
+        DASHBOARD: '/teacher',
+        OVERVIEW: '/teacher/overview',
+        CLASS_MANAGEMENT: '/teacher/class-manager',
+        STUDENTS: '/teacher/student-list',
+        PROJECT_MANAGER: '/teacher/project-manager',
+        PROJECT_MONITOR: '/teacher/project-monitor',
+        PROJECT_DASHBOARD: '/teacher/project-dashboard',
+        COURSE_RESOURCES: '/teacher/resources',
+        ASSIGNMENT_REVIEW: '/teacher/assignments',
+        SETTINGS: '/teacher/settings',
+    },
+    MANAGER: {
+        DASHBOARD: '/manager/dashboard',
+        USERS: '/manager/users',
+        DATA: '/manager/data',
+        AI: '/manager/ai',
+        SETTINGS: '/manager/settings',
+    },
+} as const;

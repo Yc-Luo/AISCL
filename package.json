@@ -1,0 +1,20 @@
+{
+  "name": "AISCL-collaborative-learning",
+  "version": "1.0.0",
+  "description": "AI-Enhanced Collaborative Learning System",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev:frontend": "cd frontend && pnpm dev",
+    "build:frontend": "cd frontend && pnpm build",
+    "lint:frontend": "cd frontend && pnpm lint",
+    "test:frontend": "cd frontend && pnpm test"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

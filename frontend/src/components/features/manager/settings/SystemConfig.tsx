@@ -29,6 +29,15 @@ import {
     DialogFooter
 } from '../../../ui/dialog'
 
+const DEFAULT_MODEL_OPTIONS = [
+    { value: 'MiniMax-M2.7', label: 'MiniMax-M2.7 (MiniMax)' },
+    { value: 'gpt-4o', label: 'GPT-4o (OpenAI)' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o mini (OpenAI)' },
+    { value: 'deepseek-chat', label: 'DeepSeek Chat (DeepSeek)' },
+    { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (DeepSeek)' },
+    { value: 'llama3', label: 'Llama 3 (Ollama)' },
+]
+
 export default function SystemConfig() {
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
@@ -36,7 +45,9 @@ export default function SystemConfig() {
 
     // Mapping keys to local state for easier UI handling
     const [configValues, setConfigValues] = useState({
+        llmProvider: 'openai_compatible',
         llmKey: 'sk-••••••••••••••••••••••••••••••••',
+        llmBaseUrl: 'https://api.minimaxi.com/v1',
         llmModel: 'gpt-4o',
         storageQuota: 5,
         fileLimit: 50,
@@ -77,7 +88,9 @@ export default function SystemConfig() {
             // Sync data to state
             const newValues = { ...configValues }
             data.forEach(c => {
+                if (c.key === 'llm_provider') newValues.llmProvider = c.value
                 if (c.key === 'llm_key') newValues.llmKey = c.value
+                if (c.key === 'llm_base_url') newValues.llmBaseUrl = c.value
                 if (c.key === 'llm_model') newValues.llmModel = c.value
                 if (c.key === 'storage_quota') newValues.storageQuota = Number(c.value)
                 if (c.key === 'file_limit') newValues.fileLimit = Number(c.value)
@@ -107,7 +120,9 @@ export default function SystemConfig() {
         try {
             setIsSaving(true)
             await Promise.all([
+                adminService.updateConfig('llm_provider', configValues.llmProvider, 'LLM provider type'),
                 adminService.updateConfig('llm_key', configValues.llmKey, 'LLM API Authorization Key'),
+                adminService.updateConfig('llm_base_url', configValues.llmBaseUrl, 'LLM API base URL'),
                 adminService.updateConfig('llm_model', configValues.llmModel, 'Default LLM model'),
                 adminService.updateConfig('storage_quota', String(configValues.storageQuota), 'Storage quota per project in GB'),
                 adminService.updateConfig('file_limit', String(configValues.fileLimit), 'Single file size limit in MB'),
@@ -138,13 +153,16 @@ export default function SystemConfig() {
         try {
             setIsSavingLLM(true)
             await Promise.all([
+                adminService.updateConfig('llm_provider', configValues.llmProvider, 'LLM provider type'),
                 adminService.updateConfig('llm_key', configValues.llmKey, 'LLM API Authorization Key'),
+                adminService.updateConfig('llm_base_url', configValues.llmBaseUrl, 'LLM API base URL'),
                 adminService.updateConfig('llm_model', configValues.llmModel, 'Default LLM model'),
+                adminService.updateConfig('user_custom_models', JSON.stringify(customModels), 'User defined LLM models'),
             ])
             setNotice({
                 isOpen: true,
                 title: '模型参数已同步',
-                message: 'LLM 核心配置已单独保存并立即生效。',
+                message: '大模型 Provider、Base URL、模型 ID 与 API Key 已保存。后端启用数据库配置模式后会立即按新配置调用。',
                 type: 'success'
             })
         } catch (error) {
@@ -235,6 +253,26 @@ export default function SystemConfig() {
                     <div className="space-y-4">
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-slate-400" />
+                                服务类型
+                            </label>
+                            <select
+                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                                value={configValues.llmProvider}
+                                onChange={(e) => handleChange('llmProvider', e.target.value)}
+                            >
+                                <option value="openai_compatible">OpenAI 兼容接口（MiniMax/通义/智谱等）</option>
+                                <option value="openai">OpenAI 官方接口</option>
+                                <option value="deepseek">DeepSeek 官方接口</option>
+                                <option value="ollama">Ollama 本地模型</option>
+                            </select>
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                MiniMax M2.7 建议选择 OpenAI 兼容接口，并填写 MiniMax 的 Base URL 与 API Key。
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                                 <Key className="w-4 h-4 text-slate-400" />
                                 API Key
                             </label>
@@ -249,22 +287,47 @@ export default function SystemConfig() {
 
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-slate-400" />
+                                API Base URL
+                            </label>
+                            <Input
+                                value={configValues.llmBaseUrl}
+                                onChange={(e) => handleChange('llmBaseUrl', e.target.value)}
+                                placeholder="如：https://api.minimaxi.com/v1"
+                            />
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                OpenAI 官方接口可留空；兼容接口必须填写对应服务商的 `/v1` 地址。
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                                 <Cpu className="w-4 h-4 text-slate-400" />
-                                默认模型选择
+                                默认模型 ID
                             </label>
                             <select
                                 className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
                                 value={configValues.llmModel}
                                 onChange={(e) => handleChange('llmModel', e.target.value)}
                             >
-                                <option value="gpt-4o">GPT-4o (OpenAI)</option>
-                                <option value="deepseek-chat">DeepSeek Chat (DeepSeek)</option>
-                                <option value="llama-3">Llama 3 (Meta/Ollama)</option>
-                                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
+                                {!DEFAULT_MODEL_OPTIONS.some(option => option.value === configValues.llmModel)
+                                    && !customModels.some(model => model.id === configValues.llmModel)
+                                    && <option value={configValues.llmModel}>{configValues.llmModel}（当前配置）</option>}
+                                {DEFAULT_MODEL_OPTIONS.map(option => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
                                 {customModels.map(m => (
                                     <option key={m.id} value={m.id}>{m.name} (自定义)</option>
                                 ))}
                             </select>
+                            <Input
+                                value={configValues.llmModel}
+                                onChange={(e) => handleChange('llmModel', e.target.value)}
+                                placeholder="也可以直接输入服务商要求的模型 ID"
+                            />
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                如果服务商模型名称没有出现在列表中，可在下方输入框直接填写准确模型 ID。
+                            </p>
                         </div>
                     </div>
                 </div>

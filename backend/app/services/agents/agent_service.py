@@ -1,5 +1,6 @@
 """Agent Service using LangGraph and Deep Agents Shim."""
 
+import hashlib
 from typing import Dict, Any, AsyncGenerator, Optional, List
 
 from langchain_core.messages import HumanMessage
@@ -20,20 +21,35 @@ class AgentService:
         self.llm = None
         self.graph = None
         self._current_model_id = None
+        self._current_llm_signature = None
 
     async def initialize(self):
         """Async Initialization for the graph and LLM with hot-reload support."""
-        # 1. Resolve latest model id from selected config source
+        # 1. Resolve latest model config from selected config source
+        latest_llm_signature = None
         if settings.LLM_CONFIG_SOURCE.lower() == "db":
             try:
                 from app.repositories.system_config import SystemConfig
-                db_model = await SystemConfig.find_one(SystemConfig.key == "llm_model")
-                latest_model_id = db_model.value if db_model else (
+                config_keys = [
+                    "llm_provider",
+                    "llm_model",
+                    "llm_base_url",
+                    "llm_key",
+                    "user_custom_models",
+                ]
+                config_values = {}
+                for key in config_keys:
+                    config = await SystemConfig.find_one(SystemConfig.key == key)
+                    config_values[key] = config.value if config else ""
+                latest_model_id = config_values.get("llm_model") or (
                     settings.OPENAI_MODEL if settings.LLM_PROVIDER == "openai"
                     else settings.DEEPSEEK_MODEL if settings.LLM_PROVIDER in ["deepseek", "deepseek-chat"]
                     else settings.OLLAMA_MODEL if settings.LLM_PROVIDER == "ollama"
                     else settings.OPENAI_MODEL
                 )
+                latest_llm_signature = hashlib.sha256(
+                    "|".join(str(config_values.get(key, "")) for key in config_keys).encode("utf-8")
+                ).hexdigest()
             except Exception:
                 latest_model_id = (
                     settings.OPENAI_MODEL if settings.LLM_PROVIDER == "openai"
@@ -48,12 +64,27 @@ class AgentService:
                 else settings.OLLAMA_MODEL if settings.LLM_PROVIDER == "ollama"
                 else settings.OPENAI_MODEL
             )
+        if latest_llm_signature is None:
+            latest_llm_signature = hashlib.sha256(
+                "|".join(
+                    [
+                        settings.LLM_PROVIDER,
+                        latest_model_id,
+                        settings.OPENAI_BASE_URL,
+                        settings.DEEPSEEK_BASE_URL,
+                        settings.OLLAMA_BASE_URL,
+                        settings.OPENAI_API_KEY,
+                        settings.DEEPSEEK_API_KEY,
+                    ]
+                ).encode("utf-8")
+            ).hexdigest()
 
         # 2. Check if we need to reload (Hot Update Logic)
-        if not self.llm or self._current_model_id != latest_model_id:
+        if not self.llm or self._current_llm_signature != latest_llm_signature:
             print(f"🔄 Detected model change or first init: {self._current_model_id} -> {latest_model_id}")
             self.llm = await get_llm(temperature=0.7)
             self._current_model_id = latest_model_id
+            self._current_llm_signature = latest_llm_signature
             # Invalidation: Force graph rebuild
             self.graph = None
 

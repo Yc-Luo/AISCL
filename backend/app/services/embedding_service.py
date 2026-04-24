@@ -1,72 +1,154 @@
-"""Embedding service with MiniMax support and safe fallback."""
+"""Embedding service with MiniMax support and admin-configurable settings."""
 
 import logging
+from dataclasses import dataclass
 from typing import List, Optional
 
 import httpx
 
 from app.core.config import settings
+from app.repositories.system_config import SystemConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EmbeddingRuntimeConfig:
+    """Runtime embedding configuration resolved from admin DB and env."""
+
+    provider: str
+    api_key: str
+    base_url: str
+    model: str
+    embedding_type: str
+    group_id: str = ""
+
+
+def _is_real_secret(value: Optional[str]) -> bool:
+    """Avoid treating masked UI placeholders as usable API keys."""
+    return bool(value and "•••" not in value and value.strip())
 
 
 class EmbeddingService:
     """Generate text embeddings through an external provider."""
 
     @staticmethod
-    def is_enabled() -> bool:
+    async def _get_config_value(key: str) -> Optional[str]:
+        """Read one system config value from the admin database."""
+        try:
+            config = await SystemConfig.find_one({"key": key})
+        except Exception as exc:
+            logger.debug("Embedding config lookup failed for %s: %s", key, exc)
+            return None
+        if not config:
+            return None
+        value = config.value.strip() if isinstance(config.value, str) else config.value
+        return value or None
+
+    @staticmethod
+    async def _resolve_config() -> EmbeddingRuntimeConfig:
+        """Resolve embedding settings.
+
+        The admin panel owns the `embedding_*` keys. Environment variables remain
+        the fallback so deployments can still boot before an administrator saves
+        the first database configuration.
+        """
+        provider = (
+            await EmbeddingService._get_config_value("embedding_provider")
+            or settings.EMBEDDING_PROVIDER
+        ).lower()
+        db_key = await EmbeddingService._get_config_value("embedding_key")
+        api_key = (
+            db_key
+            if _is_real_secret(db_key)
+            else (settings.MINIMAX_API_KEY or settings.OPENAI_API_KEY)
+        )
+        return EmbeddingRuntimeConfig(
+            provider=provider,
+            api_key=api_key,
+            base_url=(
+                await EmbeddingService._get_config_value("embedding_base_url")
+                or settings.MINIMAX_EMBEDDING_BASE_URL
+            ),
+            model=(
+                await EmbeddingService._get_config_value("embedding_model")
+                or settings.MINIMAX_EMBEDDING_MODEL
+            ),
+            embedding_type=(
+                await EmbeddingService._get_config_value("embedding_type")
+                or settings.MINIMAX_EMBEDDING_TYPE
+            ),
+            group_id=(
+                await EmbeddingService._get_config_value("embedding_group_id")
+                or settings.MINIMAX_GROUP_ID
+            ),
+        )
+
+    @staticmethod
+    async def is_enabled() -> bool:
         """Return whether embedding calls are configured."""
         if not settings.RAG_VECTOR_ENABLED:
             return False
-        provider = settings.EMBEDDING_PROVIDER.lower()
-        if provider == "minimax":
-            return bool(settings.MINIMAX_API_KEY)
+        config = await EmbeddingService._resolve_config()
+        if config.provider == "minimax":
+            return bool(config.api_key)
         return False
 
     @staticmethod
-    async def embed_text(text: str, *, purpose: str = "db") -> Optional[List[float]]:
+    async def embed_text(text: str, *, purpose: Optional[str] = None) -> Optional[List[float]]:
         """Embed one text string."""
         vectors = await EmbeddingService.embed_texts([text], purpose=purpose)
         return vectors[0] if vectors else None
 
     @staticmethod
-    async def embed_texts(texts: List[str], *, purpose: str = "db") -> List[List[float]]:
+    async def embed_texts(texts: List[str], *, purpose: Optional[str] = None) -> List[List[float]]:
         """Embed a batch of text strings."""
         cleaned_texts = [text.strip() for text in texts if text and text.strip()]
-        if not cleaned_texts or not EmbeddingService.is_enabled():
+        if not cleaned_texts:
             return []
 
-        provider = settings.EMBEDDING_PROVIDER.lower()
-        if provider == "minimax":
-            return await EmbeddingService._embed_with_minimax(cleaned_texts, purpose=purpose)
+        config = await EmbeddingService._resolve_config()
+        if not settings.RAG_VECTOR_ENABLED:
+            return []
+        if config.provider == "minimax" and config.api_key:
+            return await EmbeddingService._embed_with_minimax(
+                cleaned_texts,
+                config=config,
+                purpose=purpose,
+            )
 
-        logger.warning("Unsupported embedding provider: %s", settings.EMBEDDING_PROVIDER)
+        logger.warning("Unsupported or incomplete embedding provider: %s", config.provider)
         return []
 
     @staticmethod
-    async def _embed_with_minimax(texts: List[str], *, purpose: str) -> List[List[float]]:
+    async def _embed_with_minimax(
+        texts: List[str],
+        *,
+        config: EmbeddingRuntimeConfig,
+        purpose: Optional[str],
+    ) -> List[List[float]]:
         """Call MiniMax embedding API.
 
         The endpoint and group-id handling are configurable because MiniMax has
         used multiple public hostnames across API generations.
         """
         params = {}
-        if settings.MINIMAX_GROUP_ID:
-            params["GroupId"] = settings.MINIMAX_GROUP_ID
+        if config.group_id:
+            params["GroupId"] = config.group_id
 
         payload = {
-            "model": settings.MINIMAX_EMBEDDING_MODEL,
+            "model": config.model,
             "texts": texts,
-            "type": purpose or settings.MINIMAX_EMBEDDING_TYPE,
+            "type": purpose or config.embedding_type,
         }
         headers = {
-            "Authorization": f"Bearer {settings.MINIMAX_API_KEY}",
+            "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
         }
 
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
-                settings.MINIMAX_EMBEDDING_BASE_URL,
+                config.base_url,
                 params=params,
                 json=payload,
                 headers=headers,

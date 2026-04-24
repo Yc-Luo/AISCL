@@ -98,7 +98,7 @@ class RAGService:
         if not chunks:
             return False
 
-        vectors = await embedding_service.embed_texts(chunks, purpose=settings.MINIMAX_EMBEDDING_TYPE)
+        vectors = await embedding_service.embed_texts(chunks)
         if not vectors:
             return False
 
@@ -336,10 +336,7 @@ class RAGService:
         if limit <= 0:
             return []
 
-        query_vector = await embedding_service.embed_text(
-            query,
-            purpose=settings.MINIMAX_EMBEDDING_TYPE,
-        )
+        query_vector = await embedding_service.embed_text(query)
         if not query_vector:
             return []
 

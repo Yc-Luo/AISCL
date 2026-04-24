@@ -42,6 +42,7 @@ export default function SystemConfig() {
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
     const [isSavingLLM, setIsSavingLLM] = useState(false)
+    const [isSavingEmbedding, setIsSavingEmbedding] = useState(false)
 
     // Mapping keys to local state for easier UI handling
     const [configValues, setConfigValues] = useState({
@@ -49,6 +50,12 @@ export default function SystemConfig() {
         llmKey: 'sk-••••••••••••••••••••••••••••••••',
         llmBaseUrl: 'https://api.minimaxi.com/v1',
         llmModel: 'gpt-4o',
+        embeddingProvider: 'minimax',
+        embeddingKey: '',
+        embeddingBaseUrl: 'https://api.minimax.chat/v1/embeddings',
+        embeddingModel: 'embo-01',
+        embeddingType: 'db',
+        embeddingGroupId: '',
         storageQuota: 5,
         fileLimit: 50,
         memberLimit: 5,
@@ -92,6 +99,12 @@ export default function SystemConfig() {
                 if (c.key === 'llm_key') newValues.llmKey = c.value
                 if (c.key === 'llm_base_url') newValues.llmBaseUrl = c.value
                 if (c.key === 'llm_model') newValues.llmModel = c.value
+                if (c.key === 'embedding_provider') newValues.embeddingProvider = c.value
+                if (c.key === 'embedding_key') newValues.embeddingKey = c.value
+                if (c.key === 'embedding_base_url') newValues.embeddingBaseUrl = c.value
+                if (c.key === 'embedding_model') newValues.embeddingModel = c.value
+                if (c.key === 'embedding_type') newValues.embeddingType = c.value
+                if (c.key === 'embedding_group_id') newValues.embeddingGroupId = c.value
                 if (c.key === 'storage_quota') newValues.storageQuota = Number(c.value)
                 if (c.key === 'file_limit') newValues.fileLimit = Number(c.value)
                 if (c.key === 'member_limit') newValues.memberLimit = Number(c.value)
@@ -124,6 +137,12 @@ export default function SystemConfig() {
                 adminService.updateConfig('llm_key', configValues.llmKey, 'LLM API Authorization Key'),
                 adminService.updateConfig('llm_base_url', configValues.llmBaseUrl, 'LLM API base URL'),
                 adminService.updateConfig('llm_model', configValues.llmModel, 'Default LLM model'),
+                adminService.updateConfig('embedding_provider', configValues.embeddingProvider, 'Embedding provider type for RAG and Wiki retrieval'),
+                adminService.updateConfig('embedding_key', configValues.embeddingKey, 'Embedding API Authorization Key'),
+                adminService.updateConfig('embedding_base_url', configValues.embeddingBaseUrl, 'Embedding API base URL'),
+                adminService.updateConfig('embedding_model', configValues.embeddingModel, 'Embedding model ID'),
+                adminService.updateConfig('embedding_type', configValues.embeddingType, 'Embedding request type or purpose'),
+                adminService.updateConfig('embedding_group_id', configValues.embeddingGroupId, 'MiniMax embedding group id'),
                 adminService.updateConfig('storage_quota', String(configValues.storageQuota), 'Storage quota per project in GB'),
                 adminService.updateConfig('file_limit', String(configValues.fileLimit), 'Single file size limit in MB'),
                 adminService.updateConfig('member_limit', String(configValues.memberLimit), 'Max members per project'),
@@ -175,6 +194,36 @@ export default function SystemConfig() {
             })
         } finally {
             setIsSavingLLM(false)
+        }
+    }
+
+    const handleSaveEmbedding = async () => {
+        try {
+            setIsSavingEmbedding(true)
+            await Promise.all([
+                adminService.updateConfig('embedding_provider', configValues.embeddingProvider, 'Embedding provider type for RAG and Wiki retrieval'),
+                adminService.updateConfig('embedding_key', configValues.embeddingKey, 'Embedding API Authorization Key'),
+                adminService.updateConfig('embedding_base_url', configValues.embeddingBaseUrl, 'Embedding API base URL'),
+                adminService.updateConfig('embedding_model', configValues.embeddingModel, 'Embedding model ID'),
+                adminService.updateConfig('embedding_type', configValues.embeddingType, 'Embedding request type or purpose'),
+                adminService.updateConfig('embedding_group_id', configValues.embeddingGroupId, 'MiniMax embedding group id'),
+            ])
+            setNotice({
+                isOpen: true,
+                title: 'Embedding 参数已同步',
+                message: 'RAG、项目 Wiki 和资源语义检索将使用新的向量模型配置。',
+                type: 'success'
+            })
+        } catch (error) {
+            console.error('Failed to save embedding configs:', error)
+            setNotice({
+                isOpen: true,
+                title: '同步失败',
+                message: '无法更新 Embedding 配置，请确认管理员权限或 API 状态。',
+                type: 'error'
+            })
+        } finally {
+            setIsSavingEmbedding(false)
         }
     }
 
@@ -231,12 +280,12 @@ export default function SystemConfig() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* LLM Config Group */}
+                {/* Dialogue LLM Config Group */}
                 <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
                     <div className="flex justify-between items-center border-b border-gray-50 pb-4">
                         <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                             <ShieldCheck className="w-5 h-5 text-indigo-600" />
-                            大模型服务 (LLM)
+                            对话模型服务 (Chat LLM)
                         </h3>
                         <Button
                             variant="ghost"
@@ -328,6 +377,110 @@ export default function SystemConfig() {
                             <p className="text-xs text-slate-400 leading-relaxed">
                                 如果服务商模型名称没有出现在列表中，可在下方输入框直接填写准确模型 ID。
                             </p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Embedding Config Group */}
+                <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                    <div className="flex justify-between items-center border-b border-gray-50 pb-4">
+                        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <Cpu className="w-5 h-5 text-emerald-600" />
+                            向量模型服务 (Embedding)
+                        </h3>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 gap-1.5 font-bold"
+                            onClick={handleSaveEmbedding}
+                            disabled={isSavingEmbedding}
+                        >
+                            {isSavingEmbedding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            同步配置
+                        </Button>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-slate-400" />
+                                服务类型
+                            </label>
+                            <select
+                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium"
+                                value={configValues.embeddingProvider}
+                                onChange={(e) => handleChange('embeddingProvider', e.target.value)}
+                            >
+                                <option value="minimax">MiniMax Embedding</option>
+                            </select>
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                当前后端已接入 MiniMax Embedding，用于项目 Wiki、资源库和 RAG 语义检索。
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Key className="w-4 h-4 text-slate-400" />
+                                Embedding API Key
+                            </label>
+                            <Input
+                                type="password"
+                                value={configValues.embeddingKey}
+                                onChange={(e) => handleChange('embeddingKey', e.target.value)}
+                                placeholder="可填写独立 Embedding Key；留空则回退到 .env 配置"
+                            />
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                建议与对话模型分开配置，便于分别控制 RAG 检索成本与对话生成成本。
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-slate-400" />
+                                Embedding Base URL
+                            </label>
+                            <Input
+                                value={configValues.embeddingBaseUrl}
+                                onChange={(e) => handleChange('embeddingBaseUrl', e.target.value)}
+                                placeholder="如：https://api.minimax.chat/v1/embeddings"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <Cpu className="w-4 h-4 text-slate-400" />
+                                    Embedding 模型 ID
+                                </label>
+                                <Input
+                                    value={configValues.embeddingModel}
+                                    onChange={(e) => handleChange('embeddingModel', e.target.value)}
+                                    placeholder="embo-01"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-slate-400" />
+                                    请求类型
+                                </label>
+                                <Input
+                                    value={configValues.embeddingType}
+                                    onChange={(e) => handleChange('embeddingType', e.target.value)}
+                                    placeholder="db"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Key className="w-4 h-4 text-slate-400" />
+                                Group ID（可选）
+                            </label>
+                            <Input
+                                value={configValues.embeddingGroupId}
+                                onChange={(e) => handleChange('embeddingGroupId', e.target.value)}
+                                placeholder="MiniMax GroupId；没有则留空"
+                            />
                         </div>
                     </div>
                 </div>

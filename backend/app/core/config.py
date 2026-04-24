@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     RAG_CHUNK_SIZE: int = 900
     RAG_CHUNK_OVERLAP: int = 120
 
+    # Analytics
+    ANALYTICS_LLM_ENABLED: bool = False
+
     # CORS
     CORS_ORIGINS: List[str] = Field(
         default=["http://localhost:5173", "http://localhost:3000"]

@@ -20,7 +20,13 @@ import {
     MessageSquare,
     Lightbulb,
     Save,
-    Menu
+    Menu,
+    ImagePlus,
+    Table2,
+    Rows3,
+    Columns3,
+    Trash2,
+    Loader2
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -28,23 +34,28 @@ interface EditorToolbarProps {
     editor: Editor
     isConnected?: boolean
     onAnnotationClick?: () => void
+    onInsertImageClick?: () => void
     onSaveToScrapbook?: () => void
     onSave?: () => void
     onHistoryClick?: () => void
+    isImageUploading?: boolean
 }
 
 export default function EditorToolbar({
     editor,
     isConnected,
     onAnnotationClick,
+    onInsertImageClick,
     onSaveToScrapbook,
     onSave,
-    onHistoryClick
+    onHistoryClick,
+    isImageUploading,
 }: EditorToolbarProps) {
     const [showHeadingMenu, setShowHeadingMenu] = useState(false)
     const [showAlignMenu, setShowAlignMenu] = useState(false)
     const [showColorPicker, setShowColorPicker] = useState(false)
     const [showBgColorPicker, setShowBgColorPicker] = useState(false)
+    const [showTableMenu, setShowTableMenu] = useState(false)
     const [, setToolbarVersion] = useState(0)
 
     useEffect(() => {
@@ -250,6 +261,92 @@ export default function EditorToolbar({
                         </ToolbarButton>
                     </div>
 
+                    {/* Images */}
+                    {onInsertImageClick && (
+                        <div className="flex items-center gap-1 pr-2 border-r">
+                            <ToolbarButton
+                                onClick={onInsertImageClick}
+                                title="插入图片"
+                                disabled={isImageUploading}
+                            >
+                                {isImageUploading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                                ) : (
+                                    <ImagePlus className="w-4 h-4 text-indigo-600" />
+                                )}
+                            </ToolbarButton>
+                        </div>
+                    )}
+
+                    {/* Tables */}
+                    <div className="relative pr-2 border-r">
+                        <ToolbarButton
+                            onClick={() => setShowTableMenu(!showTableMenu)}
+                            active={editor.isActive('table')}
+                            title="表格"
+                        >
+                            <Table2 className="w-4 h-4" />
+                            <ChevronDown className="w-3 h-3 ml-1" />
+                        </ToolbarButton>
+                        {showTableMenu && (
+                            <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg py-1 min-w-[190px] z-20">
+                                <DropdownItem
+                                    onClick={() => {
+                                        ; (editor.chain().focus() as any).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+                                        setShowTableMenu(false)
+                                    }}
+                                >
+                                    <Table2 className="w-4 h-4 mr-2" /> 插入 3x3 表格
+                                </DropdownItem>
+                                <DropdownItem
+                                    onClick={() => {
+                                        ; (editor.chain().focus() as any).addRowAfter().run()
+                                        setShowTableMenu(false)
+                                    }}
+                                    disabled={!editor.isActive('table')}
+                                >
+                                    <Rows3 className="w-4 h-4 mr-2" /> 在下方添加行
+                                </DropdownItem>
+                                <DropdownItem
+                                    onClick={() => {
+                                        ; (editor.chain().focus() as any).addColumnAfter().run()
+                                        setShowTableMenu(false)
+                                    }}
+                                    disabled={!editor.isActive('table')}
+                                >
+                                    <Columns3 className="w-4 h-4 mr-2" /> 在右侧添加列
+                                </DropdownItem>
+                                <DropdownItem
+                                    onClick={() => {
+                                        ; (editor.chain().focus() as any).deleteRow().run()
+                                        setShowTableMenu(false)
+                                    }}
+                                    disabled={!editor.isActive('table')}
+                                >
+                                    <Rows3 className="w-4 h-4 mr-2" /> 删除当前行
+                                </DropdownItem>
+                                <DropdownItem
+                                    onClick={() => {
+                                        ; (editor.chain().focus() as any).deleteColumn().run()
+                                        setShowTableMenu(false)
+                                    }}
+                                    disabled={!editor.isActive('table')}
+                                >
+                                    <Columns3 className="w-4 h-4 mr-2" /> 删除当前列
+                                </DropdownItem>
+                                <DropdownItem
+                                    onClick={() => {
+                                        ; (editor.chain().focus() as any).deleteTable().run()
+                                        setShowTableMenu(false)
+                                    }}
+                                    disabled={!editor.isActive('table')}
+                                >
+                                    <Trash2 className="w-4 h-4 mr-2" /> 删除表格
+                                </DropdownItem>
+                            </div>
+                        )}
+                    </div>
+
 
 
                     {/* Text Color Picker */}
@@ -415,18 +512,22 @@ function ToolbarButton({
 function DropdownItem({
     onClick,
     active = false,
+    disabled = false,
     children,
 }: {
     onClick: () => void
     active?: boolean
+    disabled?: boolean
     children: React.ReactNode
 }) {
     return (
         <button
             onClick={onClick}
+            disabled={disabled}
             className={`
         w-full px-3 py-2 text-left text-sm flex items-center transition-colors
         ${active ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-gray-50 text-gray-700'}
+        ${disabled ? 'opacity-50 cursor-not-allowed hover:bg-white' : ''}
       `}
         >
             {children}

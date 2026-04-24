@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, Editor as TiptapEditor } from '@tiptap/react'
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import Underline from '@tiptap/extension-underline'
 import StarterKit from '@tiptap/starter-kit'
@@ -10,9 +10,14 @@ import { Color } from '@tiptap/extension-color'
 import { TextStyle } from '@tiptap/extension-text-style'
 import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
+import { Table } from '@tiptap/extension-table'
+import { TableCell } from '@tiptap/extension-table-cell'
+import { TableHeader } from '@tiptap/extension-table-header'
+import { TableRow } from '@tiptap/extension-table-row'
 import { Collaboration } from '@tiptap/extension-collaboration'
 import { useAuthStore } from '../../../../stores/authStore'
 import { documentService, Document } from '../../../../services/api/document'
+import { storageService } from '../../../../services/api/storage'
 import { Annotation, AnnotationAttributes } from '../../../../extensions/Annotation'
 import EditorToolbar from './EditorToolbar'
 import RemoteCursors from './RemoteCursors'
@@ -68,8 +73,11 @@ export default function DocumentEditor({
   const [isListLoading, setIsListLoading] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isImageUploading, setIsImageUploading] = useState(false)
   const experimentVersionId = experimentVersion?.version_name || undefined
   const lastCommittedTextRef = useRef('')
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const editorRef = useRef<TiptapEditor | null>(null)
 
   const orderedDocuments = useMemo(() => {
     if (!documents.length || !initialTaskDocumentId) return documents
@@ -82,6 +90,101 @@ export default function DocumentEditor({
   }, [documents, initialTaskDocumentId])
 
   const { addMaterial } = useScrapbookActions(projectId || '')
+
+  const handleInsertImageFile = useCallback(async (file: File, targetEditor?: TiptapEditor | null) => {
+    if (!projectId) {
+      setToastMessage('当前文档未关联项目，暂时无法上传图片')
+      setShowToast(true)
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setToastMessage('请选择图片文件')
+      setShowToast(true)
+      return
+    }
+
+    setIsImageUploading(true)
+    try {
+      const { upload_url, file_key } = await storageService.getPresignedUploadUrl(
+        projectId,
+        file.name,
+        file.type,
+        file.size,
+      )
+
+      await storageService.uploadFile(upload_url, file)
+
+      const resource = await storageService.createResource({
+        file_key,
+        filename: file.name,
+        size: file.size,
+        project_id: projectId,
+        mime_type: file.type,
+      })
+
+      const imageUrl = storageService.getResourceViewUrl(resource.id)
+      const activeEditor = targetEditor || editorRef.current
+      if (!activeEditor) {
+        throw new Error('Editor instance unavailable')
+      }
+
+      ; (activeEditor.chain().focus() as any).setImage({
+        src: imageUrl,
+        alt: file.name,
+        title: file.name,
+      }).run()
+
+      trackingService.track({
+        module: 'document',
+        action: 'document_image_insert',
+        metadata: {
+          projectId,
+          documentId,
+          resourceId: resource.id,
+          filename: file.name,
+          mimeType: file.type,
+          size: file.size,
+        },
+      })
+
+      trackingService.trackResearchEvent({
+        project_id: projectId,
+        experiment_version_id: experimentVersionId,
+        actor_type: 'student',
+        event_domain: 'shared_record',
+        event_type: 'shared_record_image_insert',
+        stage_id: currentStage || undefined,
+        payload: {
+          document_id: documentId,
+          resource_id: resource.id,
+          filename: file.name,
+          mime_type: file.type,
+          file_size: file.size,
+        },
+      })
+
+      setToastMessage('图片已插入文档')
+      setShowToast(true)
+    } catch (error) {
+      console.error('Failed to insert image into document:', error)
+      setToastMessage('图片插入失败')
+      setShowToast(true)
+    } finally {
+      setIsImageUploading(false)
+      if (imageInputRef.current) imageInputRef.current.value = ''
+    }
+  }, [currentStage, documentId, experimentVersionId, projectId])
+
+  const handleOpenImagePicker = useCallback(() => {
+    imageInputRef.current?.click()
+  }, [])
+
+  const handleImageInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    void handleInsertImageFile(file)
+  }, [handleInsertImageFile])
 
   // Load document list when sidebar opens
   useEffect(() => {
@@ -163,9 +266,26 @@ export default function DocumentEditor({
       TextAlign.configure({
         types: ['heading', 'paragraph'],
       }),
+      Table.configure({
+        resizable: true,
+        HTMLAttributes: {
+          class: 'w-full border-collapse table-fixed',
+        },
+      }),
+      TableRow,
+      TableHeader.configure({
+        HTMLAttributes: {
+          class: 'border border-slate-300 bg-slate-50 px-3 py-2 text-left font-semibold align-top',
+        },
+      }),
+      TableCell.configure({
+        HTMLAttributes: {
+          class: 'border border-slate-300 px-3 py-2 align-top',
+        },
+      }),
       Image.configure({
         HTMLAttributes: {
-          class: 'max-w-full h-auto rounded',
+          class: 'max-w-full h-auto rounded-lg border border-slate-200 shadow-sm my-4',
         },
       }),
       Placeholder.configure({
@@ -216,7 +336,25 @@ export default function DocumentEditor({
     extensions,
     editorProps: {
       attributes: {
-        class: 'prose prose-sm max-w-[900px] mx-auto focus:outline-none min-h-full p-4',
+        class: 'prose prose-sm max-w-[900px] mx-auto min-h-full p-4 focus:outline-none prose-img:my-4 prose-img:rounded-lg prose-table:my-4 prose-table:w-full prose-table:border-collapse prose-th:border prose-th:border-slate-300 prose-th:bg-slate-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold prose-td:border prose-td:border-slate-300 prose-td:px-3 prose-td:py-2',
+      },
+      handlePaste: (_view, event) => {
+        const items = Array.from(event.clipboardData?.items || [])
+        const imageItem = items.find((item) => item.type.startsWith('image/'))
+        const imageFile = imageItem?.getAsFile()
+        if (!imageFile) return false
+
+        void handleInsertImageFile(imageFile, editorRef.current)
+        return true
+      },
+      handleDrop: (_view, event, _slice, moved) => {
+        if (moved) return false
+        const files = Array.from(event.dataTransfer?.files || [])
+        const imageFile = files.find((file) => file.type.startsWith('image/'))
+        if (!imageFile) return false
+
+        void handleInsertImageFile(imageFile, editorRef.current)
+        return true
       },
     },
     onUpdate: ({ editor }) => {
@@ -243,7 +381,14 @@ export default function DocumentEditor({
       })
       lastCommittedTextRef.current = currentText
     }
-  }, [extensions])
+  }, [extensions, handleInsertImageFile])
+
+  useEffect(() => {
+    editorRef.current = editor
+    return () => {
+      editorRef.current = null
+    }
+  }, [editor])
 
   useEffect(() => {
     if (!editor) return
@@ -666,9 +811,11 @@ export default function DocumentEditor({
             editor={editor}
             isConnected={isConnected}
             onAnnotationClick={handleOpenAnnotationInput}
+            onInsertImageClick={handleOpenImagePicker}
             onSaveToScrapbook={handleSaveToScrapbook}
             onSave={handleSave}
             onHistoryClick={() => setShowDocumentList(!showDocumentList)}
+            isImageUploading={isImageUploading}
           />
         )}
         <div className="flex-1 overflow-auto bg-white flex flex-col items-center">
@@ -695,12 +842,20 @@ export default function DocumentEditor({
             </div>
           </div>
 
-          <div className="w-full max-w-[900px] px-8">
+          <div className="w-full max-w-[900px] px-8 overflow-x-auto">
             <EditorContent editor={editor} />
           </div>
         </div>
         <RemoteCursors users={remoteUsers} />
       </div>
+
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageInputChange}
+      />
 
       {showAnnotationInput && (
         <AnnotationInput

@@ -1,5 +1,6 @@
 import api from './client'
 import { API_ENDPOINTS } from '../../config/api'
+import { config } from '../../config/env'
 import { Resource } from '../../types'
 
 export interface ResourceListResponse {
@@ -14,6 +15,11 @@ export interface PresignedUploadUrlResponse {
 }
 
 export const storageService = {
+  getResourceViewUrl(resourceId: string): string {
+    const apiBase = config.apiBaseUrl ? `${config.apiBaseUrl}/api/v1` : '/api/v1'
+    return `${apiBase}${API_ENDPOINTS.RESOURCES}/resources/${resourceId}/view`
+  },
+
   async getResources(projectId: string): Promise<ResourceListResponse> {
     const response = await api.get<ResourceListResponse>(
       `${API_ENDPOINTS.RESOURCES}/resources/${projectId}`
@@ -100,4 +106,3 @@ export const storageService = {
     return response.data
   },
 }
-

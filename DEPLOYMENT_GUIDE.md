@@ -97,7 +97,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES=1440  # 24小时
 MINIO_ENDPOINT=minio:9000
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin123
-MINIO_BUCKET_NAME=AISCL-files
+MINIO_BUCKET_NAME=aiscl-files
 
 # 安全
 SECRET_KEY=your-32-character-secret-key
@@ -195,7 +195,7 @@ docker-compose exec mongodb mongodump --db AISCL --out /backup/$(date +%Y%m%d_%H
 ### 文件备份
 ```bash
 # MinIO数据备份
-docker-compose exec minio mc mirror /data/AISCL-files /backup/minio/$(date +%Y%m%d)
+docker-compose exec minio mc mirror /data/aiscl-files /backup/minio/$(date +%Y%m%d)
 
 # Redis数据备份
 docker-compose exec redis redis-cli --rdb /backup/redis.rdb
@@ -423,4 +423,3 @@ docker-compose up -d frontend nginx
 3. 设置适当的资源限制
 4. 配置监控和告警
 5. 定期备份数据
-

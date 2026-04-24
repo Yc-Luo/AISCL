@@ -404,17 +404,15 @@ export default function SystemConfig() {
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                                 <Globe className="w-4 h-4 text-slate-400" />
-                                服务类型
+                                服务提供方 / 调用格式
                             </label>
-                            <select
-                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium"
+                            <Input
                                 value={configValues.embeddingProvider}
                                 onChange={(e) => handleChange('embeddingProvider', e.target.value)}
-                            >
-                                <option value="minimax">MiniMax Embedding</option>
-                            </select>
+                                placeholder="如：minimax、openai_compatible、openai"
+                            />
                             <p className="text-xs text-slate-400 leading-relaxed">
-                                当前后端已接入 MiniMax Embedding，用于项目 Wiki、资源库和 RAG 语义检索。
+                                用于决定后端请求格式。当前支持 MiniMax 格式和 OpenAI 兼容 Embedding 格式；不要受下拉选项限制，按服务商文档填写。
                             </p>
                         </div>
 
@@ -427,7 +425,7 @@ export default function SystemConfig() {
                                 type="password"
                                 value={configValues.embeddingKey}
                                 onChange={(e) => handleChange('embeddingKey', e.target.value)}
-                                placeholder="可填写独立 Embedding Key；留空则回退到 .env 配置"
+                                placeholder="如：sk-...；可填写独立 Embedding Key，留空则回退到 .env 配置"
                             />
                             <p className="text-xs text-slate-400 leading-relaxed">
                                 建议与对话模型分开配置，便于分别控制 RAG 检索成本与对话生成成本。
@@ -442,8 +440,11 @@ export default function SystemConfig() {
                             <Input
                                 value={configValues.embeddingBaseUrl}
                                 onChange={(e) => handleChange('embeddingBaseUrl', e.target.value)}
-                                placeholder="如：https://api.minimax.chat/v1/embeddings"
+                                placeholder="如：https://api.minimax.chat/v1/embeddings 或 https://api.openai.com/v1"
                             />
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                可填写完整 `/embeddings` 地址，也可填写 OpenAI 兼容服务的 `/v1` 根地址，后端会自动补齐 `/embeddings`。
+                            </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
@@ -455,19 +456,22 @@ export default function SystemConfig() {
                                 <Input
                                     value={configValues.embeddingModel}
                                     onChange={(e) => handleChange('embeddingModel', e.target.value)}
-                                    placeholder="embo-01"
+                                    placeholder="如：embo-01、text-embedding-3-small"
                                 />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                                     <FileText className="w-4 h-4 text-slate-400" />
-                                    请求类型
+                                    请求类型 / 用途
                                 </label>
                                 <Input
                                     value={configValues.embeddingType}
                                     onChange={(e) => handleChange('embeddingType', e.target.value)}
-                                    placeholder="db"
+                                    placeholder="MiniMax 常用：db；查询时后端会使用 query"
                                 />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    MiniMax 需要区分 `db` 与 `query`；OpenAI 兼容接口通常可留空或保留默认值。
+                                </p>
                             </div>
                         </div>
 
@@ -479,8 +483,15 @@ export default function SystemConfig() {
                             <Input
                                 value={configValues.embeddingGroupId}
                                 onChange={(e) => handleChange('embeddingGroupId', e.target.value)}
-                                placeholder="MiniMax GroupId；没有则留空"
+                                placeholder="MiniMax 需要填写 Group ID；OpenAI 兼容接口通常留空"
                             />
+                        </div>
+
+                        <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-xs text-emerald-900 space-y-2">
+                            <p className="font-bold">填写示例</p>
+                            <p>MiniMax：provider=minimax，Base URL=https://api.minimax.chat/v1/embeddings，model=embo-01，type=db，Group ID=你的 MiniMax Group ID。</p>
+                            <p>OpenAI 兼容：provider=openai_compatible，Base URL=https://api.openai.com/v1，model=text-embedding-3-small，type 可留空，Group ID 留空。</p>
+                            <p className="text-emerald-800/80">注意：更换向量模型时，向量维度必须与 Qdrant collection 的维度一致；如维度不同，需要同步调整服务器 `QDRANT_VECTOR_SIZE` 并重建向量集合。</p>
                         </div>
                     </div>
                 </div>

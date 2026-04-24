@@ -90,12 +90,12 @@ class EmbeddingService:
         if not settings.RAG_VECTOR_ENABLED:
             return False
         config = await EmbeddingService._resolve_config()
-        if config.provider == "minimax":
+        if config.provider in {"minimax", "openai", "openai_compatible", "openai-compatible"}:
             return bool(config.api_key)
         return False
 
     @staticmethod
-    async def embed_text(text: str, *, purpose: Optional[str] = None) -> Optional[List[float]]:
+    async def embed_text(text: str, *, purpose: Optional[str] = "query") -> Optional[List[float]]:
         """Embed one text string."""
         vectors = await EmbeddingService.embed_texts([text], purpose=purpose)
         return vectors[0] if vectors else None
@@ -116,9 +116,25 @@ class EmbeddingService:
                 config=config,
                 purpose=purpose,
             )
+        if (
+            config.provider in {"openai", "openai_compatible", "openai-compatible"}
+            and config.api_key
+        ):
+            return await EmbeddingService._embed_with_openai_compatible(
+                cleaned_texts,
+                config=config,
+            )
 
         logger.warning("Unsupported or incomplete embedding provider: %s", config.provider)
         return []
+
+    @staticmethod
+    def _resolve_embedding_endpoint(base_url: str) -> str:
+        """Accept either a root /v1 URL or a full /embeddings endpoint."""
+        endpoint = (base_url or "").rstrip("/")
+        if endpoint.endswith("/embeddings"):
+            return endpoint
+        return f"{endpoint}/embeddings"
 
     @staticmethod
     async def _embed_with_minimax(
@@ -148,7 +164,7 @@ class EmbeddingService:
 
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
-                config.base_url,
+                EmbeddingService._resolve_embedding_endpoint(config.base_url),
                 params=params,
                 json=payload,
                 headers=headers,
@@ -159,6 +175,36 @@ class EmbeddingService:
         vectors = EmbeddingService._extract_vectors(data)
         if not vectors:
             logger.warning("MiniMax embedding response contained no vectors: %s", data)
+        return vectors
+
+    @staticmethod
+    async def _embed_with_openai_compatible(
+        texts: List[str],
+        *,
+        config: EmbeddingRuntimeConfig,
+    ) -> List[List[float]]:
+        """Call OpenAI-compatible embedding APIs."""
+        payload = {
+            "model": config.model,
+            "input": texts,
+        }
+        headers = {
+            "Authorization": f"Bearer {config.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                EmbeddingService._resolve_embedding_endpoint(config.base_url),
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        vectors = EmbeddingService._extract_vectors(data)
+        if not vectors:
+            logger.warning("OpenAI-compatible embedding response contained no vectors: %s", data)
         return vectors
 
     @staticmethod

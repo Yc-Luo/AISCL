@@ -319,6 +319,17 @@ embedding_base_url=https://api.minimax.chat/v1/embeddings
 embedding_model=embo-01
 embedding_type=db
 embedding_key=你的 Embedding API Key
+embedding_group_id=你的 MiniMax Group ID
+```
+
+OpenAI 兼容 Embedding 示例：
+
+```env
+embedding_provider=openai_compatible
+embedding_base_url=https://api.openai.com/v1
+embedding_model=text-embedding-3-small
+embedding_type=
+embedding_key=你的 Embedding API Key
 embedding_group_id=
 ```
 
@@ -327,6 +338,8 @@ embedding_group_id=
 1. 优先读取管理员端数据库中的 `embedding_*` 配置。
 2. 如果管理员端未配置，则读取 `backend/.env` 中的 `MINIMAX_*` 配置。
 3. 如果 `MINIMAX_API_KEY` 为空，会回退到 `OPENAI_API_KEY`，但正式实验建议单独配置 `embedding_key`。
+
+通用 Embedding 配置通常至少包括：服务提供方/调用格式、API Key、Base URL、模型 ID。MiniMax 还需要 `Group ID`，并区分文档入库的 `db` 与查询检索的 `query`。如果更换向量模型，需要确认模型输出维度与 `QDRANT_VECTOR_SIZE` 一致；维度不一致时需要调整服务器环境变量并重建 Qdrant collection。
 
 ## 7. RAG 与项目 Wiki
 

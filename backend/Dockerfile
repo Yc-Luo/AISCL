@@ -6,11 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    HOME=/app \
-    HF_HOME=/app/data/hf_cache \
-    TRANSFORMERS_CACHE=/app/data/hf_cache \
-    SENTENCE_TRANSFORMERS_HOME=/app/data/hf_cache \
-    XDG_CACHE_HOME=/app/data/xdg_cache
+    HOME=/app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -59,7 +55,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY . .
 
 # Change ownership to non-root user
-RUN mkdir -p /app/data/hf_cache /app/data/xdg_cache && chown -R AISCL:AISCL /app
+RUN mkdir -p /app/data && chown -R AISCL:AISCL /app
 USER AISCL
 
 # Health check

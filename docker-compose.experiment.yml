@@ -70,10 +70,6 @@ services:
       DEBUG: "false"
       LOG_LEVEL: INFO
       HOME: /app
-      HF_HOME: /app/data/hf_cache
-      TRANSFORMERS_CACHE: /app/data/hf_cache
-      SENTENCE_TRANSFORMERS_HOME: /app/data/hf_cache
-      XDG_CACHE_HOME: /app/data/xdg_cache
       MONGODB_URI: mongodb://mongodb:27017/AISCL
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000

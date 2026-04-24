@@ -26,6 +26,29 @@ export interface Student {
     avatar_url?: string
 }
 
+export interface StudentImportItem {
+    username: string
+    email: string
+    password?: string
+}
+
+export interface StudentImportResult {
+    row: number
+    username: string
+    email: string
+    status: 'created' | 'linked' | 'skipped' | 'failed'
+    message: string
+    user_id?: string
+}
+
+export interface StudentImportResponse {
+    created_count: number
+    linked_count: number
+    skipped_count: number
+    failed_count: number
+    results: StudentImportResult[]
+}
+
 export const courseService = {
     getCourses: async (): Promise<Course[]> => {
         const response = await api.get('/courses')
@@ -57,6 +80,14 @@ export const courseService = {
 
     addStudentToCourse: async (courseId: string, studentId: string) => {
         const response = await api.post(`/courses/${courseId}/students?student_id=${studentId}`)
+        return response.data
+    },
+
+    bulkImportStudents: async (
+        courseId: string,
+        data: { students: StudentImportItem[]; default_password?: string }
+    ): Promise<StudentImportResponse> => {
+        const response = await api.post(`/courses/${courseId}/students/bulk-import`, data)
         return response.data
     },
 

@@ -60,6 +60,42 @@ class CourseJoinRequest(BaseModel):
     invite_code: str = Field(..., min_length=6, max_length=6)
 
 
+class CourseStudentImportItem(BaseModel):
+    """One student row for teacher-side batch import."""
+
+    username: str = Field(..., min_length=1, max_length=50)
+    email: str = Field(..., min_length=3, max_length=254)
+    password: Optional[str] = Field(None, min_length=6)
+
+
+class CourseStudentImportRequest(BaseModel):
+    """Batch student import request."""
+
+    students: List[CourseStudentImportItem] = Field(..., min_length=1, max_length=500)
+    default_password: str = Field(default="Password123!", min_length=6)
+
+
+class CourseStudentImportRowResult(BaseModel):
+    """Result for one imported student row."""
+
+    row: int
+    username: str
+    email: str
+    status: str
+    message: str
+    user_id: Optional[str] = None
+
+
+class CourseStudentImportResponse(BaseModel):
+    """Batch student import response."""
+
+    created_count: int
+    linked_count: int
+    skipped_count: int
+    failed_count: int
+    results: List[CourseStudentImportRowResult]
+
+
 class CourseListResponse(BaseModel):
     """Course list response schema."""
 

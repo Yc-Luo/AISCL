@@ -24,10 +24,54 @@ import {
     DialogTitle,
     DialogDescription
 } from '../../../ui';
-import { courseService, Course, Student } from '../../../../services/api/course';
+import { courseService, Course, Student, StudentImportItem } from '../../../../services/api/course';
 import { projectService } from '../../../../services/api/project';
 import { userService } from '../../../../services/api/user';
 import { Project, User } from '../../../../types';
+
+const parseCsvLine = (line: string): string[] => {
+    const cells: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const next = line[i + 1];
+
+        if (char === '"' && inQuotes && next === '"') {
+            current += '"';
+            i += 1;
+        } else if (char === '"') {
+            inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+            cells.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    cells.push(current.trim());
+    return cells;
+};
+
+const parseStudentCsv = (text: string): StudentImportItem[] => {
+    const lines = text
+        .replace(/^\uFEFF/, '')
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+    const rows = lines[0]?.includes('邮箱') ? lines.slice(1) : lines;
+    return rows
+        .map(parseCsvLine)
+        .filter(cells => cells.length >= 2)
+        .map(([username, email, password]) => ({
+            username,
+            email,
+            password: password || undefined
+        }))
+        .filter(item => item.username && item.email);
+};
 
 export default function StudentList() {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -169,7 +213,7 @@ export default function StudentList() {
     // CSV Template Download
     const downloadTemplate = () => {
         const header = "用户名,邮箱,初始密码\n";
-        const content = "张三,zhangsan@example.com,123456\n李四,lisi@example.com,123456";
+        const content = "张三,zhangsan@example.com,Password123!\n李四,lisi@example.com,Password123!";
         const blob = new Blob(["\uFEFF" + header + content], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -189,7 +233,7 @@ export default function StudentList() {
 
         try {
             const text = await bulkFile.text();
-            const rows = text.split('\n').map(row => row.split(',')).filter(row => row.length >= 2 && row[0] !== '用户名');
+            const rows = parseStudentCsv(text);
 
             if (rows.length === 0) {
                 setBulkStatus('error');
@@ -198,58 +242,24 @@ export default function StudentList() {
             }
 
             setBulkProgress({ total: rows.length, current: 0 });
-            setBulkLogs(prev => [...prev, `共找到 ${rows.length} 条记录，开始导入...`]);
+            setBulkLogs(prev => [...prev, `共找到 ${rows.length} 条记录，正在提交到服务器批量处理...`]);
 
-            let successCount = 0;
-            for (let i = 0; i < rows.length; i++) {
-                const [username, email, password] = rows[i].map(s => s?.trim());
-                if (!username || !email) {
-                    setBulkLogs(prev => [...prev, `第 ${i + 1} 行跳过：数据不完整`]);
-                    continue;
-                }
+            const result = await courseService.bulkImportStudents(selectedCourseId, {
+                students: rows,
+                default_password: 'Password123!'
+            });
+            setBulkProgress({ total: rows.length, current: rows.length });
+            setBulkLogs(prev => [
+                ...prev,
+                ...result.results.map(item => `第 ${item.row} 行 [${item.username}] ${item.message}`),
+                `导入完成：新建 ${result.created_count}，关联 ${result.linked_count}，跳过 ${result.skipped_count}，失败 ${result.failed_count}`
+            ]);
 
-                try {
-                    // Try to find if user exists
-                    const existing = await userService.searchUsers({ search: email });
-                    let userId = '';
-
-                    const found = existing.find(u => u.email === email);
-                    if (found) {
-                        if (found.class_id && found.class_id !== selectedCourseId) {
-                            setBulkLogs(prev => [...prev, `[${username}] 已属于其他班级，未导入当前班级`]);
-                            setBulkProgress(prev => ({ ...prev, current: i + 1 }));
-                            continue;
-                        }
-                        userId = found.id;
-                        setBulkLogs(prev => [...prev, `[${username}] 用户已存在，直接关联到班级`]);
-                    } else {
-                        // Create new user
-                        const newUser = await userService.createUser({
-                            username,
-                            email,
-                            password: password || '123456',
-                            role: 'student',
-                            class_id: selectedCourseId
-                        });
-                        userId = newUser.id;
-                        setBulkLogs(prev => [...prev, `[${username}] 新用户创建成功`]);
-                    }
-
-                    // Assign to course
-                    await courseService.addStudentToCourse(selectedCourseId, userId);
-                    successCount++;
-                } catch (err) {
-                    setBulkLogs(prev => [...prev, `[${username}] 导入失败：${err instanceof Error ? err.message : '未知错误'}`]);
-                }
-                setBulkProgress(prev => ({ ...prev, current: i + 1 }));
-            }
-
-            setBulkStatus('success');
-            setBulkLogs(prev => [...prev, `导入完成！成功: ${successCount}，失败: ${rows.length - successCount}`]);
+            setBulkStatus(result.failed_count > 0 ? 'error' : 'success');
             fetchStudents();
         } catch (err) {
             setBulkStatus('error');
-            setBulkLogs(prev => [...prev, '解析失败，请确保使用 UTF-8 编码的 CSV 文件']);
+            setBulkLogs(prev => [...prev, `导入失败：${err instanceof Error ? err.message : '请检查 CSV 文件格式或网络连接'}`]);
         }
     };
 

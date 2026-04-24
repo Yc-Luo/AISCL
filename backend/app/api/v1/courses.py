@@ -13,8 +13,12 @@ from app.core.schemas.course import (
     CourseJoinRequest,
     CourseListResponse,
     CourseResponse,
+    CourseStudentImportRequest,
+    CourseStudentImportResponse,
+    CourseStudentImportRowResult,
     CourseUpdateRequest,
 )
+from app.services.auth_service import get_password_hash
 from app.services.research_config_service import research_config_service
 
 router = APIRouter(prefix="/courses", tags=["courses"])
@@ -395,6 +399,169 @@ async def add_student_to_course(
     await student.save()
 
     return {"message": "Student added successfully"}
+
+
+@router.post("/{course_id}/students/bulk-import", response_model=CourseStudentImportResponse)
+async def bulk_import_students_to_course(
+    course_id: str,
+    import_data: CourseStudentImportRequest,
+    current_user: User = Depends(get_current_user),
+) -> CourseStudentImportResponse:
+    """Create/link student accounts and add them to a teacher-owned course."""
+    course = await Course.get(course_id)
+    if not course:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Course not found",
+        )
+
+    if (
+        str(current_user.id) != course.teacher_id
+        and current_user.role != "admin"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only course owner can import students",
+        )
+
+    from app.repositories.user import User as UserModel
+
+    results: list[CourseStudentImportRowResult] = []
+    created_count = 0
+    linked_count = 0
+    skipped_count = 0
+    failed_count = 0
+    seen_emails: set[str] = set()
+    course_changed = False
+
+    for row_index, item in enumerate(import_data.students, start=1):
+        email = str(item.email).strip().lower()
+        username = item.username.strip()
+        password = item.password or import_data.default_password
+
+        if "@" not in email or "." not in email.split("@")[-1]:
+            failed_count += 1
+            results.append(
+                CourseStudentImportRowResult(
+                    row=row_index,
+                    username=username,
+                    email=email,
+                    status="failed",
+                    message="邮箱格式无效",
+                )
+            )
+            continue
+
+        if email in seen_emails:
+            skipped_count += 1
+            results.append(
+                CourseStudentImportRowResult(
+                    row=row_index,
+                    username=username,
+                    email=email,
+                    status="skipped",
+                    message="同一批次中邮箱重复，已跳过",
+                )
+            )
+            continue
+        seen_emails.add(email)
+
+        try:
+            user = await UserModel.find_one(UserModel.email == email)
+
+            if user and user.role != "student":
+                failed_count += 1
+                results.append(
+                    CourseStudentImportRowResult(
+                        row=row_index,
+                        username=username,
+                        email=email,
+                        status="failed",
+                        message=f"该邮箱已属于 {user.role} 角色，不能导入为学生",
+                        user_id=str(user.id),
+                    )
+                )
+                continue
+
+            if user and user.class_id and user.class_id != str(course.id):
+                failed_count += 1
+                results.append(
+                    CourseStudentImportRowResult(
+                        row=row_index,
+                        username=username,
+                        email=email,
+                        status="failed",
+                        message="该学生已属于其他班级",
+                        user_id=str(user.id),
+                    )
+                )
+                continue
+
+            if not user:
+                user = UserModel(
+                    username=username,
+                    email=email,
+                    password_hash=get_password_hash(password),
+                    role="student",
+                    class_id=str(course.id),
+                )
+                await user.insert()
+                created_count += 1
+                row_status = "created"
+                row_message = "已创建学生账号并加入班级"
+            else:
+                if not user.class_id:
+                    user.class_id = str(course.id)
+                    await user.save()
+                linked_count += 1
+                row_status = "linked"
+                row_message = "学生账号已存在，已关联到当前班级"
+
+            user_id = str(user.id)
+            if user_id not in course.students:
+                course.students.append(user_id)
+                course_changed = True
+            elif row_status == "linked":
+                skipped_count += 1
+                linked_count -= 1
+                row_status = "skipped"
+                row_message = "学生已在当前班级中"
+
+            results.append(
+                CourseStudentImportRowResult(
+                    row=row_index,
+                    username=username,
+                    email=email,
+                    status=row_status,
+                    message=row_message,
+                    user_id=user_id,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            failed_count += 1
+            results.append(
+                CourseStudentImportRowResult(
+                    row=row_index,
+                    username=username,
+                    email=email,
+                    status="failed",
+                    message=f"导入失败：{exc}",
+                )
+            )
+
+    if course_changed:
+        from datetime import datetime
+
+        course.updated_at = datetime.utcnow()
+        await course.save()
+
+    return CourseStudentImportResponse(
+        created_count=created_count,
+        linked_count=linked_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
+        results=results,
+    )
 
 
 @router.delete("/{course_id}/students/{student_id}", status_code=status.HTTP_204_NO_CONTENT)

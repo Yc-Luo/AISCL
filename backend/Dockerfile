@@ -22,6 +22,8 @@ WORKDIR /app
 # Install Python dependencies in a virtual environment
 FROM base as builder
 
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -35,14 +37,15 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY pyproject.toml poetry.lock ./
 
 # Install Poetry
-RUN pip install poetry poetry-plugin-export
+RUN pip install --index-url "${PIP_INDEX_URL}" --upgrade pip setuptools wheel
+RUN pip install --index-url "${PIP_INDEX_URL}" poetry poetry-plugin-export
 
 # Configure poetry to not create virtual environment
 RUN poetry config virtualenvs.create false
 
 # Install dependencies
 RUN poetry export --format requirements.txt --output requirements.txt --without-hashes --without dev
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --index-url "${PIP_INDEX_URL}" --no-cache-dir -r requirements.txt
 
 # Production stage
 FROM base as production

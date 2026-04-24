@@ -166,6 +166,7 @@ cp backend/.env.server.example backend/.env
 ```env
 # .env
 AISCL_HTTP_PORT=80
+PIP_INDEX_URL=https://pypi.org/simple
 MINIO_ROOT_USER=replace-minio-root-user
 MINIO_ROOT_PASSWORD=replace-minio-root-password
 ```
@@ -181,6 +182,18 @@ CORS_ORIGINS=["http://your-domain-or-ip","https://your-domain"]
 ```
 
 `MINIO_ROOT_USER` 必须与 `backend/.env` 中的 `MINIO_ACCESS_KEY` 一致，`MINIO_ROOT_PASSWORD` 必须与 `MINIO_SECRET_KEY` 一致。
+
+如果服务器构建后端时出现 `No matching distribution found`、`Could not find a version` 等 Python 依赖解析问题，通常是 pip 源访问不稳定或镜像未同步。可以在根目录 `.env` 中改用国内镜像：
+
+```env
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+或：
+
+```env
+PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+```
 
 ### 5.4 启动服务
 

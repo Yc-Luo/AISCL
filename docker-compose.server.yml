@@ -61,6 +61,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: production
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     container_name: AISCL-backend
     restart: unless-stopped
     env_file:

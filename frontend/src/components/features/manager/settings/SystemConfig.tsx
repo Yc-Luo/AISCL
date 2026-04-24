@@ -56,6 +56,7 @@ export default function SystemConfig() {
         embeddingModel: 'embo-01',
         embeddingType: 'db',
         embeddingGroupId: '',
+        embeddingDimensions: '',
         storageQuota: 5,
         fileLimit: 50,
         memberLimit: 5,
@@ -105,6 +106,7 @@ export default function SystemConfig() {
                 if (c.key === 'embedding_model') newValues.embeddingModel = c.value
                 if (c.key === 'embedding_type') newValues.embeddingType = c.value
                 if (c.key === 'embedding_group_id') newValues.embeddingGroupId = c.value
+                if (c.key === 'embedding_dimensions') newValues.embeddingDimensions = c.value
                 if (c.key === 'storage_quota') newValues.storageQuota = Number(c.value)
                 if (c.key === 'file_limit') newValues.fileLimit = Number(c.value)
                 if (c.key === 'member_limit') newValues.memberLimit = Number(c.value)
@@ -143,6 +145,7 @@ export default function SystemConfig() {
                 adminService.updateConfig('embedding_model', configValues.embeddingModel, 'Embedding model ID'),
                 adminService.updateConfig('embedding_type', configValues.embeddingType, 'Embedding request type or purpose'),
                 adminService.updateConfig('embedding_group_id', configValues.embeddingGroupId, 'MiniMax embedding group id'),
+                adminService.updateConfig('embedding_dimensions', configValues.embeddingDimensions, 'Embedding vector dimensions'),
                 adminService.updateConfig('storage_quota', String(configValues.storageQuota), 'Storage quota per project in GB'),
                 adminService.updateConfig('file_limit', String(configValues.fileLimit), 'Single file size limit in MB'),
                 adminService.updateConfig('member_limit', String(configValues.memberLimit), 'Max members per project'),
@@ -207,6 +210,7 @@ export default function SystemConfig() {
                 adminService.updateConfig('embedding_model', configValues.embeddingModel, 'Embedding model ID'),
                 adminService.updateConfig('embedding_type', configValues.embeddingType, 'Embedding request type or purpose'),
                 adminService.updateConfig('embedding_group_id', configValues.embeddingGroupId, 'MiniMax embedding group id'),
+                adminService.updateConfig('embedding_dimensions', configValues.embeddingDimensions, 'Embedding vector dimensions'),
             ])
             setNotice({
                 isOpen: true,
@@ -477,6 +481,23 @@ export default function SystemConfig() {
 
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <HardDrive className="w-4 h-4 text-slate-400" />
+                                向量维度（可选）
+                            </label>
+                            <Input
+                                type="number"
+                                min="1"
+                                value={configValues.embeddingDimensions}
+                                onChange={(e) => handleChange('embeddingDimensions', e.target.value)}
+                                placeholder="如：1024、1536；不确定可先留空"
+                            />
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                OpenAI 兼容接口会把该值作为 `dimensions` 参数发送；Qdrant 新建集合时也会优先使用该维度。已有集合维度不会自动改变，换模型后如维度不同需重建集合。
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                                 <Key className="w-4 h-4 text-slate-400" />
                                 Group ID（可选）
                             </label>
@@ -491,7 +512,8 @@ export default function SystemConfig() {
                             <p className="font-bold">填写示例</p>
                             <p>MiniMax：provider=minimax，Base URL=https://api.minimax.chat/v1/embeddings，model=embo-01，type=db，Group ID=你的 MiniMax Group ID。</p>
                             <p>OpenAI 兼容：provider=openai_compatible，Base URL=https://api.openai.com/v1，model=text-embedding-3-small，type 可留空，Group ID 留空。</p>
-                            <p className="text-emerald-800/80">注意：更换向量模型时，向量维度必须与 Qdrant collection 的维度一致；如维度不同，需要同步调整服务器 `QDRANT_VECTOR_SIZE` 并重建向量集合。</p>
+                            <p>SiliconFlow Qwen3 示例：provider=openai_compatible，Base URL=https://api.siliconflow.cn/v1，model=Qwen/Qwen3-Embedding-4B，dimensions=1024 或 1536。</p>
+                            <p className="text-emerald-800/80">注意：更换向量模型时，向量维度必须与 Qdrant collection 的维度一致；如维度不同，需要重建向量集合。</p>
                         </div>
                     </div>
                 </div>

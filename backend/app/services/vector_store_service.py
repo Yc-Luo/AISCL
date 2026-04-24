@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.core.config import settings
+from app.repositories.system_config import SystemConfig
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,26 @@ class VectorStoreService:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
 
     @staticmethod
-    async def ensure_collection() -> bool:
+    @staticmethod
+    async def _get_configured_vector_size() -> int:
+        """Resolve vector size from admin config, then environment."""
+        try:
+            config = await SystemConfig.find_one({"key": "embedding_dimensions"})
+            if config and config.value:
+                parsed = int(str(config.value).strip())
+                if parsed > 0:
+                    return parsed
+        except Exception as exc:
+            logger.debug("Vector size config lookup failed: %s", exc)
+        return settings.QDRANT_VECTOR_SIZE
+
+    @staticmethod
+    async def ensure_collection(vector_size: Optional[int] = None) -> bool:
         """Ensure the Qdrant collection exists."""
         if not VectorStoreService.is_enabled():
             return False
 
+        expected_size = vector_size or await VectorStoreService._get_configured_vector_size()
         headers = VectorStoreService._headers()
         collection_url = VectorStoreService._url(f"/collections/{settings.QDRANT_COLLECTION}")
 
@@ -38,6 +54,17 @@ class VectorStoreService:
             async with httpx.AsyncClient(timeout=15) as client:
                 get_response = await client.get(collection_url, headers=headers)
                 if get_response.status_code == 200:
+                    existing_size = VectorStoreService._extract_collection_vector_size(
+                        get_response.json()
+                    )
+                    if existing_size and existing_size != expected_size:
+                        logger.warning(
+                            "Qdrant collection vector size mismatch: existing=%s expected=%s. "
+                            "Recreate the collection before using a different embedding dimension.",
+                            existing_size,
+                            expected_size,
+                        )
+                        return False
                     return True
 
                 create_response = await client.put(
@@ -45,7 +72,7 @@ class VectorStoreService:
                     headers=headers,
                     json={
                         "vectors": {
-                            "size": settings.QDRANT_VECTOR_SIZE,
+                            "size": expected_size,
                             "distance": "Cosine",
                         }
                     },
@@ -59,7 +86,12 @@ class VectorStoreService:
     @staticmethod
     async def upsert_points(points: List[Dict[str, Any]]) -> bool:
         """Upsert vector points into Qdrant."""
-        if not points or not await VectorStoreService.ensure_collection():
+        vector_size = None
+        first_vector = points[0].get("vector") if points else None
+        if isinstance(first_vector, list):
+            vector_size = len(first_vector)
+
+        if not points or not await VectorStoreService.ensure_collection(vector_size):
             return False
 
         try:
@@ -89,7 +121,7 @@ class VectorStoreService:
         limit: int = 5,
     ) -> List[Dict[str, Any]]:
         """Search vectors in Qdrant."""
-        if not vector or limit <= 0 or not await VectorStoreService.ensure_collection():
+        if not vector or limit <= 0 or not await VectorStoreService.ensure_collection(len(vector)):
             return []
 
         must_filters: List[Dict[str, Any]] = [
@@ -139,6 +171,20 @@ class VectorStoreService:
             return []
 
         return data.get("result", []) if isinstance(data, dict) else []
+
+    @staticmethod
+    def _extract_collection_vector_size(data: Dict[str, Any]) -> Optional[int]:
+        """Extract vector size from Qdrant collection metadata."""
+        vectors = (
+            data.get("result", {})
+            .get("config", {})
+            .get("params", {})
+            .get("vectors")
+        )
+        if isinstance(vectors, dict):
+            size = vectors.get("size")
+            return int(size) if isinstance(size, int) else None
+        return None
 
     @staticmethod
     def _headers() -> Dict[str, str]:

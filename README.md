@@ -303,6 +303,7 @@ llm_key=你的对话模型 API Key
 - `embedding_model`
 - `embedding_type`
 - `embedding_group_id`
+- `embedding_dimensions`
 
 用途：
 
@@ -320,6 +321,7 @@ embedding_model=embo-01
 embedding_type=db
 embedding_key=你的 Embedding API Key
 embedding_group_id=你的 MiniMax Group ID
+embedding_dimensions=
 ```
 
 OpenAI 兼容 Embedding 示例：
@@ -331,6 +333,19 @@ embedding_model=text-embedding-3-small
 embedding_type=
 embedding_key=你的 Embedding API Key
 embedding_group_id=
+embedding_dimensions=1536
+```
+
+SiliconFlow Qwen3 Embedding 示例：
+
+```env
+embedding_provider=openai_compatible
+embedding_base_url=https://api.siliconflow.cn/v1
+embedding_model=Qwen/Qwen3-Embedding-4B
+embedding_type=
+embedding_key=你的 SiliconFlow API Key
+embedding_group_id=
+embedding_dimensions=1024
 ```
 
 后端读取顺序：
@@ -339,7 +354,7 @@ embedding_group_id=
 2. 如果管理员端未配置，则读取 `backend/.env` 中的 `MINIMAX_*` 配置。
 3. 如果 `MINIMAX_API_KEY` 为空，会回退到 `OPENAI_API_KEY`，但正式实验建议单独配置 `embedding_key`。
 
-通用 Embedding 配置通常至少包括：服务提供方/调用格式、API Key、Base URL、模型 ID。MiniMax 还需要 `Group ID`，并区分文档入库的 `db` 与查询检索的 `query`。如果更换向量模型，需要确认模型输出维度与 `QDRANT_VECTOR_SIZE` 一致；维度不一致时需要调整服务器环境变量并重建 Qdrant collection。
+通用 Embedding 配置通常至少包括：服务提供方/调用格式、API Key、Base URL、模型 ID。MiniMax 还需要 `Group ID`，并区分文档入库的 `db` 与查询检索的 `query`。如果服务商支持自定义维度，可填写 `embedding_dimensions`。更换向量模型时，需要确认模型输出维度与 Qdrant collection 维度一致；维度不一致时需要重建 Qdrant collection。
 
 ## 7. RAG 与项目 Wiki
 

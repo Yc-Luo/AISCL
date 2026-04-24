@@ -22,6 +22,7 @@ class EmbeddingRuntimeConfig:
     model: str
     embedding_type: str
     group_id: str = ""
+    dimensions: Optional[int] = None
 
 
 def _is_real_secret(value: Optional[str]) -> bool:
@@ -44,6 +45,17 @@ class EmbeddingService:
             return None
         value = config.value.strip() if isinstance(config.value, str) else config.value
         return value or None
+
+    @staticmethod
+    def _parse_positive_int(value: Optional[str]) -> Optional[int]:
+        """Parse optional positive integer config values."""
+        if value is None:
+            return None
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
 
     @staticmethod
     async def _resolve_config() -> EmbeddingRuntimeConfig:
@@ -81,6 +93,12 @@ class EmbeddingService:
             group_id=(
                 await EmbeddingService._get_config_value("embedding_group_id")
                 or settings.MINIMAX_GROUP_ID
+            ),
+            dimensions=(
+                EmbeddingService._parse_positive_int(
+                    await EmbeddingService._get_config_value("embedding_dimensions")
+                )
+                or settings.EMBEDDING_DIMENSIONS
             ),
         )
 
@@ -188,6 +206,9 @@ class EmbeddingService:
             "model": config.model,
             "input": texts,
         }
+        if config.dimensions:
+            payload["dimensions"] = config.dimensions
+
         headers = {
             "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",

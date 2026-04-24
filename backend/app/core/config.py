@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     MINIMAX_EMBEDDING_MODEL: str = "embo-01"
     MINIMAX_EMBEDDING_BASE_URL: str = "https://api.minimax.chat/v1/embeddings"
     MINIMAX_EMBEDDING_TYPE: str = "db"
+    EMBEDDING_DIMENSIONS: Optional[int] = None
     QDRANT_URL: str = "http://qdrant:6333"
     QDRANT_API_KEY: Optional[str] = None
     QDRANT_COLLECTION: str = "aiscl_rag"

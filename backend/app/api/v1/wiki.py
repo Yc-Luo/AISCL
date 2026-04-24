@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import check_project_member_permission
 from app.core.schemas.wiki import (
     WikiItemCreateRequest,
     WikiItemListResponse,
@@ -21,16 +21,9 @@ from app.services.wiki_service import wiki_service
 router = APIRouter(prefix="/wiki", tags=["wiki"])
 
 
-def _ensure_project_access(current_user: User, project: Project) -> None:
+async def _ensure_project_access(current_user: User, project: Project) -> None:
     """Ensure the current user can access a project."""
-    if check_project_permission(current_user, project.owner_id, current_user.role):
-        return
-
-    is_member = any(
-        member.get("user_id") == str(current_user.id)
-        for member in project.members
-    )
-    if not is_member and current_user.role not in ["admin", "teacher"]:
+    if not await check_project_member_permission(current_user, project):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to access this project",
@@ -45,7 +38,7 @@ async def _get_accessible_project(project_id: str, current_user: User) -> Projec
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
-    _ensure_project_access(current_user, project)
+    await _ensure_project_access(current_user, project)
     return project
 
 

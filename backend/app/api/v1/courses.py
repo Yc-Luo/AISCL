@@ -24,6 +24,20 @@ from app.services.research_config_service import research_config_service
 router = APIRouter(prefix="/courses", tags=["courses"])
 
 
+def has_course_access(current_user: User, course: Course) -> bool:
+    """Return whether user can view a course."""
+    if current_user.role == "admin":
+        return True
+    if current_user.role == "teacher":
+        return course.teacher_id == str(current_user.id)
+    return str(current_user.id) in course.students
+
+
+def has_course_manage_access(current_user: User, course: Course) -> bool:
+    """Return whether user can manage a course."""
+    return current_user.role == "admin" or course.teacher_id == str(current_user.id)
+
+
 def generate_invite_code() -> str:
     """Generate 6-digit random invite code."""
     return secrets.token_hex(3).upper()[:6]
@@ -143,13 +157,11 @@ async def get_course(
             detail="Course not found",
         )
 
-    # Check access
-    if current_user.role not in ["admin", "teacher"]:
-        if str(current_user.id) not in course.students:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this course",
-            )
+    if not has_course_access(current_user, course):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have access to this course",
+        )
 
     return CourseResponse(
         id=str(course.id),
@@ -187,10 +199,7 @@ async def update_course(
         )
 
     # Check permission
-    if (
-        str(current_user.id) != course.teacher_id
-        and current_user.role != "admin"
-    ):
+    if not has_course_manage_access(current_user, course):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only course owner can update course",
@@ -256,10 +265,7 @@ async def delete_course(
         )
 
     # Check permission
-    if (
-        str(current_user.id) != course.teacher_id
-        and current_user.role != "admin"
-    ):
+    if not has_course_manage_access(current_user, course):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only course owner can delete course",
@@ -319,13 +325,11 @@ async def get_course_students(
             detail="Course not found",
         )
 
-    # Check access
-    if current_user.role not in ["admin", "teacher"]:
-        if str(current_user.id) != course.teacher_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this course",
-            )
+    if not has_course_manage_access(current_user, course):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have access to this course",
+        )
 
     # Get student details
     from app.repositories.user import User
@@ -361,10 +365,7 @@ async def add_student_to_course(
         )
 
     # Check permission
-    if (
-        str(current_user.id) != course.teacher_id
-        and current_user.role != "admin"
-    ):
+    if not has_course_manage_access(current_user, course):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only course owner can add students",
@@ -415,10 +416,7 @@ async def bulk_import_students_to_course(
             detail="Course not found",
         )
 
-    if (
-        str(current_user.id) != course.teacher_id
-        and current_user.role != "admin"
-    ):
+    if not has_course_manage_access(current_user, course):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only course owner can import students",
@@ -579,10 +577,7 @@ async def remove_student_from_course(
         )
 
     # Check permission
-    if (
-        str(current_user.id) != course.teacher_id
-        and current_user.role != "admin"
-    ):
+    if not has_course_manage_access(current_user, course):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only course owner can remove students",

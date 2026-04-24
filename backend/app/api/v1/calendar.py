@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.repositories.calendar_event import CalendarEvent
 from app.repositories.project import Project
 from app.repositories.user import User
@@ -18,6 +18,15 @@ from app.core.schemas.calendar import (
 )
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
+
+
+async def ensure_project_access(current_user: User, project: Project) -> None:
+    """Ensure current user can access a project calendar."""
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this project",
+        )
 
 
 @router.get("/projects/{project_id}", response_model=CalendarEventListResponse)
@@ -35,6 +44,7 @@ async def get_calendar_events(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    await ensure_project_access(current_user, project)
 
     # Build query
     query = {"project_id": project_id}
@@ -89,6 +99,7 @@ async def create_calendar_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    await ensure_project_access(current_user, project)
 
     # Create event
     new_event = CalendarEvent(
@@ -132,9 +143,13 @@ async def update_calendar_event(
     # Check permission (creator or project owner/admin)
     project = await Project.get(event.project_id)
     is_creator = str(current_user.id) == event.created_by
-    is_owner = project and str(current_user.id) == project.owner_id
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
 
-    if not (is_creator or is_owner) and current_user.role not in ["admin", "teacher"]:
+    if not (is_creator or await can_edit_project_content(current_user, project)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only event creator or project owner can update event",
@@ -180,13 +195,16 @@ async def delete_calendar_event(
     # Check permission
     project = await Project.get(event.project_id)
     is_creator = str(current_user.id) == event.created_by
-    is_owner = project and str(current_user.id) == project.owner_id
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
 
-    if not (is_creator or is_owner) and current_user.role not in ["admin", "teacher"]:
+    if not (is_creator or await can_edit_project_content(current_user, project)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only event creator or project owner can delete event",
         )
 
     await event.delete()
-

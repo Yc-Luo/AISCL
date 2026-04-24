@@ -4,11 +4,40 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.v1.auth import get_current_user
+from app.repositories.course import Course
 from app.repositories.user import User
 from app.core.schemas.user import UserCreateRequest, UserResponse, UserUpdateRequest, UserListResponse
 from app.services.auth_service import get_password_hash
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+async def get_teacher_course_ids(current_user: User) -> list[str]:
+    """Return course ids owned by a teacher."""
+    courses = await Course.find(Course.teacher_id == str(current_user.id)).to_list()
+    return [str(course.id) for course in courses]
+
+
+async def ensure_teacher_can_use_class(current_user: User, class_id: Optional[str]) -> None:
+    """Ensure teacher creates/lists students only inside their own classes."""
+    if current_user.role != "teacher" or not class_id:
+        return
+    course = await Course.get(class_id)
+    if not course or course.teacher_id != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Teacher can only manage students in their own classes",
+        )
+
+
+async def teacher_can_view_user(current_user: User, target_user: User) -> bool:
+    """Return whether a teacher can view a student user."""
+    if target_user.role != "student":
+        return False
+    if not target_user.class_id:
+        return True
+    teacher_course_ids = await get_teacher_course_ids(current_user)
+    return target_user.class_id in teacher_course_ids
 
 
 @router.get("", response_model=UserListResponse)
@@ -30,11 +59,35 @@ async def list_users(
         query["role"] = role
     if class_id:
         query["class_id"] = class_id
+    search_clause = None
     if search:
-        query["$or"] = [
-            {"username": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
-        ]
+        search_clause = {
+            "$or": [
+                {"username": {"$regex": search, "$options": "i"}},
+                {"email": {"$regex": search, "$options": "i"}},
+            ]
+        }
+        query.update(search_clause)
+
+    if current_user.role == "teacher":
+        await ensure_teacher_can_use_class(current_user, class_id)
+        if role and role != "student":
+            return UserListResponse(users=[])
+        query["role"] = "student"
+        if not class_id:
+            teacher_course_ids = await get_teacher_course_ids(current_user)
+            scope_clause = {
+                "$or": [
+                    {"class_id": {"$in": teacher_course_ids}},
+                    {"class_id": None},
+                    {"class_id": {"$exists": False}},
+                ]
+            }
+            if search_clause:
+                query.pop("$or", None)
+                query["$and"] = [search_clause, scope_clause]
+            else:
+                query.update(scope_clause)
 
     users_data = await User.find(query).to_list()
     users_response = [
@@ -116,6 +169,13 @@ async def get_user(
             detail="User not found",
         )
 
+    if current_user.role == "teacher":
+        if not await teacher_can_view_user(current_user, user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to view this user",
+            )
+
     # Students can only see their own info, or info of members in the same projects
     if current_user.role == "student" and str(current_user.id) != user_id:
         # Check if they share any project
@@ -158,6 +218,14 @@ async def create_user(
             detail="Only admin and teacher can create users",
         )
 
+    if current_user.role == "teacher":
+        if user_data.role != "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Teacher can only create student accounts",
+            )
+        await ensure_teacher_can_use_class(current_user, user_data.class_id)
+
     # Check if user already exists
     conditions = [
         User.email == user_data.email,
@@ -198,4 +266,3 @@ async def create_user(
         is_active=new_user.is_active,
         created_at=new_user.created_at,
     )
-

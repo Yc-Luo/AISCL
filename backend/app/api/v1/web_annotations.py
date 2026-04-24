@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.repositories.project import Project
 from app.repositories.user import User
 from app.repositories.web_annotation import WebAnnotation
@@ -21,6 +21,15 @@ from app.core.schemas.web_annotation import (
 from app.services.web_scraper import web_scraper_service
 
 router = APIRouter(prefix="/web-annotations", tags=["web-annotations"])
+
+
+async def ensure_project_access(current_user: User, project: Project, detail: str) -> None:
+    """Ensure current user can access project-scoped annotations."""
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
 
 
 @router.post("/scrape", response_model=WebScrapeResponse)
@@ -63,18 +72,11 @@ async def list_web_annotations(
                 detail="Project not found",
             )
         
-        # Check permission
-        if not check_project_permission(
-            current_user, project.owner_id, current_user.role
-        ):
-            is_member = any(
-                m.get("user_id") == str(current_user.id) for m in project.members
-            )
-            if not is_member and current_user.role not in ["admin", "teacher"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You don't have permission to access this project",
-                )
+        await ensure_project_access(
+            current_user,
+            project,
+            "You don't have permission to access this project",
+        )
         query["project_id"] = project_id
     else:
         # If no project_id, maybe list all annotations for user?
@@ -135,18 +137,11 @@ async def get_web_annotations(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to access this project",
+    )
 
     # Build query
     query = {"project_id": project_id}
@@ -204,18 +199,11 @@ async def create_web_annotation(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to annotate in this project",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to annotate in this project",
+    )
 
     # Generate URL hash
     url_hash = hashlib.md5(annotation_data.target_url.encode()).hexdigest()
@@ -264,11 +252,15 @@ async def update_web_annotation(
             detail="Annotation not found",
         )
 
-    # Check permission (only author can update)
-    if str(current_user.id) != annotation.author_id and current_user.role not in [
-        "admin",
-        "teacher",
-    ]:
+    project = await Project.get(annotation.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # Check permission (author or project editor/admin/scoped teacher can update)
+    if str(current_user.id) != annotation.author_id and not await can_edit_project_content(current_user, project):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only annotation author can update annotation",
@@ -312,15 +304,18 @@ async def delete_web_annotation(
             detail="Annotation not found",
         )
 
-    # Check permission (only author can delete)
-    if str(current_user.id) != annotation.author_id and current_user.role not in [
-        "admin",
-        "teacher",
-    ]:
+    project = await Project.get(annotation.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # Check permission (author or project editor/admin/scoped teacher can delete)
+    if str(current_user.id) != annotation.author_id and not await can_edit_project_content(current_user, project):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only annotation author can delete annotation",
         )
 
     await annotation.delete()
-

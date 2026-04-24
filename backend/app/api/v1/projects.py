@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
-from app.core.permissions import check_project_permission
+from app.core.permissions import check_project_member_permission, is_teacher_project_scope
 from app.core.schemas.experiment_version import (
     ExperimentVersionResponse,
     ExperimentVersionUpdateRequest,
@@ -26,19 +26,24 @@ from app.services.project_service import project_service
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-def ensure_project_access(current_user: User, project: Project) -> None:
+async def ensure_project_access(current_user: User, project: Project) -> None:
     """Ensure current user can access project."""
-    if check_project_permission(current_user, project.owner_id, current_user.role):
-        return
-
-    is_member = any(
-        m.get("user_id") == str(current_user.id) for m in project.members
-    )
-    if not is_member and current_user.role not in ["admin", "teacher"]:
+    if not await check_project_member_permission(current_user, project):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to access this project",
         )
+
+
+async def ensure_project_staff_access(current_user: User, project: Project, detail: str) -> None:
+    """Ensure current user can manage a project as owner/admin/scoped teacher."""
+    if (
+        current_user.role == "admin"
+        or str(current_user.id) == project.owner_id
+        or await is_teacher_project_scope(current_user, project)
+    ):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 @router.get("", response_model=ProjectListResponse)
@@ -59,8 +64,13 @@ async def get_projects(
             {"members.user_id": str(current_user.id)},
         ]
     elif current_user.role == "teacher":
-        # Teachers can see all projects (will be filtered by class later)
-        pass
+        teacher_courses = await Course.find(Course.teacher_id == str(current_user.id)).to_list()
+        teacher_course_ids = [str(course.id) for course in teacher_courses]
+        query["$or"] = [
+            {"owner_id": str(current_user.id)},
+            {"members.user_id": str(current_user.id)},
+            {"course_id": {"$in": teacher_course_ids}},
+        ]
     # Admins can see all projects
 
     if archived is not None:
@@ -216,7 +226,7 @@ async def get_project(
         )
 
     # Check permission
-    ensure_project_access(current_user, project)
+    await ensure_project_access(current_user, project)
 
     return ProjectResponse(
         id=str(project.id),
@@ -260,15 +270,11 @@ async def update_project(
             detail="Project not found",
         )
 
-    # Only owner or authorized staff can update
-    if (
-        str(current_user.id) != project.owner_id
-        and current_user.role not in ["admin", "teacher"]
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only project owner or teacher can update project",
-        )
+    await ensure_project_staff_access(
+        current_user,
+        project,
+        "Only project owner or scoped teacher can update project",
+    )
 
     from datetime import datetime
 
@@ -327,15 +333,11 @@ async def delete_project(
             detail="Project not found",
         )
 
-    # Only owner or authorized staff can delete
-    if (
-        str(current_user.id) != project.owner_id
-        and current_user.role not in ["admin", "teacher"]
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only project owner or teacher can delete project",
-        )
+    await ensure_project_staff_access(
+        current_user,
+        project,
+        "Only project owner or scoped teacher can delete project",
+    )
 
     await project.delete()
 
@@ -353,7 +355,7 @@ async def get_experiment_version(
             detail="Project not found",
         )
 
-    ensure_project_access(current_user, project)
+    await ensure_project_access(current_user, project)
     payload = await project_service.get_experiment_version(project)
     return ExperimentVersionResponse(**payload)
 
@@ -372,14 +374,11 @@ async def update_experiment_version(
             detail="Project not found",
         )
 
-    if (
-        str(current_user.id) != project.owner_id
-        and current_user.role not in ["admin", "teacher"]
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only project owner or teacher can update experiment version",
-        )
+    await ensure_project_staff_access(
+        current_user,
+        project,
+        "Only project owner or scoped teacher can update experiment version",
+    )
 
     payload = await project_service.update_experiment_version(
         project, version_data.model_dump()
@@ -407,7 +406,11 @@ async def add_project_member(
         m.get("user_id") == str(current_user.id) and m.get("role") in ["owner", "editor"]
         for m in project.members
     )
-    if not (is_owner or is_editor) and current_user.role not in ["admin", "teacher"]:
+    if (
+        not (is_owner or is_editor)
+        and current_user.role != "admin"
+        and not await is_teacher_project_scope(current_user, project)
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only owner and editor can invite members",
@@ -473,15 +476,11 @@ async def remove_project_member(
             detail="Project not found",
         )
 
-    # Only owner or authorized staff can remove members
-    if (
-        str(current_user.id) != project.owner_id
-        and current_user.role not in ["admin", "teacher"]
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only project owner or teacher can remove members",
-        )
+    await ensure_project_staff_access(
+        current_user,
+        project,
+        "Only project owner or scoped teacher can remove members",
+    )
 
     # Remove member
     project.members = [m for m in project.members if m.get("user_id") != user_id]
@@ -501,15 +500,11 @@ async def archive_project(
             detail="Project not found",
         )
 
-    # Only owner or authorized staff can archive
-    if (
-        str(current_user.id) != project.owner_id
-        and current_user.role not in ["admin", "teacher"]
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only project owner or teacher can archive project",
-        )
+    await ensure_project_staff_access(
+        current_user,
+        project,
+        "Only project owner or scoped teacher can archive project",
+    )
 
     from datetime import datetime
 
@@ -558,15 +553,11 @@ async def unarchive_project(
             detail="Project not found",
         )
 
-    # Only owner or authorized staff can unarchive
-    if (
-        str(current_user.id) != project.owner_id
-        and current_user.role not in ["admin", "teacher"]
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only project owner or teacher can unarchive project",
-        )
+    await ensure_project_staff_access(
+        current_user,
+        project,
+        "Only project owner or scoped teacher can unarchive project",
+    )
 
     from datetime import datetime
 

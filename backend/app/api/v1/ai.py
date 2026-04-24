@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import can_manage_project_scope, check_project_member_permission
 from app.repositories.ai_conversation import AIConversation
 from app.repositories.ai_intervention_rule import AIInterventionRule
 from app.repositories.ai_role import AIRole
@@ -44,6 +44,24 @@ SUBAGENT_VIEW_LABELS: Dict[str, str] = {
     "feedback_prompter": "反馈追问者",
     "problem_progressor": "问题推进者",
 }
+
+
+async def ensure_project_access(current_user: User, project: Project) -> None:
+    """Ensure current user can access a project-scoped AI endpoint."""
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this project",
+        )
+
+
+async def ensure_project_staff_access(current_user: User, project: Project, detail: str) -> None:
+    """Ensure current user can manage project-level AI settings or exports."""
+    if not await can_manage_project_scope(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
 
 
 def _infer_tutor_subagent_from_message(
@@ -146,18 +164,7 @@ async def chat(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(current_user, project)
 
     # Retrieve context using RAG if enabled
     context = None
@@ -217,14 +224,7 @@ async def ai_action(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(current_user, project.owner_id, current_user.role):
-        is_member = any(m.get("user_id") == str(current_user.id) for m in project.members)
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(current_user, project)
 
     # Define specialized prompts based on action type
     prompts = {
@@ -281,18 +281,7 @@ async def chat_stream(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(current_user, project)
 
     # Retrieve context using RAG if enabled
     context = None
@@ -423,24 +412,19 @@ async def get_conversations(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(current_user, project)
+
+    can_view_all_conversations = await can_manage_project_scope(current_user, project)
 
     # Get conversations
     # Filter: Only show conversations that have at least one message
     # We use an aggregation pipeline to filter conversations by existence of messages
+    match_query = {"project_id": project_id, "category": "chat"}
+    if not can_view_all_conversations:
+        match_query["user_id"] = str(current_user.id)
+
     pipeline = [
-        {"$match": {"project_id": project_id, "category": "chat"}},
+        {"$match": match_query},
         {"$addFields": {"id_str": {"$toString": "$_id"}}},
         {
             "$lookup": {
@@ -461,7 +445,7 @@ async def get_conversations(
 
     # Calculate total for pagination (also filtering out empty ones)
     count_pipeline = [
-        {"$match": {"project_id": project_id, "category": "chat"}},
+        {"$match": match_query},
         {"$addFields": {"id_str": {"$toString": "$_id"}}},
         {
             "$lookup": {
@@ -509,21 +493,19 @@ async def get_messages(
             detail="Conversation not found",
         )
 
-    # Check permission (owner of conversation or member of project)
+    project = await Project.get(conversation.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
     if str(conversation.user_id) != str(current_user.id):
-        project = await Project.get(conversation.project_id)
-        if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found",
-            )
-        
-        is_member = any(m.get("user_id") == str(current_user.id) for m in project.members)
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this conversation",
-            )
+        await ensure_project_staff_access(
+            current_user,
+            project,
+            "You don't have permission to access this conversation",
+        )
 
     messages = (
         await AIMessage.find({"conversation_id": conversation_id})
@@ -588,18 +570,7 @@ async def create_conversation(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(current_user, project)
             
     # Check/Create conversation
     # If conversation_id is provided, verify it exists
@@ -651,11 +622,17 @@ async def delete_conversation(
             detail="Conversation not found",
         )
 
-    # Check permission
-    if str(conversation.user_id) != str(current_user.id) and current_user.role not in ["admin", "teacher"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to delete this conversation",
+    if str(conversation.user_id) != str(current_user.id):
+        project = await Project.get(conversation.project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found",
+            )
+        await ensure_project_staff_access(
+            current_user,
+            project,
+            "You don't have permission to delete this conversation",
         )
 
     # Delete associated messages
@@ -679,13 +656,11 @@ async def get_intervention_rules(
             detail="Project not found",
         )
 
-    # Check permission (Owner/Admin/Teacher only)
-    is_owner = str(current_user.id) == project.owner_id
-    if not (is_owner or current_user.role in ["admin", "teacher"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only owner, admin, and teacher can view intervention rules",
-        )
+    await ensure_project_staff_access(
+        current_user,
+        project,
+        "Only owner, admin, and scoped teacher can view intervention rules",
+    )
 
     # Get rules (project-specific and global)
     rules = (
@@ -742,13 +717,11 @@ async def create_intervention_rule(
                 detail="Project not found",
             )
 
-        # Only owner/admin/teacher can create project rules
-        is_owner = str(current_user.id) == project.owner_id
-        if not (is_owner or current_user.role in ["admin", "teacher"]):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only owner, admin, and teacher can create intervention rules",
-            )
+        await ensure_project_staff_access(
+            current_user,
+            project,
+            "Only owner, admin, and scoped teacher can create intervention rules",
+        )
     else:
         # Only admin can create global rules
         if current_user.role != "admin":
@@ -821,12 +794,11 @@ async def update_intervention_rule(
     if rule.project_id:
         project = await Project.get(rule.project_id)
         if project:
-            is_owner = str(current_user.id) == project.owner_id
-            if not (is_owner or current_user.role in ["admin", "teacher"]):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You don't have permission to update this rule",
-                )
+            await ensure_project_staff_access(
+                current_user,
+                project,
+                "You don't have permission to update this rule",
+            )
     else:
         if current_user.role != "admin":
             raise HTTPException(
@@ -909,12 +881,11 @@ async def delete_intervention_rule(
     if rule.project_id:
         project = await Project.get(rule.project_id)
         if project:
-            is_owner = str(current_user.id) == project.owner_id
-            if not (is_owner or current_user.role in ["admin", "teacher"]):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You don't have permission to delete this rule",
-                )
+            await ensure_project_staff_access(
+                current_user,
+                project,
+                "You don't have permission to delete this rule",
+            )
     else:
         if current_user.role != "admin":
             raise HTTPException(
@@ -938,13 +909,7 @@ async def check_intervention_rules(
             detail="Project not found",
         )
 
-    if not check_project_permission(current_user, project.owner_id, current_user.role):
-        is_member = any(m.get("user_id") == str(current_user.id) for m in project.members)
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(current_user, project)
 
     interventions = await intervention_service.check_interventions(
         project_id=request.project_id,

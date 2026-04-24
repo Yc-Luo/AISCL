@@ -327,7 +327,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
                     });
 
                     // 4. Add to scrapbook (The resource URL is needed here, assuming storage handles standard paths or we have an endpoint)
-                    const imageUrl = `${window.location.protocol}//${window.location.host}/api/v1/storage/resources/${resource.id}/view`;
+                    const imageUrl = storageService.getResourceViewUrl(resource.id);
 
                     addCard('[粘贴的图片]', 'image', undefined, '剪贴板导入', imageUrl);
                     setToast({ message: '图片已存入灵感池', visible: true });

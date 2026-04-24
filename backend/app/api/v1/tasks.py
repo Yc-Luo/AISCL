@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.repositories.project import Project
 from app.repositories.task import Task
 from app.repositories.user import User
@@ -19,6 +19,24 @@ from app.core.schemas.task import (
 )
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+async def ensure_project_access(current_user: User, project: Project) -> None:
+    """Ensure current user can access a project task board."""
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this project",
+        )
+
+
+async def ensure_project_edit_access(current_user: User, project: Project) -> None:
+    """Ensure current user can edit project tasks."""
+    if not await can_edit_project_content(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to edit tasks in this project",
+        )
 
 
 def calculate_lexorank(prev_order: Optional[float] = None, next_order: Optional[float] = None) -> float:
@@ -46,6 +64,7 @@ async def get_tasks(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    await ensure_project_access(current_user, project)
 
     # Build query
     query = {"project_id": project_id}
@@ -87,6 +106,7 @@ async def create_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    await ensure_project_edit_access(current_user, project)
 
     # Calculate order (append to end of column)
     existing_tasks = await Task.find(
@@ -152,6 +172,7 @@ async def update_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    await ensure_project_edit_access(current_user, project)
 
     from datetime import datetime
 
@@ -206,6 +227,14 @@ async def update_task_column(
         )
 
     old_column = task.column
+    project = await Project.get(task.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    await ensure_project_edit_access(current_user, project)
+
     task.column = column
 
     # Recalculate order in new column
@@ -258,6 +287,13 @@ async def update_task_order(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
         )
+    project = await Project.get(task.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    await ensure_project_edit_access(current_user, project)
 
     # Calculate new order using Lexorank
     prev_order = order_data.prev_order
@@ -308,6 +344,13 @@ async def delete_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
         )
+    project = await Project.get(task.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    await ensure_project_edit_access(current_user, project)
 
     await task.delete()
 
@@ -320,4 +363,3 @@ async def delete_task(
         action="delete",
         target_id=str(task.id)
     )
-

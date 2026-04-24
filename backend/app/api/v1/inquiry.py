@@ -66,6 +66,9 @@ async def save_inquiry_snapshot(
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission")
+
     user_role = get_user_role_in_project_sync(current_user, project)
     if not can_edit_collaboration(user_role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only editors can save")

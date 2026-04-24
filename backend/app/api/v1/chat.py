@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import check_project_member_permission
 from app.repositories.chat_log import ChatLog
 from app.repositories.project import Project
 from app.repositories.user import User
@@ -54,18 +54,11 @@ async def get_chat_messages(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this project",
         )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
 
     # Build query
     query = {"project_id": project_id}

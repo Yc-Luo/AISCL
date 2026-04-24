@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.repositories.doc_comment import DocComment
 from app.repositories.document import Document
 from app.repositories.project import Project
@@ -18,6 +18,15 @@ from app.core.schemas.comment import (
 )
 
 router = APIRouter(prefix="/comments", tags=["comments"])
+
+
+async def ensure_project_access(current_user: User, project: Project, detail: str) -> None:
+    """Ensure current user can access a project-scoped comment resource."""
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
 
 
 @router.get("/documents/{doc_id}", response_model=CommentListResponse)
@@ -44,18 +53,11 @@ async def get_document_comments(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this document",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to access this document",
+    )
 
     # Build query
     query = {"document_id": doc_id}
@@ -119,18 +121,11 @@ async def create_comment(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to comment on this document",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to comment on this document",
+    )
 
     # Create comment
     from datetime import datetime
@@ -201,19 +196,10 @@ async def update_comment_status(
         )
 
     # Check permission (Editor/Owner can resolve comments)
-    is_owner = str(current_user.id) == project.owner_id
-    is_editor = any(
-        m.get("user_id") == str(current_user.id)
-        and m.get("role") in ["owner", "editor"]
-        for m in project.members
-    )
     # Comment creator can also update status
     is_creator = str(current_user.id) == comment.created_by
 
-    if not (is_owner or is_editor or is_creator) and current_user.role not in [
-        "admin",
-        "teacher",
-    ]:
+    if not (is_creator or await can_edit_project_content(current_user, project)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to update this comment",
@@ -244,4 +230,3 @@ async def update_comment_status(
         created_at=comment.created_at,
         updated_at=comment.updated_at,
     )
-

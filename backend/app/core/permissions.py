@@ -13,12 +13,43 @@ logger = logging.getLogger(__name__)
 def check_project_permission(
     user: User, project_owner_id: str, user_role: str
 ) -> bool:
-    """Check if user has permission to access a project."""
-    if user.role in ["admin", "teacher"]:
+    """Check project access that does not require database lookup."""
+    if user.role == "admin":
         return True
     if str(user.id) == project_owner_id:
         return True
     return False
+
+
+def is_project_member(user: User, project: Project) -> bool:
+    """Return whether the user is explicitly listed as a project member."""
+    return any(member.get("user_id") == str(user.id) for member in project.members)
+
+
+def is_project_editor(user: User, project: Project) -> bool:
+    """Return whether the user is an owner/editor member of the project."""
+    if str(user.id) == project.owner_id:
+        return True
+    return any(
+        member.get("user_id") == str(user.id)
+        and member.get("role") in ["owner", "editor"]
+        for member in project.members
+    )
+
+
+async def is_teacher_project_scope(user: User, project: Project) -> bool:
+    """Return whether a teacher can access the project through their course."""
+    if user.role != "teacher":
+        return False
+    if str(user.id) == project.owner_id or is_project_member(user, project):
+        return True
+    if not project.course_id:
+        return False
+
+    from app.repositories.course import Course
+
+    course = await Course.get(project.course_id)
+    return bool(course and course.teacher_id == str(user.id))
 
 
 async def check_project_member_permission(user: User, project: Project) -> bool:
@@ -31,8 +62,8 @@ async def check_project_member_permission(user: User, project: Project) -> bool:
     Returns:
         True if user has access, False otherwise
     """
-    # Admin and teacher have access to all projects
-    if user.role in ["admin", "teacher"]:
+    # Admin has global access.
+    if user.role == "admin":
         return True
 
     # Owner has full access
@@ -46,7 +77,28 @@ async def check_project_member_permission(user: User, project: Project) -> bool:
             # All member roles (viewer, editor, owner) have access to the project
             return True
 
+    if await is_teacher_project_scope(user, project):
+        return True
+
     return False
+
+
+async def can_edit_project_content(user: User, project: Project) -> bool:
+    """Return whether user can edit shared project content."""
+    if user.role == "admin":
+        return True
+    if is_project_editor(user, project):
+        return True
+    return await is_teacher_project_scope(user, project)
+
+
+async def can_manage_project_scope(user: User, project: Project) -> bool:
+    """Return whether user can manage project-level settings and exports."""
+    if user.role == "admin":
+        return True
+    if str(user.id) == project.owner_id:
+        return True
+    return await is_teacher_project_scope(user, project)
 
 
 async def get_user_role_in_project(user: User, project: Project) -> str:
@@ -163,4 +215,3 @@ def can_delete_project(user_role: str) -> bool:
         True if can delete, False otherwise
     """
     return user_role in ["admin", "teacher", "owner"]
-

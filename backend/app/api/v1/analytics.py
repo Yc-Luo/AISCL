@@ -7,6 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
+from app.core.permissions import can_manage_project_scope, check_project_member_permission
 from app.repositories.user import User
 from app.core.schemas.analytics import (
     BehaviorDataBatchRequest,
@@ -37,33 +38,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
-def ensure_project_access(current_user: User, project: Project) -> None:
+async def ensure_project_access(current_user: User, project: Project) -> None:
     """Ensure current user can access project."""
-    from app.core.permissions import check_project_permission
-
-    if check_project_permission(current_user, project.owner_id, current_user.role):
-        return
-
-    is_member = any(
-        m.get("user_id") == str(current_user.id) for m in project.members
-    )
-    if not is_member and current_user.role not in ["admin", "teacher"]:
+    if not await check_project_member_permission(current_user, project):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to access this project",
         )
 
 
-def ensure_project_export_access(current_user: User, project: Project) -> None:
-    """Ensure current user can export project-level research artifacts."""
-    is_owner = str(current_user.id) == project.owner_id
-    if is_owner or current_user.role in ["admin", "teacher"]:
-        return
+async def ensure_project_id_access(current_user: User, project_id: str) -> None:
+    """Load a project by id and ensure current user can write/read its analytics."""
+    project = await Project.get(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    await ensure_project_access(current_user, project)
 
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Only owner, admin, and teacher can export project transcripts",
-    )
+
+async def ensure_project_export_access(current_user: User, project: Project) -> None:
+    """Ensure current user can export project-level research artifacts."""
+    if not await can_manage_project_scope(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only owner, admin, and scoped teacher can export project transcripts",
+        )
 
 
 async def log_behaviors_to_stream(obs: list):
@@ -119,6 +120,7 @@ async def receive_behavior_data(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User ID mismatch",
         )
+    await ensure_project_id_access(current_user, behavior_data.project_id)
 
     # Queue for async processing
     background_tasks.add_task(
@@ -155,6 +157,8 @@ async def receive_behavior_data_batch(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User ID mismatch in batch data",
             )
+    for project_id in {behavior.project_id for behavior in batch_data.behaviors}:
+        await ensure_project_id_access(current_user, project_id)
 
     # Prepare activities for batch insert
     activities = []
@@ -203,6 +207,8 @@ async def receive_research_events_batch(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User ID mismatch in research event batch",
             )
+    for project_id in {event.project_id for event in batch_data.events}:
+        await ensure_project_id_access(current_user, project_id)
 
     count = await research_event_service.record_batch_events(
         [event.model_dump() for event in batch_data.events],
@@ -224,6 +230,7 @@ async def receive_heartbeat(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User ID mismatch",
         )
+    await ensure_project_id_access(current_user, heartbeat_data.project_id)
 
     background_tasks.add_task(log_heartbeat_to_stream, heartbeat_data.model_dump())
 
@@ -248,7 +255,7 @@ async def get_research_events(
             detail="Project not found",
         )
 
-    ensure_project_access(current_user, project)
+    await ensure_project_access(current_user, project)
     events, total = await research_event_service.get_events_by_project(
         project_id=project_id,
         skip=skip,
@@ -300,7 +307,7 @@ async def get_group_stage_features(
             detail="Project not found",
         )
 
-    ensure_project_access(current_user, project)
+    await ensure_project_access(current_user, project)
     features = await research_event_service.export_group_stage_features(
         project_id=project_id,
         experiment_version_id=experiment_version_id,
@@ -332,7 +339,7 @@ async def get_lsa_ready_sequences(
             detail="Project not found",
         )
 
-    ensure_project_access(current_user, project)
+    await ensure_project_access(current_user, project)
     sequences = await research_event_service.export_lsa_ready_sequences(
         project_id=project_id,
         experiment_version_id=experiment_version_id,
@@ -364,7 +371,7 @@ async def get_group_chat_transcripts(
             detail="Project not found",
         )
 
-    ensure_project_export_access(current_user, project)
+    await ensure_project_export_access(current_user, project)
     result = await research_event_service.export_group_chat_transcripts(
         project_id=project_id,
         start_date=start_date,
@@ -396,7 +403,7 @@ async def get_ai_tutor_transcripts(
             detail="Project not found",
         )
 
-    ensure_project_export_access(current_user, project)
+    await ensure_project_export_access(current_user, project)
     result = await research_event_service.export_ai_tutor_transcripts(
         project_id=project_id,
         start_date=start_date,
@@ -425,7 +432,7 @@ async def get_research_project_health(
             detail="Project not found",
         )
 
-    ensure_project_access(current_user, project)
+    await ensure_project_access(current_user, project)
     snapshot = await research_event_service.get_project_health_snapshot(project_id)
     return ResearchProjectHealthResponse(**snapshot)
 
@@ -450,7 +457,7 @@ async def get_activity_logs(
             detail="Project not found",
         )
 
-    ensure_project_access(current_user, project)
+    await ensure_project_access(current_user, project)
 
     query = {"project_id": project_id}
     if start_date:
@@ -508,7 +515,7 @@ async def get_dashboard_data(
             detail="Project not found",
         )
 
-    ensure_project_access(current_user, project)
+    await ensure_project_access(current_user, project)
 
     # Use current user if user_id not specified
     target_user_id = user_id or str(current_user.id)
@@ -553,20 +560,7 @@ async def get_behavior_stream(
             detail="Project not found",
         )
 
-    # Check permission
-    from app.core.permissions import check_project_permission
-
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(current_user, project)
 
     # Query behavior_stream Time Series Collection
     client = AsyncIOMotorClient(settings.MONGODB_URI)
@@ -624,19 +618,16 @@ async def export_analytics_data(
             detail="Project not found",
         )
 
-    # Check permission (Owner/Admin/Teacher only)
-    from app.core.permissions import check_project_permission
-
-    is_owner = str(current_user.id) == project.owner_id
-    if not (is_owner or current_user.role in ["admin", "teacher"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only owner, admin, and teacher can export analytics data",
-        )
+    await ensure_project_export_access(current_user, project)
 
     # Get dashboard data
     dashboard_data = await get_dashboard_data(
-        project_id, None, start_date, end_date, current_user
+        project_id=project_id,
+        background_tasks=BackgroundTasks(),
+        user_id=None,
+        start_date=start_date,
+        end_date=end_date,
+        current_user=current_user,
     )
 
     # Get activity logs

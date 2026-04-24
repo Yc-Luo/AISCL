@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import check_project_permission
+from app.core.permissions import can_edit_project_content, can_manage_project_scope, check_project_member_permission
 from app.repositories.document import Document, DocumentVersion
 from app.repositories.project import Project
 from app.repositories.user import User
@@ -21,6 +21,15 @@ from app.core.schemas.document import (
 )
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+async def ensure_project_access(current_user: User, project: Project, detail: str) -> None:
+    """Ensure current user can access a project-scoped document resource."""
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
 
 
 @router.get("/projects/{project_id}", response_model=DocumentListResponse)
@@ -40,18 +49,11 @@ async def get_documents(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this project",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to access this project",
+    )
 
     # Build query
     query = {"project_id": project_id}
@@ -101,18 +103,11 @@ async def create_document(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to create documents in this project",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to create documents in this project",
+    )
 
     # Create document with empty content state
     from datetime import datetime
@@ -171,18 +166,11 @@ async def get_document(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this document",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to access this document",
+    )
 
     return DocumentDetailResponse(
         id=str(document.id),
@@ -220,14 +208,8 @@ async def update_document(
             detail="Project not found",
         )
 
-    # Check permission (Editor/Owner can update)
-    is_owner = str(current_user.id) == project.owner_id
-    is_editor = any(
-        m.get("user_id") == str(current_user.id)
-        and m.get("role") in ["owner", "editor"]
-        for m in project.members
-    )
-    if not (is_owner or is_editor) and current_user.role not in ["admin", "teacher"]:
+    # Check permission (Editor/Owner/Admin/scoped teacher can update)
+    if not await can_edit_project_content(current_user, project):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only editor and owner can update document",
@@ -292,8 +274,8 @@ async def delete_document(
             detail="Project not found",
         )
 
-    # Only owner can delete
-    if str(current_user.id) != project.owner_id and current_user.role != "admin":
+    # Only project owner/admin/scoped teacher can delete
+    if not await can_manage_project_scope(current_user, project):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only project owner can delete document",
@@ -335,18 +317,11 @@ async def get_document_versions(
             detail="Project not found",
         )
 
-    # Check permission
-    if not check_project_permission(
-        current_user, project.owner_id, current_user.role
-    ):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this document",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to access this document",
+    )
 
     # Get versions
     versions_cursor = (
@@ -372,4 +347,3 @@ async def get_document_versions(
         ],
         total=total,
     )
-

@@ -13,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
-from app.core.permissions import check_project_permission
+from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.repositories.project import Project
 from app.repositories.resource import Resource
 from app.repositories.user import User
@@ -22,6 +22,15 @@ from app.services.rag_service import rag_service
 from app.services.text_extraction_service import text_extraction_service
 
 router = APIRouter(prefix="/storage", tags=["storage"])
+
+
+async def ensure_project_access(current_user: User, project: Project, detail: str) -> None:
+    """Ensure current user can access project-scoped storage."""
+    if not await check_project_member_permission(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
 
 
 @router.post("/presigned-url")
@@ -42,15 +51,11 @@ async def generate_presigned_url(
             detail="Project not found",
         )
 
-    if not check_project_permission(current_user, project.owner_id, current_user.role):
-        is_member = any(
-            m.get("user_id") == str(current_user.id) for m in project.members
-        )
-        if not is_member and current_user.role not in ["admin", "teacher"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to upload files to this project",
-            )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to upload files to this project",
+    )
 
     # Check storage quota
     # TODO: Calculate current project storage usage
@@ -94,6 +99,11 @@ async def create_resource(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to create resources in this project",
+    )
 
     # Generate download URL
     download_url = storage_service.generate_presigned_get_url(resource_data.file_key)
@@ -172,6 +182,11 @@ async def list_resources(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to access this project",
+    )
 
     # Get resources
     resources = await Resource.find(Resource.project_id == project_id).to_list()
@@ -218,15 +233,9 @@ async def delete_resource(
             detail="Project not found",
         )
 
-    is_owner = str(current_user.id) == project.owner_id
-    is_editor = any(
-        m.get("user_id") == str(current_user.id)
-        and m.get("role") in ["owner", "editor"]
-        for m in project.members
-    )
     is_uploader = resource.uploaded_by == str(current_user.id)
 
-    if not (is_owner or is_editor or is_uploader) and current_user.role not in ["admin", "teacher"]:
+    if not (is_uploader or await can_edit_project_content(current_user, project)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to delete this resource",
@@ -275,7 +284,7 @@ async def view_resource(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Resource not found",
         )
-    
+
     try:
         # Get object stream from storage
         response = storage_service.client.get_object(
@@ -315,6 +324,17 @@ async def download_resource(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Resource not found",
         )
+    project = await Project.get(resource.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to download this resource",
+    )
     
     # Generate fresh presigned URL
     download_url = storage_service.generate_presigned_get_url(resource.file_key)

@@ -5,12 +5,10 @@ import {
   Settings as SettingsIcon,
   Shield,
   LogOut,
-  LayoutDashboard,
   Box,
   Cpu,
   Database,
   Activity,
-  Bell,
   GitBranch
 } from 'lucide-react'
 import { ROUTES } from '../../config/routes'
@@ -104,6 +102,8 @@ export default function AdminDashboard() {
     return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
   }
 
+  const formatPercent = (value: number) => `${Math.round(value * 100)}%`
+
   return (
     <div className="min-h-screen bg-slate-50/50 flex font-sans text-slate-900 overflow-hidden relative">
       <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.03] pointer-events-none" />
@@ -158,16 +158,6 @@ export default function AdminDashboard() {
               )}
             </button>
           ))}
-
-          <div className="px-4 mt-8 mb-2">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Analytics</p>
-          </div>
-
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 cursor-not-allowed opacity-60 hover:bg-slate-50/50">
-            <LayoutDashboard className="w-5 h-5" />
-            <span className="font-semibold text-sm">Operation Audit</span>
-            <span className="ml-auto text-[10px] px-1.5 py-0.5 bg-slate-100 rounded text-slate-400">Soon</span>
-          </button>
         </nav>
 
         {/* Bottom Actions */}
@@ -193,13 +183,7 @@ export default function AdminDashboard() {
               {NAV_ITEMS.find(i => i.id === activeTab)?.label}
             </span>
           </div>
-
-          <div className="flex items-center gap-4">
-            <button className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white" />
-            </button>
-          </div>
+          <div className="text-xs font-semibold text-slate-400">真实运行数据</div>
         </header>
 
         {/* Scrollable Content Area */}
@@ -210,8 +194,8 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-slideUp">
               <StatCard
                 icon={Cpu}
-                label="System Load"
-                value={`${(stats?.system_load || 0) * 100}%`}
+                label="Active User Ratio"
+                value={formatPercent(stats?.system_load || 0)}
                 colorClass="text-rose-600"
                 bgClass="bg-rose-50"
                 loading={isLoadingStats}

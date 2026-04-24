@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Activity, AlertTriangle, Book } from 'lucide-react';
 import { StatsCard } from '../shared/StatsCard';
-import { GroupStatusCard } from '../shared/GroupStatusCard';
+import { GroupData, GroupStatusCard } from '../shared/GroupStatusCard';
 import { courseService, Course } from '../../../../services/api/course';
 import { projectService } from '../../../../services/api/project';
 import { analyticsService } from '../../../../services/api/analytics';
 import { Project } from '../../../../types';
-import { GroupData } from '../shared/mockData';
 
 export default function ProjectMonitor() {
     const navigate = useNavigate();
@@ -67,38 +66,38 @@ export default function ProjectMonitor() {
         const scores = Object.values(fourC);
         const avgScore = scores.length > 0
             ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-            : 85;
+            : Math.max(0, Math.min(100, Math.round(p.progress || 0)));
 
-        // Generate teacher intervention advice based on status and engagement
         let status: 'active' | 'silence' | 'conflict' = 'active';
         let aiInsight = '';
+        const totalMessages = analytics?.summary?.total_messages ?? 0;
 
         if (avgScore < 60) {
             status = 'silence';
-            aiInsight = '小组讨论停滞超过15分钟。建议：介入引导讨论方向，或通过提问激发成员表达观点。';
-        } else if (analytics?.summary?.total_messages > 100 && avgScore < 70) {
+            aiInsight = '该小组当前参与度偏低。建议教师查看小组文档、探究空间和聊天记录后，再进行低频引导。';
+        } else if (totalMessages > 100 && avgScore < 70) {
             status = 'conflict';
-            aiInsight = '对话频率极高但意见达成率低，疑似存在观点分歧。建议：进场协调，帮助小组梳理核心争议点并进行共识评估。';
+            aiInsight = '该小组对话频率较高但综合表现偏低。建议关注是否存在争议未收束或任务分工不清。';
         } else if (avgScore >= 90) {
             status = 'active';
-            aiInsight = '协作效率极高。建议：提供更高阶的挑战问题，或鼓励其开始整理初稿并分享阶段性成果。';
+            aiInsight = '该小组协作表现较好。建议提供更高阶的追问，推动证据比较和阶段性成果整理。';
         } else {
             status = 'active';
-            aiInsight = '当前表现稳健。支持建议：观察其任务分配是否均衡，鼓励沉默成员更多地参与决策过程。';
+            aiInsight = '该小组运行状态平稳。建议关注成员参与是否均衡，并鼓励将讨论沉淀到文档或 Wiki。';
         }
 
-        // Use backend analytics if available, otherwise use our regulation-focused logic
         const finalInsight = analytics?.learning_suggestions?.[0]?.content || aiInsight;
+        const activityData = analytics?.activity_trend?.map((t: any) => t.activity_score);
 
         return {
             id: p.id,
             name: p.name,
             status: status,
-            lastActive: p.updated_at ? new Date(p.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '刚刚',
-            messageCount: analytics?.summary?.total_messages || Math.floor(Math.random() * 50),
+            lastActive: p.updated_at ? new Date(p.updated_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '暂无记录',
+            messageCount: totalMessages,
             engagementScore: avgScore,
             aiInsight: finalInsight,
-            activityData: analytics?.activity_trend?.map((t: any) => t.activity_score) || Array.from({ length: 20 }, () => Math.floor(Math.random() * 100)),
+            activityData: Array.isArray(activityData) && activityData.length > 0 ? activityData : [0, 0, 0, 0, 0],
             members: p.members.map(m => m.user_id)
         };
     });

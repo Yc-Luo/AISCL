@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { adminService, User } from '../../../../services/api/admin'
+import { courseService, Course } from '../../../../services/api/course'
 import {
     Users,
     UserPlus,
@@ -26,6 +27,7 @@ import { CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react'
 
 export default function UserManager() {
     const [users, setUsers] = useState<User[]>([])
+    const [courses, setCourses] = useState<Course[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
     const [filterRole, setFilterRole] = useState<string>('all')
@@ -58,7 +60,12 @@ export default function UserManager() {
 
     useEffect(() => {
         fetchUsers()
+        fetchCourses()
     }, [])
+
+    useEffect(() => {
+        fetchUsers()
+    }, [filterRole])
 
     const fetchUsers = async () => {
         try {
@@ -72,11 +79,29 @@ export default function UserManager() {
         }
     }
 
+    const fetchCourses = async () => {
+        try {
+            const data = await courseService.getCourses()
+            setCourses(data)
+        } catch (error) {
+            console.error('Failed to fetch courses:', error)
+        }
+    }
+
     const handleCreateUser = async (e: React.FormEvent) => {
         e.preventDefault()
         try {
             setIsSubmitting(true)
-            await adminService.createUser(formData)
+            const payload = {
+                username: formData.username.trim(),
+                email: formData.email.trim(),
+                password: formData.password,
+                role: formData.role,
+                class_id: formData.role === 'student' && formData.class_id.trim()
+                    ? formData.class_id.trim()
+                    : undefined
+            }
+            await adminService.createUser(payload)
             setIsCreateModalOpen(false)
             setFormData({ username: '', email: '', password: '', role: 'student', class_id: '' })
             fetchUsers()
@@ -180,10 +205,7 @@ export default function UserManager() {
                     <select
                         className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
                         value={filterRole}
-                        onChange={(e) => {
-                            setFilterRole(e.target.value)
-                            setTimeout(fetchUsers, 0)
-                        }}
+                        onChange={(e) => setFilterRole(e.target.value)}
                     >
                         <option value="all">所有角色</option>
                         <option value="student">学生 (Student)</option>
@@ -290,11 +312,11 @@ export default function UserManager() {
                 </div>
             </div>
 
-            {/* Create User Slide-over Modal */}
+            {/* Create User Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/20 backdrop-blur-sm animate-fadeIn">
-                    <form onSubmit={handleCreateUser} className="w-[450px] bg-white h-full shadow-2xl flex flex-col animate-slideInRight">
-                        <div className="px-6 py-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-6 backdrop-blur-sm animate-fadeIn">
+                    <form onSubmit={handleCreateUser} className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+                        <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-white">
                             <div>
                                 <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                                     <UserPlus className="w-5 h-5 text-indigo-600" />
@@ -311,7 +333,8 @@ export default function UserManager() {
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-6 py-8 space-y-8">
+                        <div className="flex-1 overflow-y-auto px-8 py-7">
+                            <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
                             <div className="space-y-4">
                                 <h4 className="text-[10px] font-black text-slate-300 uppercase tracking-widest border-b border-slate-50 pb-2">基础信息</h4>
                                 <div className="space-y-4">
@@ -352,34 +375,62 @@ export default function UserManager() {
                                 <div className="space-y-4">
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-bold text-slate-600 ml-1">系统角色</label>
-                                        <div className="grid grid-cols-3 gap-3">
+                                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
                                             {(['student', 'teacher', 'admin'] as const).map((role) => (
                                                 <button
                                                     key={role}
                                                     type="button"
                                                     onClick={() => setFormData({ ...formData, role })}
-                                                    className={`py-6 flex flex-col items-center gap-2 rounded-xl border-2 transition-all ${formData.role === role ? 'border-indigo-600 bg-indigo-50/50 text-indigo-700 shadow-sm shadow-indigo-100' : 'border-slate-50 hover:border-slate-200 text-slate-400'}`}
+                                                    className={`flex items-center gap-3 rounded-xl border-2 px-4 py-4 text-left transition-all ${formData.role === role ? 'border-indigo-600 bg-indigo-50/50 text-indigo-700 shadow-sm shadow-indigo-100' : 'border-slate-100 hover:border-slate-200 text-slate-400'}`}
                                                 >
                                                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${formData.role === role ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
                                                         {role === 'student' && <Users className="w-4 h-4" />}
                                                         {role === 'teacher' && <School className="w-4 h-4" />}
                                                         {role === 'admin' && <Shield className="w-4 h-4" />}
                                                     </div>
-                                                    <span className="text-[10px] font-black uppercase tracking-wider">{role}</span>
+                                                    <div>
+                                                        <span className="block text-xs font-black uppercase tracking-wider">{role}</span>
+                                                        <span className="mt-0.5 block text-[11px] font-medium text-slate-400">
+                                                            {role === 'student' && '加入班级与小组项目'}
+                                                            {role === 'teacher' && '管理班级、项目和数据'}
+                                                            {role === 'admin' && '管理系统配置与账号'}
+                                                        </span>
+                                                    </div>
                                                 </button>
                                             ))}
                                         </div>
                                     </div>
+                                    {formData.role === 'student' && (
+                                        <div className="space-y-1.5 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                                            <label className="text-xs font-bold text-slate-600 ml-1">所属班级</label>
+                                            <select
+                                                value={formData.class_id}
+                                                onChange={e => setFormData({ ...formData, class_id: e.target.value })}
+                                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                                            >
+                                                <option value="">暂不分配班级</option>
+                                                {courses.map(course => (
+                                                    <option key={course.id} value={course.id}>
+                                                        {course.name} {course.semester ? `(${course.semester})` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <p className="text-[11px] leading-relaxed text-slate-400">
+                                                学生也可以后续通过班级邀请码加入；此处选择班级会直接建立学生与班级的归属关系。
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
+                            </div>
                             </div>
                         </div>
 
-                        <div className="px-6 py-6 border-t border-gray-100 bg-slate-50/50 flex gap-3">
-                            <Button type="button" variant="outline" className="flex-1 font-bold text-xs h-11" onClick={() => setIsCreateModalOpen(false)}>取消返回</Button>
+                        <div className="px-8 py-5 border-t border-gray-100 bg-slate-50/80 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                            <Button type="button" variant="outline" className="h-11 w-full font-bold text-xs sm:w-40" onClick={() => setIsCreateModalOpen(false)}>取消返回</Button>
                             <Button
                                 type="submit"
                                 disabled={isSubmitting}
-                                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-11 shadow-lg shadow-indigo-100"
+                                className="h-11 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-100 sm:w-48"
                             >
                                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : '确认创建账号'}
                             </Button>

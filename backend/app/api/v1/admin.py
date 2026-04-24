@@ -26,6 +26,7 @@ from app.core.schemas.admin import (
 )
 from app.repositories.course import Course
 from app.repositories.project import Project
+from app.repositories.resource import Resource
 from app.repositories.activity_log import ActivityLog
 from app.services.auth_service import get_password_hash
 
@@ -300,13 +301,17 @@ async def get_system_stats(
         raise HTTPException(status_code=403, detail="Admin only")
     
     total_users = await User.count()
+    active_users = await User.find({"is_active": True, "is_banned": False}).count()
     active_projects = await Project.find(Project.is_archived == False).count()
+    resources = await Resource.find_all().to_list()
+    storage_used = sum(resource.size for resource in resources)
+    active_ratio = active_users / total_users if total_users else 0
     
     return SystemStatsResponse(
         total_users=total_users,
         active_projects=active_projects,
-        system_load=0.5,  # Placeholder
-        storage_used=4500000000  # Placeholder ~4.5GB
+        system_load=round(active_ratio, 4),
+        storage_used=storage_used,
     )
 
 

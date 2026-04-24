@@ -1,7 +1,20 @@
 import { Eye, Clock, MessageSquare, Sparkles } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
-import { GroupData } from './mockData';
 import { Button, Badge } from '../../../ui';
+
+export type GroupStatus = 'active' | 'silence' | 'conflict';
+
+export interface GroupData {
+    id: string;
+    name: string;
+    status: GroupStatus;
+    lastActive: string;
+    messageCount: number;
+    engagementScore: number;
+    aiInsight: string;
+    activityData: number[];
+    members: string[];
+}
 
 interface GroupStatusCardProps {
     group: GroupData;
@@ -98,7 +111,7 @@ export function GroupStatusCard({ group, onViewGroup }: GroupStatusCardProps) {
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                                 <p className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">教育调控建议</p>
-                                <Badge className="px-1 py-0 h-3 text-[9px] bg-indigo-100 text-indigo-600 border-0">AI 实时分析</Badge>
+                                <Badge className="px-1 py-0 h-3 text-[9px] bg-indigo-100 text-indigo-600 border-0">基于现有数据</Badge>
                             </div>
                             <p className="text-xs text-slate-700 leading-relaxed font-medium">{group.aiInsight}</p>
                         </div>

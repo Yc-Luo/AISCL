@@ -215,7 +215,29 @@ docker compose -f docker-compose.server.yml logs -f backend
 - `http://服务器公网IP`
 - 或绑定域名后的 `http://your-domain`
 
-### 5.5 更新部署
+### 5.5 初始化管理员账号
+
+首次部署后，需要在服务器端创建至少一个管理员账号。推荐使用容器内初始化脚本，不建议长期依赖公开注册接口创建管理员。
+
+```bash
+ADMIN_EMAIL=admin@example.com \
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD='ChangeThisAdminPassword123!' \
+docker compose -f docker-compose.server.yml exec -T backend python scripts/init_admin.py
+```
+
+如果后端容器尚未保持健康，但 MongoDB 已经启动，也可以用一次性容器执行：
+
+```bash
+ADMIN_EMAIL=admin@example.com \
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD='ChangeThisAdminPassword123!' \
+docker compose -f docker-compose.server.yml run --rm --no-deps backend python scripts/init_admin.py
+```
+
+脚本可重复执行：邮箱已存在时会把该账号更新为 `admin`，并重置为当前传入的密码。请将示例邮箱和密码替换为正式账号，不要把真实密码提交到 GitHub。
+
+### 5.6 更新部署
 
 ```bash
 git pull

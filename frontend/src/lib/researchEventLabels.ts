@@ -40,12 +40,9 @@ const STAGE_LABELS: Record<string, string> = {
 
 const SUBAGENT_LABELS: Record<string, string> = {
   evidence_researcher: '资料研究员',
-  resource_researcher: '资料研究员',
   viewpoint_challenger: '观点挑战者',
   feedback_prompter: '反馈追问者',
-  feedback_questioner: '反馈追问者',
   problem_progressor: '问题推进者',
-  problem_advancer: '问题推进者',
 }
 
 const SCAFFOLD_ROLE_LABELS: Record<string, string> = {
@@ -336,12 +333,7 @@ const getFirstString = (payload: ResearchPayload, keys: string[]): string => {
 }
 
 const normalizeSubagentKey = (key: string): string => {
-  const aliases: Record<string, string> = {
-    resource_researcher: 'evidence_researcher',
-    feedback_questioner: 'feedback_prompter',
-    problem_advancer: 'problem_progressor',
-  }
-  return aliases[key] || key
+  return key
 }
 
 const resolveSubagentKey = (event: ResearchEventRow): string => {

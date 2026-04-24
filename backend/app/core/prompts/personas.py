@@ -76,9 +76,4 @@ PERSONAS = {
     "viewpoint_challenger": VIEWPOINT_CHALLENGER,
     "feedback_prompter": FEEDBACK_PROMPTER,
     "problem_progressor": PROBLEM_PROGRESSOR,
-    # Legacy aliases kept temporarily so old references do not break.
-    "domain_expert": EVIDENCE_RESEARCHER,
-    "collaboration_assistant": PROBLEM_PROGRESSOR,
-    "socratic_tutor": FEEDBACK_PROMPTER,
-    "emotional_support": PROBLEM_PROGRESSOR,
 }

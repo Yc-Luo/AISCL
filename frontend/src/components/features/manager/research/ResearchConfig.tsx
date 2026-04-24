@@ -142,7 +142,7 @@ const DEFAULT_TEMPLATES: ExperimentTemplateConfig[] = [
 
 const DEFAULT_ROLES: AgentRoleConfig[] = [
     {
-        id: 'resource_researcher',
+        id: 'evidence_researcher',
         name: '资料研究员',
         focus: '补充背景资料、证据来源与概念线索',
         interventionUse: '在信息不足、证据缺口或资料检索请求时优先调用',
@@ -163,7 +163,7 @@ const DEFAULT_ROLES: AgentRoleConfig[] = [
         summary: '负责追问与表达澄清',
     },
     {
-        id: 'problem_advancer',
+        id: 'problem_progressor',
         name: '问题推进者',
         focus: '整理当前卡点、推进下一步任务、明确协作方向',
         interventionUse: '在任务停滞、责任不清或需要下一步建议时优先调用',

@@ -8,23 +8,15 @@ export type ScaffoldRoleKey =
   | 'problem_progression'
 
 const LAYER_ALIAS_MAP: Record<string, ScaffoldLayerKey> = {
-  agent_scaffold: 'multi_agent_scaffold',
   multi_agent_scaffold: 'multi_agent_scaffold',
   process_scaffold: 'process_scaffold',
 }
 
 const ROLE_ALIAS_MAP: Record<string, ScaffoldRoleKey> = {
   cognitive_support: 'cognitive_support',
-  evidence_coach: 'cognitive_support',
   feedback_prompting: 'feedback_prompting',
-  revision_coach: 'feedback_prompting',
   viewpoint_challenge: 'viewpoint_challenge',
-  counterargument_challenger: 'viewpoint_challenge',
-  counterargument_challenge: 'viewpoint_challenge',
-  challenge: 'viewpoint_challenge',
   problem_progression: 'problem_progression',
-  process_monitor: 'problem_progression',
-  problem_advancing: 'problem_progression',
 }
 
 export type RecommendationRuleType =

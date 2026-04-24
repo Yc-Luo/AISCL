@@ -4,7 +4,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { API_ENDPOINTS } from '../../config/api';
 
 export interface TrackEvent {
-    module: 'whiteboard' | 'document' | 'chat' | 'resources' | 'browser' | 'ai' | 'task' | 'calendar' | 'dashboard' | 'analytics' | 'inquiry';
+    module: 'whiteboard' | 'document' | 'chat' | 'resources' | 'browser' | 'ai' | 'task' | 'calendar' | 'dashboard' | 'analytics' | 'inquiry' | 'wiki';
     action: string;
     resource_id?: string;
     metadata?: Record<string, any>;
@@ -28,7 +28,7 @@ export interface TrackResearchEvent {
     group_id?: string;
     user_id?: string;
     actor_type: 'student' | 'teacher' | 'ai_assistant' | 'ai_tutor' | 'system';
-    event_domain: 'dialogue' | 'scaffold' | 'inquiry_structure' | 'shared_record' | 'stage_transition';
+    event_domain: 'dialogue' | 'scaffold' | 'inquiry_structure' | 'shared_record' | 'stage_transition' | 'wiki' | 'rag';
     event_type: string;
     event_time?: string;
     stage_id?: string;

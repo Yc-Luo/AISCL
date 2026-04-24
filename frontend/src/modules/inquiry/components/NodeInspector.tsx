@@ -1,8 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useInquiryStore } from '../store/useInquiryStore';
 import { useInquiryActions } from './InquiryContext';
 import { Button } from '../../../components/ui/button';
+import { wikiService, WikiItemType } from '../../../services/api/wiki';
 import {
+    BookOpen,
     Trash2,
     MessageSquare,
     ShieldCheck,
@@ -15,7 +17,8 @@ interface NodeInspectorProps { }
 
 export const NodeInspector: React.FC<NodeInspectorProps> = () => {
     const { nodes } = useInquiryStore();
-    const { updateNode, deleteNode, trackInquiryResearchEvent } = useInquiryActions();
+    const { updateNode, deleteNode, trackInquiryResearchEvent, projectId } = useInquiryActions();
+    const [isAddingToWiki, setIsAddingToWiki] = useState(false);
 
     const selectedNode = nodes.find(n => n.selected);
     const lastNodeIdRef = useRef<string | null>(null);
@@ -37,6 +40,40 @@ export const NodeInspector: React.FC<NodeInspectorProps> = () => {
         { type: 'counter-argument', label: '相反观点', icon: ShieldAlert, color: 'text-rose-500' },
         { type: 'rebuttal', label: '有力回击', icon: Reply, color: 'text-amber-500' },
     ];
+
+    const mapNodeTypeToWikiType = (nodeType: string): WikiItemType => {
+        if (nodeType === 'evidence') return 'evidence';
+        if (nodeType === 'counter-argument' || nodeType === 'rebuttal') return 'controversy';
+        if (nodeType === 'claim') return 'claim';
+        return 'note';
+    };
+
+    const handleAddNodeToWiki = async () => {
+        const content = selectedNode.data.content || '';
+        if (!content.trim()) return;
+
+        setIsAddingToWiki(true);
+        try {
+            await wikiService.createItem({
+                project_id: projectId,
+                item_type: mapNodeTypeToWikiType(selectedNode.type || 'note'),
+                title: `探究节点：${content.slice(0, 24)}`,
+                content,
+                summary: content.slice(0, 300),
+                source_type: 'inquiry',
+                source_id: selectedNode.id,
+                confidence_level: 'working',
+            });
+            trackInquiryResearchEvent('wiki_item_quoted', {
+                node_id: selectedNode.id,
+                node_type: selectedNode.type,
+                content_length: content.length,
+                source_type: 'inquiry_node',
+            }, { eventDomain: 'wiki' });
+        } finally {
+            setIsAddingToWiki(false);
+        }
+    };
 
     return (
         <div className="absolute right-4 top-24 z-20 w-72 bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in slide-in-from-right-4">
@@ -104,6 +141,16 @@ export const NodeInspector: React.FC<NodeInspectorProps> = () => {
                 </div>
 
                 <div className="pt-2 border-t mt-4 flex justify-between items-center">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-emerald-600 hover:bg-emerald-50"
+                        onClick={handleAddNodeToWiki}
+                        disabled={isAddingToWiki || !(selectedNode.data.content || '').trim()}
+                    >
+                        <BookOpen className="w-4 h-4" />
+                        加入 Wiki
+                    </Button>
                     <Button
                         variant="ghost"
                         size="sm"

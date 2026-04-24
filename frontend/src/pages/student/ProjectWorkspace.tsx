@@ -5,6 +5,7 @@ import RightSidebar from '../../components/layout/RightSidebar'
 import TabNavigation from '../../components/layout/TabNavigation'
 import ConnectionStatusBanner from '../../components/feedback/ConnectionStatusBanner'
 import ResourceLibrary from '../../components/features/student/resources/ResourceLibrary'
+import ProjectWiki from '../../components/features/student/wiki/ProjectWiki'
 import LearningDashboard from '../../components/features/student/dashboard/LearningDashboard'
 import DocumentEditor from '../../components/features/student/document/DocumentEditor'
 import { InquirySpace } from '../../modules/inquiry/components/InquirySpace'
@@ -63,7 +64,7 @@ const getExperimentVersionSignature = (version: ExperimentVersion | null) => {
   })
 }
 
-const ALL_NAV_TABS = ['document', 'inquiry', 'resources', 'browser', 'ai', 'dashboard']
+const ALL_NAV_TABS = ['document', 'inquiry', 'resources', 'wiki', 'browser', 'ai', 'dashboard']
 
 const STAGE_TOOL_GUIDANCE: Record<
   string,
@@ -75,37 +76,37 @@ const STAGE_TOOL_GUIDANCE: Record<
 > = {
   orientation: {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'resources', 'ai'],
+    recommendedTabs: ['document', 'resources', 'wiki', 'ai'],
     guidance: '先阅读任务说明并明确目标，必要时借助资源库和 AI 导师完成任务理解。',
   },
   planning: {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'resources', 'browser', 'ai'],
+    recommendedTabs: ['document', 'resources', 'wiki', 'browser', 'ai'],
     guidance: '优先形成问题清单和初步方案，文档区用于记录计划，资源与浏览器用于补充信息。',
   },
   inquiry: {
     primaryTab: 'inquiry',
-    recommendedTabs: ['inquiry', 'resources', 'browser', 'ai', 'document'],
+    recommendedTabs: ['inquiry', 'resources', 'wiki', 'browser', 'ai', 'document'],
     guidance: '以深度探究空间为主，围绕证据收集、来源核验和材料组织展开探究。',
   },
   argumentation: {
     primaryTab: 'inquiry',
-    recommendedTabs: ['inquiry', 'document', 'ai', 'browser'],
+    recommendedTabs: ['inquiry', 'document', 'wiki', 'ai', 'browser'],
     guidance: '重点围绕主张、证据和反驳开展论证协商，深度探究空间和文档区应协同使用。',
   },
   revision: {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'inquiry', 'ai', 'browser'],
+    recommendedTabs: ['document', 'inquiry', 'wiki', 'ai', 'browser'],
     guidance: '优先回到文档和探究记录进行修订，对照证据和反驳结果完善最终表达。',
   },
   summary: {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'inquiry', 'ai'],
+    recommendedTabs: ['document', 'inquiry', 'wiki', 'ai'],
     guidance: '以文档整合为主，梳理最终结论和证据链，形成阶段性成果。',
   },
   reflection: {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'ai', 'dashboard'],
+    recommendedTabs: ['document', 'wiki', 'ai', 'dashboard'],
     guidance: '围绕过程反思和经验总结展开记录，可借助 AI 导师回顾关键决策与修订节点。',
   },
 }
@@ -114,14 +115,14 @@ const getStageToolGuidance = (stageId: string | null) => {
   if (!stageId) {
     return {
       primaryTab: 'document',
-      recommendedTabs: ['document', 'inquiry', 'resources', 'browser', 'ai', 'dashboard'],
+      recommendedTabs: ['document', 'inquiry', 'resources', 'wiki', 'browser', 'ai', 'dashboard'],
       guidance: '当前未配置实验阶段，按任务需要自主选择工具。',
     }
   }
 
   return STAGE_TOOL_GUIDANCE[stageId] || {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'inquiry', 'resources', 'browser', 'ai'],
+    recommendedTabs: ['document', 'inquiry', 'resources', 'wiki', 'browser', 'ai'],
     guidance: '当前阶段未预设专属工具规则，建议优先使用文档与探究空间。',
   }
 }
@@ -615,11 +616,13 @@ export default function Main() {
                               ? '深度探究'
                               : tabId === 'resources'
                                 ? '资源库'
-                                : tabId === 'browser'
-                                  ? '浏览器'
-                                  : tabId === 'ai'
-                                    ? 'AI 导师'
-                                    : '仪表盘'}
+                                : tabId === 'wiki'
+                                  ? '项目 Wiki'
+                                  : tabId === 'browser'
+                                    ? '浏览器'
+                                    : tabId === 'ai'
+                                      ? 'AI 导师'
+                                      : '仪表盘'}
                         </button>
                       ))}
                     </div>
@@ -667,6 +670,12 @@ export default function Main() {
                 {activeTab === 'resources' && (
                   <div className="flex-1 flex flex-col bg-white rounded-lg shadow overflow-hidden">
                     <ResourceLibrary projectId={currentProjectId} />
+                  </div>
+                )}
+
+                {activeTab === 'wiki' && (
+                  <div className="flex-1 flex flex-col bg-white rounded-lg shadow overflow-hidden">
+                    <ProjectWiki projectId={currentProjectId} />
                   </div>
                 )}
 

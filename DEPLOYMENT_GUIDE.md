@@ -106,6 +106,22 @@ SECRET_KEY=your-32-character-secret-key
 MAX_FILE_SIZE=52428800  # 50MB
 MAX_PROJECT_STORAGE=5368709120  # 5GB
 
+# LLM 与 RAG
+LLM_PROVIDER=minimax
+OPENAI_API_KEY=your-minimax-api-key
+OPENAI_BASE_URL=https://api.minimax.io/v1
+OPENAI_MODEL=MiniMax-M2.7
+RAG_VECTOR_ENABLED=true
+EMBEDDING_PROVIDER=minimax
+MINIMAX_API_KEY=your-minimax-api-key
+MINIMAX_GROUP_ID=your-minimax-group-id-if-required
+MINIMAX_EMBEDDING_MODEL=embo-01
+MINIMAX_EMBEDDING_BASE_URL=https://api.minimax.chat/v1/embeddings
+MINIMAX_EMBEDDING_TYPE=db
+QDRANT_URL=http://qdrant:6333
+QDRANT_COLLECTION=aiscl_rag
+QDRANT_VECTOR_SIZE=1536
+
 # 项目限制
 MAX_PROJECT_MEMBERS=5
 ```

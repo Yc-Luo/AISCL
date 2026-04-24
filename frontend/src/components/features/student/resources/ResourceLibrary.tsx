@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Eye, Download, Trash2 } from 'lucide-react'
+import { BookOpen, Eye, Download, Trash2 } from 'lucide-react'
 import { storageService } from '../../../../services/api/storage'
+import { wikiService } from '../../../../services/api/wiki'
 import { Resource } from '../../../../types'
 import { useAuthStore } from '../../../../stores/authStore'
 import api from '../../../../services/api/client'
@@ -153,6 +154,30 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     }
   }
 
+  const handleAddResourceToWiki = async (resource: Resource) => {
+    try {
+      await wikiService.createItem({
+        project_id: projectId,
+        item_type: resource.mime_type.startsWith('image/') ? 'evidence' : 'note',
+        title: `资源：${resource.filename}`,
+        content: `资源文件：${resource.filename}\n类型：${resource.mime_type}\n大小：${formatFileSize(resource.size)}\n可在资源库中打开或下载后进一步核验。`,
+        summary: `资源库文件：${resource.filename}`,
+        source_type: 'resource',
+        source_id: resource.id,
+        confidence_level: 'working',
+      })
+      trackingService.track({
+        module: 'wiki',
+        action: 'resource_add_to_wiki',
+        metadata: { projectId, resourceId: resource.id, filename: resource.filename }
+      })
+      setToast({ message: '资源已加入项目 Wiki', visible: true })
+    } catch (error) {
+      console.error('Failed to add resource to wiki:', error)
+      setToast({ message: '加入 Wiki 失败', visible: true })
+    }
+  }
+
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes'
     const k = 1024
@@ -274,6 +299,13 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
                     </button>
                   )}
                   <button
+                    onClick={() => handleAddResourceToWiki(resource)}
+                    className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                    title="加入 Wiki"
+                  >
+                    <BookOpen size={16} />
+                  </button>
+                  <button
                     onClick={() => handleDownload(resource)}
                     className="p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
                     title="下载"
@@ -325,4 +357,3 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     </div>
   )
 }
-

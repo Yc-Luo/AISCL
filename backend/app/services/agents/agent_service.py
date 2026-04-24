@@ -145,6 +145,8 @@ class AgentService:
                 "should_retrieve": True,
                 "max_results": 4,
                 "retrieval_mode": "role_aware_full",
+                "source_types": ["wiki", "resource"],
+                "wiki_item_types": ["task_brief", "concept", "evidence", "stage_summary"],
                 "selected_subagent": selected_subagent,
                 "routing_decision": routing_decision,
             }
@@ -154,18 +156,30 @@ class AgentService:
                 "should_retrieve": True,
                 "max_results": 2,
                 "retrieval_mode": "role_aware_targeted",
+                "source_types": ["wiki", "resource"],
+                "wiki_item_types": ["claim", "controversy", "evidence"],
                 "selected_subagent": selected_subagent,
                 "routing_decision": routing_decision,
             }
 
-        if source_actor_type == "ai_assistant" and selected_subagent in {
-            "feedback_prompter",
-            "problem_progressor",
-        }:
+        if selected_subagent == "feedback_prompter":
+            return {
+                "should_retrieve": True,
+                "max_results": 2,
+                "retrieval_mode": "role_aware_revision",
+                "source_types": ["wiki"],
+                "wiki_item_types": ["claim", "evidence", "stage_summary"],
+                "selected_subagent": selected_subagent,
+                "routing_decision": routing_decision,
+            }
+
+        if source_actor_type == "ai_assistant" and selected_subagent == "problem_progressor":
             return {
                 "should_retrieve": False,
                 "max_results": 0,
                 "retrieval_mode": "role_aware_skip",
+                "source_types": [],
+                "wiki_item_types": [],
                 "selected_subagent": selected_subagent,
                 "routing_decision": routing_decision,
             }
@@ -174,6 +188,8 @@ class AgentService:
             "should_retrieve": True,
             "max_results": 3,
             "retrieval_mode": "default_full",
+            "source_types": ["wiki", "resource"],
+            "wiki_item_types": ["task_brief", "concept", "evidence", "claim", "controversy", "stage_summary"],
             "selected_subagent": selected_subagent,
             "routing_decision": routing_decision,
         }
@@ -249,6 +265,8 @@ class AgentService:
                     if context
                     else None
                 ),
+                source_types=rag_plan.get("source_types"),
+                wiki_item_types=rag_plan.get("wiki_item_types"),
             )
         
         merged_context = {

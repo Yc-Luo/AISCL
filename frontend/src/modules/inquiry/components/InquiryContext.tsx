@@ -6,7 +6,7 @@ import { useContextStore } from '../../../stores/contextStore';
 
 type ResearchEventOptions = {
     actorType?: 'student' | 'ai_assistant' | 'ai_tutor' | 'teacher' | 'system';
-    eventDomain?: 'dialogue' | 'scaffold' | 'inquiry_structure' | 'shared_record' | 'stage_transition';
+    eventDomain?: 'dialogue' | 'scaffold' | 'inquiry_structure' | 'shared_record' | 'stage_transition' | 'wiki' | 'rag';
 };
 
 // 定义 Context 类型

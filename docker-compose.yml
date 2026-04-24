@@ -75,6 +75,18 @@ services:
         reservations:
           memory: 256M
 
+  # Vector store for RAG
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: AISCL-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - AISCL-network
+
   # Backend API
   backend:
     build:
@@ -92,6 +104,7 @@ services:
       - MINIO_PUBLIC_ENDPOINT=localhost:8888
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin123
+      - QDRANT_URL=http://qdrant:6333
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
       - SECRET_KEY=${SECRET_KEY:-super-secret-key-change-in-production}
       - LOG_LEVEL=INFO
@@ -106,6 +119,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://127.0.0.1:8000/health" ]
       interval: 30s
@@ -184,6 +199,7 @@ volumes:
   mongodb_config:
   redis_data:
   minio_data:
+  qdrant_data:
 
 
 networks:

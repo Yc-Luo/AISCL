@@ -21,7 +21,7 @@ class WikiItemCreateRequest(BaseModel):
     summary: Optional[str] = Field(default=None, max_length=500)
     source_type: str = Field(
         default="manual",
-        pattern="^(teacher_brief|document|chat|inquiry|ai|manual|system)$",
+        pattern="^(teacher_brief|resource|document|chat|inquiry|ai|manual|system)$",
     )
     source_id: Optional[str] = None
     source_event_ids: List[str] = Field(default_factory=list)

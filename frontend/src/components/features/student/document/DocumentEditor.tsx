@@ -18,6 +18,7 @@ import { Collaboration } from '@tiptap/extension-collaboration'
 import { useAuthStore } from '../../../../stores/authStore'
 import { documentService, Document } from '../../../../services/api/document'
 import { storageService } from '../../../../services/api/storage'
+import { wikiService } from '../../../../services/api/wiki'
 import { Annotation, AnnotationAttributes } from '../../../../extensions/Annotation'
 import EditorToolbar from './EditorToolbar'
 import RemoteCursors from './RemoteCursors'
@@ -433,6 +434,53 @@ export default function DocumentEditor({
     }
   }, [editor, projectId, document, addMaterial])
 
+  const handleAddSelectionToWiki = useCallback(async () => {
+    if (!editor || !projectId || !document) return
+    const { from, to } = editor.state.selection
+    const selectedText = editor.state.doc.textBetween(from, to, ' ')
+
+    if (!selectedText.trim()) {
+      setToastMessage('请先选中要沉淀到 Wiki 的文字')
+      setShowToast(true)
+      return
+    }
+
+    try {
+      await wikiService.createItem({
+        project_id: projectId,
+        item_type: 'note',
+        title: `文档摘录：${document.title || '未命名文档'}`,
+        content: selectedText.trim(),
+        summary: selectedText.trim().slice(0, 300),
+        source_type: 'document',
+        source_id: document.id,
+        stage_id: currentStage || undefined,
+        confidence_level: 'working',
+      })
+
+      trackingService.trackResearchEvent({
+        project_id: projectId,
+        experiment_version_id: experimentVersionId,
+        actor_type: 'student',
+        event_domain: 'wiki',
+        event_type: 'wiki_item_quoted',
+        stage_id: currentStage || undefined,
+        payload: {
+          document_id: document.id,
+          selection_length: selectedText.length,
+          source_type: 'document_selection',
+        },
+      })
+
+      setToastMessage('已加入项目 Wiki')
+      setShowToast(true)
+    } catch (error) {
+      console.error('Failed to add selection to wiki:', error)
+      setToastMessage('加入 Wiki 失败')
+      setShowToast(true)
+    }
+  }, [currentStage, document, editor, experimentVersionId, projectId])
+
   const handleSave = useCallback(async () => {
     if (!documentId || !editor) return
     try {
@@ -838,6 +886,14 @@ export default function DocumentEditor({
                     项目说明
                   </span>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={handleAddSelectionToWiki}
+                  className="shrink-0 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                  title="将当前选中文字沉淀到项目 Wiki"
+                >
+                  加入 Wiki
+                </button>
               </div>
             </div>
           </div>

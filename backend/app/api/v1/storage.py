@@ -19,6 +19,7 @@ from app.repositories.resource import Resource
 from app.repositories.user import User
 from app.services.storage_service import storage_service
 from app.services.rag_service import rag_service
+from app.services.text_extraction_service import text_extraction_service
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
@@ -114,17 +115,25 @@ async def create_resource(
     # and then call rag_service.
     # We define a helper task here.
     async def process_resource_task(resource_id: str, file_key: str):
-        # 1. Download file content (mocked for now, or implement download)
-        # content = await storage_service.download_file(file_key) 
-        # text = extract_text(content)
-        
-        # For MVP/Demo, we might only support text files or skip actual download if implementation complexity is high
-        # To make it robust, we should implement a text extractor service.
-        # For now, we leave a placeholder that logs or processes if it's a simple text file.
-        pass 
-        
-        # Example call if we had the text:
-        # await rag_service.process_resource(resource_id, extracted_text)
+        """Extract lightweight resource text and index it for semantic retrieval."""
+        try:
+            file_bytes = await run_in_threadpool(storage_service.get_file_bytes, file_key)
+            text_content = ""
+            if text_extraction_service.can_extract(resource_data.mime_type, resource_data.filename):
+                text_content = text_extraction_service.extract_text(
+                    file_bytes,
+                    resource_data.mime_type,
+                    resource_data.filename,
+                )
+            if not text_content:
+                text_content = (
+                    f"资源文件：{resource_data.filename}\n"
+                    f"类型：{resource_data.mime_type}\n"
+                    "该文件暂未抽取正文，可作为资源库引用来源。"
+                )
+            await rag_service.process_resource(resource_id, text_content)
+        except Exception as exc:
+            print(f"Resource RAG indexing skipped: {exc}")
 
     background_tasks.add_task(process_resource_task, str(resource.id), resource.file_key)
 
@@ -311,4 +320,3 @@ async def download_resource(
     download_url = storage_service.generate_presigned_get_url(resource.file_key)
     
     return RedirectResponse(url=download_url)
-

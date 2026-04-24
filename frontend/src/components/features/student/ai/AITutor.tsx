@@ -19,6 +19,13 @@ interface Message {
     role: 'user' | 'assistant'
     content: string
     timestamp: Date
+    citations?: Array<{
+        resource_id: string
+        resource_type: string
+        score?: number
+        title?: string
+        source_type?: string
+    }>
     aiMeta?: {
         primaryView?: string
         rationaleSummary?: string
@@ -168,6 +175,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     role: m.role,
                     content: m.content,
                     timestamp: new Date(m.created_at),
+                    citations: m.citations || [],
                     aiMeta: m.ai_meta
                         ? {
                             primaryView: m.ai_meta.primary_view,
@@ -420,6 +428,17 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                         }
                     })
                     finalMessage = stripThinkBlocksForDisplay(rawStreamContentRef.current).trim()
+                    const latestMessages = await aiService.getMessages(activeConvId)
+                    const latestAssistant = [...(latestMessages.messages || [])]
+                        .reverse()
+                        .find((message: any) => message.role === 'assistant')
+                    if (latestAssistant?.citations?.length) {
+                        setMessages(prev => prev.map(msg =>
+                            msg.id === assistantMsgId
+                                ? { ...msg, citations: latestAssistant.citations }
+                                : msg
+                        ))
+                    }
                 } catch (streamError) {
                     console.warn('Tutor stream failed, fallback to non-streaming chat:', streamError)
                     const fallbackResponse = await aiService.sendMessage(
@@ -445,6 +464,13 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                         processingSummary: fallbackResponse.ai_meta.processing_summary || [],
                                     }
                                 }
+                                : msg
+                        ))
+                    }
+                    if (fallbackResponse.citations?.length) {
+                        setMessages(prev => prev.map(msg =>
+                            msg.id === assistantMsgId
+                                ? { ...msg, citations: fallbackResponse.citations }
                                 : msg
                         ))
                     }
@@ -492,7 +518,8 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                 primaryView: getTutorRoleLabel(inferredRole),
                                 rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
                                 processingSummary: buildProcessingSummary(content),
-                            }
+                            },
+                            citations: msg.citations,
                         }
                         : msg
                 ));
@@ -654,6 +681,25 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                 <div className={`text-sm whitespace-pre-wrap leading-6 ${msg.role === 'assistant' ? 'markdown-body' : ''}`}>
                                     {msg.content || (msg.role === 'assistant' && isTyping && msg.id === messages[messages.length - 1].id ? '...' : '')}
                                 </div>
+                                {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
+                                    <details className="mt-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                        <summary className="cursor-pointer font-semibold text-slate-700">
+                                            引用来源（{msg.citations.length}）
+                                        </summary>
+                                        <div className="mt-2 space-y-1">
+                                            {msg.citations.map((citation, index) => (
+                                                <div key={`${msg.id}-citation-${index}`} className="flex items-center justify-between gap-2">
+                                                    <span className="truncate">
+                                                        {citation.title || citation.resource_id}
+                                                    </span>
+                                                    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
+                                                        {citation.resource_type}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </details>
+                                )}
                                 <div className={`text-[10px] mt-1 flex items-center gap-1 ${msg.role === 'user' ? 'text-indigo-200 justify-end' : 'text-gray-400'}`}>
                                     <span>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                     {msg.role === 'assistant' && <span>• AI Tutor</span>}

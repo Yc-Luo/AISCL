@@ -40,6 +40,7 @@ class WikiService:
         project_id: str,
         group_id: Optional[str] = None,
         item_type: Optional[str] = None,
+        item_types: Optional[List[str]] = None,
         stage_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build a Mongo query with project-level and optional group-level visibility."""
@@ -51,6 +52,8 @@ class WikiService:
             ]
         if item_type:
             query["item_type"] = item_type
+        elif item_types:
+            query["item_type"] = {"$in": item_types}
         if stage_id:
             query["stage_id"] = stage_id
         return query
@@ -110,6 +113,13 @@ class WikiService:
         )
         await item.insert()
 
+        try:
+            from app.services.rag_service import rag_service
+
+            await rag_service.index_wiki_item(item)
+        except Exception as exc:
+            print(f"Wiki vector index error: {exc}")
+
         if record_event:
             await research_event_service.record_batch_events(
                 events=[
@@ -142,12 +152,13 @@ class WikiService:
         *,
         group_id: Optional[str] = None,
         item_type: Optional[str] = None,
+        item_types: Optional[List[str]] = None,
         stage_id: Optional[str] = None,
         skip: int = 0,
         limit: int = 50,
     ) -> Tuple[List[WikiItem], int]:
         """List Wiki items for a project."""
-        query = WikiService._build_query(project_id, group_id, item_type, stage_id)
+        query = WikiService._build_query(project_id, group_id, item_type, item_types, stage_id)
         cursor = WikiItem.find(query).sort("-updated_at").skip(skip).limit(limit)
         items = await cursor.to_list()
         total = await WikiItem.find(query).count()
@@ -168,6 +179,13 @@ class WikiService:
         item.updated_by = current_user_id
         item.updated_at = datetime.utcnow()
         await item.save()
+
+        try:
+            from app.services.rag_service import rag_service
+
+            await rag_service.index_wiki_item(item)
+        except Exception as exc:
+            print(f"Wiki vector reindex error: {exc}")
 
         await research_event_service.record_batch_events(
             events=[
@@ -197,6 +215,7 @@ class WikiService:
         *,
         group_id: Optional[str] = None,
         item_type: Optional[str] = None,
+        item_types: Optional[List[str]] = None,
         stage_id: Optional[str] = None,
         limit: int = 5,
     ) -> List[Dict[str, Any]]:
@@ -204,7 +223,7 @@ class WikiService:
         if limit <= 0:
             return []
 
-        db_query = WikiService._build_query(project_id, group_id, item_type, stage_id)
+        db_query = WikiService._build_query(project_id, group_id, item_type, item_types, stage_id)
         candidates = await WikiItem.find(db_query).sort("-updated_at").limit(100).to_list()
         scored = [
             (WikiService._score_item(item, query), item)

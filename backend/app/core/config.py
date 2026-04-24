@@ -60,6 +60,21 @@ class Settings(BaseSettings):
     DEEPSEEK_MODEL: str = "deepseek-chat"
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
 
+    # Embedding and vector retrieval
+    RAG_VECTOR_ENABLED: bool = True
+    EMBEDDING_PROVIDER: str = "minimax"
+    MINIMAX_API_KEY: str = ""
+    MINIMAX_GROUP_ID: str = ""
+    MINIMAX_EMBEDDING_MODEL: str = "embo-01"
+    MINIMAX_EMBEDDING_BASE_URL: str = "https://api.minimax.chat/v1/embeddings"
+    MINIMAX_EMBEDDING_TYPE: str = "db"
+    QDRANT_URL: str = "http://qdrant:6333"
+    QDRANT_API_KEY: Optional[str] = None
+    QDRANT_COLLECTION: str = "aiscl_rag"
+    QDRANT_VECTOR_SIZE: int = 1536
+    RAG_CHUNK_SIZE: int = 900
+    RAG_CHUNK_OVERLAP: int = 120
+
     # CORS
     CORS_ORIGINS: List[str] = Field(
         default=["http://localhost:5173", "http://localhost:3000"]

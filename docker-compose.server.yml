@@ -47,6 +47,15 @@ services:
       timeout: 20s
       retries: 3
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: AISCL-qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - AISCL-network
+
   backend:
     build:
       context: ./backend
@@ -64,6 +73,7 @@ services:
       MONGODB_URI: mongodb://mongodb:27017/AISCL
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      QDRANT_URL: http://qdrant:6333
     networks:
       - AISCL-network
     depends_on:
@@ -73,6 +83,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 30s
@@ -122,6 +134,7 @@ volumes:
   mongodb_config:
   redis_data:
   minio_data:
+  qdrant_data:
 
 networks:
   AISCL-network:

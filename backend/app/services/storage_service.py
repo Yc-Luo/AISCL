@@ -3,6 +3,7 @@
 import logging
 from datetime import timedelta
 from typing import Optional
+from urllib.parse import urlparse
 
 from minio import Minio
 from minio.error import S3Error
@@ -13,6 +14,27 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _parse_minio_endpoint(endpoint: str, default_secure: bool) -> tuple[str, bool]:
+    """Normalize MinIO endpoint config for the SDK.
+
+    The MinIO client expects only host[:port]. Deployment docs may use a public
+    URL for readability, so tolerate http(s)://host but still reject path-based
+    endpoints because MinIO signs bucket/object paths itself.
+    """
+    raw_endpoint = (endpoint or "").strip().rstrip("/")
+    if "://" not in raw_endpoint:
+        return raw_endpoint, default_secure
+
+    parsed = urlparse(raw_endpoint)
+    if parsed.path and parsed.path != "/":
+        raise ValueError(
+            "MINIO endpoint must not include a path. Use host[:port] only."
+        )
+    if not parsed.netloc:
+        raise ValueError("MINIO endpoint is invalid.")
+    return parsed.netloc, parsed.scheme == "https"
+
+
 class StorageService:
     """Storage service for object storage operations."""
 
@@ -20,22 +42,28 @@ class StorageService:
         """Initialize storage client."""
         self._bucket_checked = False
         if settings.STORAGE_TYPE == "minio":
+            internal_endpoint, internal_secure = _parse_minio_endpoint(
+                settings.MINIO_ENDPOINT, settings.MINIO_USE_SSL
+            )
+            public_endpoint, public_secure = _parse_minio_endpoint(
+                settings.MINIO_PUBLIC_ENDPOINT, settings.MINIO_USE_SSL
+            )
             self.client = Minio(
-                settings.MINIO_ENDPOINT,
+                internal_endpoint,
                 access_key=settings.MINIO_ACCESS_KEY,
                 secret_key=settings.MINIO_SECRET_KEY,
-                secure=settings.MINIO_USE_SSL,
+                secure=internal_secure,
                 region="us-east-1",
             )
             
             # Create a separate client for signing URLs if public endpoint differs
             # This ensures the signature matches the host header sent by the browser
-            if settings.MINIO_ENDPOINT != settings.MINIO_PUBLIC_ENDPOINT:
+            if (internal_endpoint, internal_secure) != (public_endpoint, public_secure):
                 self.signer_client = Minio(
-                    settings.MINIO_PUBLIC_ENDPOINT,
+                    public_endpoint,
                     access_key=settings.MINIO_ACCESS_KEY,
                     secret_key=settings.MINIO_SECRET_KEY,
-                    secure=settings.MINIO_USE_SSL,
+                    secure=public_secure,
                     region="us-east-1",
                 )
             else:

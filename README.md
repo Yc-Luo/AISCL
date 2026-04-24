@@ -183,6 +183,8 @@ CORS_ORIGINS=["http://your-domain-or-ip","https://your-domain"]
 
 `MINIO_ROOT_USER` 必须与 `backend/.env` 中的 `MINIO_ACCESS_KEY` 一致，`MINIO_ROOT_PASSWORD` 必须与 `MINIO_SECRET_KEY` 一致。
 
+`MINIO_PUBLIC_ENDPOINT` 用于生成浏览器可访问的文件上传/下载签名链接。通过 `nginx` 部署时填写公网域名或 IP 本身即可，例如 `62.234.69.204`；不要填写 `http://`、`https://`、`:9000` 或 `/aiscl-files`。如果使用非 80 端口访问系统，例如 `8888`，则填写 `62.234.69.204:8888`。
+
 如果服务器构建后端时出现 `No matching distribution found`、`Could not find a version` 等 Python 依赖解析问题，通常是 pip 源访问不稳定或镜像未同步。可以在根目录 `.env` 中改用国内镜像：
 
 ```env

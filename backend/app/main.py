@@ -24,6 +24,7 @@ from app.api.v1 import (
     web_annotations,
     admin,
     inquiry,
+    wiki,
 )
 from app.core.cache import close_redis_client, get_redis_client
 from app.core.config import settings
@@ -182,6 +183,7 @@ app.include_router(ai.router, prefix="/api/v1")
 app.include_router(web_annotations.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(inquiry.router, prefix="/api/v1")
+app.include_router(wiki.router, prefix="/api/v1")
 
 # Mount Socket.IO app
 app.mount("/socket.io", socketio_app)
@@ -217,4 +219,3 @@ async def health():
 async def get_metrics():
     """Prometheus metrics endpoint."""
     return await metrics_endpoint()
-

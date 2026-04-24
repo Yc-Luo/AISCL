@@ -14,6 +14,8 @@ const EVENT_DOMAIN_LABELS: Record<string, string> = {
   inquiry_structure: '探究结构',
   shared_record: '共享文档',
   stage_transition: '学习阶段',
+  wiki: '项目知识库',
+  rag: '检索增强',
 }
 
 const ACTOR_LABELS: Record<string, string> = {
@@ -299,6 +301,21 @@ const EVENT_TYPE_META: Record<string, EventTypeMeta> = {
     description: '教师在项目仪表盘中更新实验版本、阶段或支架配置。',
     analysisCategory: '实验控制',
   },
+  wiki_item_created: {
+    label: '知识库条目创建',
+    description: '系统或学习者将项目说明、证据、观点或阶段总结沉淀为项目知识库条目。',
+    analysisCategory: '知识沉淀',
+  },
+  wiki_item_updated: {
+    label: '知识库条目更新',
+    description: '学习者或教师修订项目知识库中的结构化条目。',
+    analysisCategory: '知识沉淀',
+  },
+  retrieval_requested: {
+    label: 'RAG检索请求',
+    description: 'AI 回答前根据问题从项目知识库、文档或聊天记录中检索上下文。',
+    analysisCategory: '检索增强',
+  },
 }
 
 const fallbackLabel = (value: string | undefined | null): string => {
@@ -393,6 +410,17 @@ const buildDetailLabel = (
 
   if ((event.event_type === 'shadow_prompt_candidate' || event.event_type === 'auto_group_prompt_send') && ruleTypeLabel) {
     return `触发规则：${ruleTypeLabel}`
+  }
+
+  if (event.event_type === 'wiki_item_created' || event.event_type === 'wiki_item_updated') {
+    const itemType = getFirstString(payload, ['item_type'])
+    return itemType ? `条目类型：${fallbackLabel(itemType)}` : ''
+  }
+
+  if (event.event_type === 'retrieval_requested') {
+    const wikiCount = Number(payload.wiki_result_count || 0)
+    const resultCount = Number(payload.result_count || 0)
+    return `检索结果：${resultCount}条，其中Wiki ${wikiCount}条`
   }
 
   const nodeType = getFirstString(payload, ['node_type', 'to_type'])

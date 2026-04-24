@@ -21,7 +21,7 @@ class ResearchEvent(Document):
     )
     event_domain: str = Field(
         ...,
-        pattern="^(dialogue|scaffold|inquiry_structure|shared_record|stage_transition)$",
+        pattern="^(dialogue|scaffold|inquiry_structure|shared_record|stage_transition|wiki|rag)$",
     )
     event_type: str = Field(..., pattern="^[a-zA-Z0-9_]+$")
     event_time: datetime = Field(default_factory=datetime.utcnow, index=True)

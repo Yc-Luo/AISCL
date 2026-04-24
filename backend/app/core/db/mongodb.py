@@ -45,6 +45,7 @@ class MongoDB:
         from app.repositories.resource_embedding import ResourceEmbedding
         from app.repositories.dashboard_snapshot import DashboardSnapshot
         from app.repositories.inquiry_snapshot import InquirySnapshot
+        from app.repositories.wiki_item import WikiItem
 
         await init_beanie(
             database=database,
@@ -74,6 +75,7 @@ class MongoDB:
                 ResourceEmbedding,
                 DashboardSnapshot,
                 InquirySnapshot,
+                WikiItem,
             ],
             recreate_views=False,  # Prevent index recreation conflicts
         )

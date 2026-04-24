@@ -65,6 +65,9 @@ class ResearchEventService:
         "scaffold_rule_check_request": "rule_check",
         "scaffold_rule_check_result": "rule_result",
         "scaffold_rule_recommendation_accept": "rule_accept",
+        "wiki_item_created": "wiki_create",
+        "wiki_item_updated": "wiki_update",
+        "retrieval_requested": "rag_query",
     }
 
     @staticmethod

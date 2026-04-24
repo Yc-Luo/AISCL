@@ -164,7 +164,16 @@ async def chat(
     if chat_data.use_rag:
         try:
             context = await rag_service.retrieve_context(
-                chat_data.project_id, chat_data.message
+                chat_data.project_id,
+                chat_data.message,
+                user_id=str(current_user.id),
+                actor_type="ai_tutor" if chat_data.role_id == "default-tutor" else "system",
+                stage_id=chat_data.current_stage,
+                experiment_version_id=(
+                    (project.experiment_version or {}).get("version_name")
+                    if getattr(project, "experiment_version", None)
+                    else None
+                ),
             )
         except Exception as e:
             print(f"RAG Error: {e}")
@@ -290,7 +299,16 @@ async def chat_stream(
     if chat_data.use_rag:
         try:
             context = await rag_service.retrieve_context(
-                chat_data.project_id, chat_data.message
+                chat_data.project_id,
+                chat_data.message,
+                user_id=str(current_user.id),
+                actor_type="ai_tutor" if chat_data.role_id == "default-tutor" else "system",
+                stage_id=chat_data.current_stage,
+                experiment_version_id=(
+                    (project.experiment_version or {}).get("version_name")
+                    if getattr(project, "experiment_version", None)
+                    else None
+                ),
             )
         except Exception as e:
             print(f"RAG Error: {e}")

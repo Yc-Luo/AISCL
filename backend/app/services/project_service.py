@@ -119,16 +119,36 @@ class ProjectService:
             project.inherited_template_source = course.experiment_template_source
 
         if course.initial_task_document_title or course.initial_task_document_content:
+            task_title = course.initial_task_document_title or "项目说明"
+            task_content = course.initial_task_document_content or task_title
             seeded_document = Document(
                 project_id=str(project.id),
-                title=course.initial_task_document_title or "项目说明",
-                content=course.initial_task_document_content,
+                title=task_title,
+                content=task_content,
                 content_state=b"",
-                preview_text=(course.initial_task_document_content or "")[:200] or None,
+                preview_text=task_content[:200] or None,
                 last_modified_by=owner_id,
             )
             await seeded_document.insert()
             project.initial_task_document_id = str(seeded_document.id)
+
+            from app.services.wiki_service import wiki_service
+
+            await wiki_service.create_item(
+                {
+                    "project_id": str(project.id),
+                    "item_type": "task_brief",
+                    "title": task_title,
+                    "content": task_content,
+                    "summary": task_content[:500],
+                    "source_type": "teacher_brief",
+                    "source_id": str(seeded_document.id),
+                    "visibility": "project",
+                    "confidence_level": "verified",
+                },
+                current_user_id=owner_id,
+                actor_type="teacher",
+            )
 
         project.updated_at = datetime.utcnow()
         await project.save()

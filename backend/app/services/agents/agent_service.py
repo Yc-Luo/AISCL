@@ -235,6 +235,20 @@ class AgentService:
                 project_id=resolved_project_id,
                 query=message,
                 max_results=rag_plan["max_results"],
+                group_id=context.get("group_id") if context else None,
+                stage_id=context.get("current_stage") if context else None,
+                user_id=context.get("user_id") if context else None,
+                actor_type=(
+                    context.get("source_actor_type")
+                    if context and context.get("source_actor_type")
+                    else "ai_assistant"
+                ),
+                room_id=context.get("room_id") if context else None,
+                experiment_version_id=(
+                    context.get("experiment_version_id")
+                    if context
+                    else None
+                ),
             )
         
         merged_context = {

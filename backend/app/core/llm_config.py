@@ -11,6 +11,23 @@ def _is_real_secret(value: Optional[str]) -> bool:
     return bool(value and "•••" not in value and value.strip())
 
 
+def _normalize_provider(value: Optional[str]) -> str:
+    """Normalize provider names entered in the admin panel."""
+    provider = (value or "").strip().lower().replace(" ", "_")
+    aliases = {
+        "siliconflow": "openai_compatible",
+        "openrouter": "openai_compatible",
+        "dashscope": "openai_compatible",
+        "aliyun": "openai_compatible",
+        "qwen": "openai_compatible",
+        "zhipu": "openai_compatible",
+        "moonshot": "openai_compatible",
+        "minimax": "openai_compatible",
+        "openai-compatible": "openai_compatible",
+    }
+    return aliases.get(provider, provider)
+
+
 async def _get_config_value(key: str) -> Optional[str]:
     config = await SystemConfig.find_one(SystemConfig.key == key)
     if not config:
@@ -55,7 +72,7 @@ async def get_llm(temperature: float = 0.7):
             print(f"[LLMConfig] Error fetching custom LLM config: {e}")
 
     # 2. Fallback to default providers based on settings/active_model_id
-    provider = (db_provider or settings.LLM_PROVIDER).lower()
+    provider = _normalize_provider(db_provider or settings.LLM_PROVIDER)
     model_name = None
     
     if use_db_config and active_model_id:
@@ -69,7 +86,7 @@ async def get_llm(temperature: float = 0.7):
     
     print(f"[LLMConfig] Initializing provider: {provider}, model: {model_name or 'default'}")
 
-    if provider in ["openai", "openai_compatible", "openai-compatible", "minimax"]:
+    if provider in ["openai", "openai_compatible"]:
         api_key = db_api_key if use_db_config and _is_real_secret(db_api_key) else settings.OPENAI_API_KEY
         if use_db_config:
             db_key = await SystemConfig.find_one(SystemConfig.key == "llm_key")

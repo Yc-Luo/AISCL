@@ -29,15 +29,6 @@ import {
     DialogFooter
 } from '../../../ui/dialog'
 
-const DEFAULT_MODEL_OPTIONS = [
-    { value: 'MiniMax-M2.7', label: 'MiniMax-M2.7 (MiniMax)' },
-    { value: 'gpt-4o', label: 'GPT-4o (OpenAI)' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o mini (OpenAI)' },
-    { value: 'deepseek-chat', label: 'DeepSeek Chat (DeepSeek)' },
-    { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (DeepSeek)' },
-    { value: 'llama3', label: 'Llama 3 (Ollama)' },
-]
-
 export default function SystemConfig() {
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
@@ -47,7 +38,7 @@ export default function SystemConfig() {
     // Mapping keys to local state for easier UI handling
     const [configValues, setConfigValues] = useState({
         llmProvider: 'openai_compatible',
-        llmKey: 'sk-••••••••••••••••••••••••••••••••',
+        llmKey: '',
         llmBaseUrl: 'https://api.minimaxi.com/v1',
         llmModel: 'gpt-4o',
         embeddingProvider: 'minimax',
@@ -129,6 +120,10 @@ export default function SystemConfig() {
 
     const handleChange = (field: string, value: any) => {
         setConfigValues(prev => ({ ...prev, [field]: value }))
+    }
+
+    const hasConfiguredValue = (value: unknown) => {
+        return typeof value === 'string' && value.trim().length > 0
     }
 
     const handleSave = async () => {
@@ -307,20 +302,15 @@ export default function SystemConfig() {
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                                 <Globe className="w-4 h-4 text-slate-400" />
-                                服务类型
+                                服务提供方 / 调用格式
                             </label>
-                            <select
-                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                            <Input
                                 value={configValues.llmProvider}
                                 onChange={(e) => handleChange('llmProvider', e.target.value)}
-                            >
-                                <option value="openai_compatible">OpenAI 兼容接口（MiniMax/通义/智谱等）</option>
-                                <option value="openai">OpenAI 官方接口</option>
-                                <option value="deepseek">DeepSeek 官方接口</option>
-                                <option value="ollama">Ollama 本地模型</option>
-                            </select>
+                                placeholder="如：openai_compatible、openai、deepseek、ollama"
+                            />
                             <p className="text-xs text-slate-400 leading-relaxed">
-                                MiniMax M2.7 建议选择 OpenAI 兼容接口，并填写 MiniMax 的 Base URL 与 API Key。
+                                SiliconFlow、MiniMax、OpenRouter、通义、智谱等兼容接口建议填写 `openai_compatible`；DeepSeek 官方接口可填写 `deepseek`。
                             </p>
                         </div>
 
@@ -333,9 +323,14 @@ export default function SystemConfig() {
                                 type="password"
                                 value={configValues.llmKey}
                                 onChange={(e) => handleChange('llmKey', e.target.value)}
-                                placeholder="输入 LLM API Key..."
+                                placeholder="如：sk-...；已配置时输入框会显示为密码点"
                             />
-                            <p className="text-xs text-slate-400 leading-relaxed">用于 AITutor 和自动化分析服务的授权密钥。请确保密钥具有足够的配额。</p>
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                用于 AI 导师、多智能体编排和自动化分析服务。当前状态：
+                                <span className={hasConfiguredValue(configValues.llmKey) ? 'text-emerald-600 font-semibold' : 'text-amber-600 font-semibold'}>
+                                    {hasConfiguredValue(configValues.llmKey) ? ' 已填写配置' : ' 尚未填写'}
+                                </span>
+                            </p>
                         </div>
 
                         <div className="space-y-2">
@@ -346,10 +341,10 @@ export default function SystemConfig() {
                             <Input
                                 value={configValues.llmBaseUrl}
                                 onChange={(e) => handleChange('llmBaseUrl', e.target.value)}
-                                placeholder="如：https://api.minimaxi.com/v1"
+                                placeholder="如：https://api.siliconflow.cn/v1 或 https://api.minimaxi.com/v1"
                             />
                             <p className="text-xs text-slate-400 leading-relaxed">
-                                OpenAI 官方接口可留空；兼容接口必须填写对应服务商的 `/v1` 地址。
+                                OpenAI 官方接口可留空；OpenAI 兼容接口请填写服务商 `/v1` 根地址。
                             </p>
                         </div>
 
@@ -358,29 +353,22 @@ export default function SystemConfig() {
                                 <Cpu className="w-4 h-4 text-slate-400" />
                                 默认模型 ID
                             </label>
-                            <select
-                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
-                                value={configValues.llmModel}
-                                onChange={(e) => handleChange('llmModel', e.target.value)}
-                            >
-                                {!DEFAULT_MODEL_OPTIONS.some(option => option.value === configValues.llmModel)
-                                    && !customModels.some(model => model.id === configValues.llmModel)
-                                    && <option value={configValues.llmModel}>{configValues.llmModel}（当前配置）</option>}
-                                {DEFAULT_MODEL_OPTIONS.map(option => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                                {customModels.map(m => (
-                                    <option key={m.id} value={m.id}>{m.name} (自定义)</option>
-                                ))}
-                            </select>
                             <Input
                                 value={configValues.llmModel}
                                 onChange={(e) => handleChange('llmModel', e.target.value)}
-                                placeholder="也可以直接输入服务商要求的模型 ID"
+                                placeholder="如：Qwen/Qwen3-235B-A22B-Instruct-2507、MiniMax-M2.7、deepseek-chat"
                             />
                             <p className="text-xs text-slate-400 leading-relaxed">
-                                如果服务商模型名称没有出现在列表中，可在下方输入框直接填写准确模型 ID。
+                                按服务商控制台显示的模型 ID 原样填写。已配置时输入框会加载当前模型 ID。
                             </p>
+                        </div>
+
+                        <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 text-xs text-indigo-900 space-y-2">
+                            <p className="font-bold">填写示例</p>
+                            <p>SiliconFlow：provider=openai_compatible，Base URL=https://api.siliconflow.cn/v1，model=Qwen/Qwen3-235B-A22B-Instruct-2507。</p>
+                            <p>MiniMax：provider=openai_compatible，Base URL=https://api.minimaxi.com/v1，model=MiniMax-M2.7。</p>
+                            <p>DeepSeek：provider=deepseek，Base URL=https://api.deepseek.com，model=deepseek-chat 或 deepseek-reasoner。</p>
+                            <p className="text-indigo-800/80">如果服务商使用 OpenAI Chat Completions 兼容协议，通常都填写 `openai_compatible`。</p>
                         </div>
                     </div>
                 </div>

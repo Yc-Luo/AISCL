@@ -287,6 +287,26 @@ llm_model=MiniMax-M2.7
 llm_key=你的对话模型 API Key
 ```
 
+SiliconFlow OpenAI 兼容接口示例：
+
+```env
+llm_provider=openai_compatible
+llm_base_url=https://api.siliconflow.cn/v1
+llm_model=Qwen/Qwen3-235B-A22B-Instruct-2507
+llm_key=你的 SiliconFlow API Key
+```
+
+DeepSeek 官方接口示例：
+
+```env
+llm_provider=deepseek
+llm_base_url=https://api.deepseek.com
+llm_model=deepseek-chat
+llm_key=你的 DeepSeek API Key
+```
+
+管理员端的对话模型配置采用自由填写方式。`llm_provider` 用于决定调用协议：OpenAI 兼容服务建议填写 `openai_compatible`；后端也会将 `siliconflow`、`openrouter`、`qwen`、`zhipu`、`moonshot`、`minimax` 等常见别名按 OpenAI 兼容接口处理。
+
 ### 6.2 Embedding 模型
 
 管理员端路径：

@@ -62,6 +62,12 @@ interface DashboardData {
         content: string
         type: 'critical' | 'important' | 'normal' | 'info'
     }>
+    four_c_evidence?: {
+        window_days?: number
+        method?: string
+        group?: Record<string, any>
+        personal?: Record<string, any>
+    }
     stats: {
         total_tasks: number
         completed_tasks: number
@@ -108,6 +114,7 @@ export default function LearningDashboard() {
                     },
                     interaction_network: apiData.interaction_network || { nodes: [], links: [] },
                     learning_suggestions: apiData.learning_suggestions || [],
+                    four_c_evidence: apiData.four_c_evidence,
                     personal_four_c: apiData.personal_four_c ? {
                         communication: apiData.personal_four_c.communication ?? 0,
                         collaboration: apiData.personal_four_c.collaboration ?? 0,
@@ -191,6 +198,13 @@ export default function LearningDashboard() {
             fullMark: 100
         },
     ]
+    const evidenceSource = dashboardData.four_c_evidence?.personal || dashboardData.four_c_evidence?.group
+    const evidenceItems = [
+        { key: 'communication', title: '沟通', color: 'indigo' },
+        { key: 'collaboration', title: '协作', color: 'emerald' },
+        { key: 'critical_thinking', title: '批判性思维', color: 'amber' },
+        { key: 'creativity', title: '创造力', color: 'rose' },
+    ]
 
     return (
         <div className="h-full overflow-y-auto p-6 space-y-6">
@@ -228,7 +242,14 @@ export default function LearningDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* 4C Core Competencies Radar Chart */}
                 <div className="bg-white rounded-lg shadow p-6 h-full">
-                    <h3 className="text-lg font-semibold mb-4">4C 核心能力模型</h3>
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                        <div>
+                            <h3 className="text-lg font-semibold">4C 核心能力模型</h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                                基于近 {dashboardData.four_c_evidence?.window_days || 7} 天真实协作过程数据生成，绿色为个人水平，紫色为小组平均。
+                            </p>
+                        </div>
+                    </div>
                     <ResponsiveContainer width="100%" height={260}>
                         <RadarChart data={radarData}>
                             <PolarGrid stroke="#e2e8f0" />
@@ -365,6 +386,43 @@ export default function LearningDashboard() {
                 {/* Interaction Network */}
                 <InteractionNetwork data={dashboardData.interaction_network} />
             </div>
+
+            {evidenceSource && (
+                <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex items-start justify-between gap-4 mb-5">
+                        <div>
+                            <h3 className="text-lg font-semibold">4C 分数依据</h3>
+                            <p className="text-sm text-slate-500 mt-1">
+                                {dashboardData.four_c_evidence?.method || '分数由系统记录的真实学习行为加权生成。'}
+                            </p>
+                        </div>
+                        <div className="text-xs text-slate-400 whitespace-nowrap">展示个人证据；无个人数据时回退小组证据</div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        {evidenceItems.map((item) => {
+                            const evidence = evidenceSource[item.key]
+                            if (!evidence) return null
+                            return (
+                                <div key={item.key} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="font-semibold text-slate-800">{item.title}</div>
+                                        <div className="text-lg font-bold text-slate-900">{Math.round(evidence.score || 0)}</div>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-2 leading-relaxed min-h-[48px]">{evidence.basis}</p>
+                                    <div className="mt-3 space-y-2">
+                                        {Object.entries(evidence.counts || {}).map(([label, value]) => (
+                                            <div key={label} className="flex items-center justify-between gap-2 text-xs">
+                                                <span className="text-slate-500 truncate">{label}</span>
+                                                <span className="font-semibold text-slate-800">{String(value)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* Learning Suggestions */}
             <LearningSuggestions suggestions={dashboardData.learning_suggestions} />

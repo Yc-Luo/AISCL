@@ -29,6 +29,22 @@ export interface Config {
     updated_at?: string
 }
 
+export interface ModelConfigTestResult {
+    success: boolean
+    service: 'llm' | 'embedding'
+    latency_ms?: number
+    response_preview?: string
+    vector_dimensions?: number
+    error?: string
+    config?: {
+        provider?: string
+        base_url?: string
+        model?: string
+        has_key?: boolean
+        configured_dimensions?: string
+    }
+}
+
 export interface ActivityLog {
     id: string
     project_id: string
@@ -82,6 +98,16 @@ export const adminService = {
 
     updateConfig: async (key: string, value: string, description?: string): Promise<Config> => {
         const response = await api.put(API_ENDPOINTS.ADMIN.CONFIG_DETAIL(key), { value, description })
+        return response.data
+    },
+
+    testLLMConfig: async (): Promise<ModelConfigTestResult> => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.TEST_LLM_CONFIG)
+        return response.data
+    },
+
+    testEmbeddingConfig: async (): Promise<ModelConfigTestResult> => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.TEST_EMBEDDING_CONFIG)
         return response.data
     },
 

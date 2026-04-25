@@ -324,6 +324,7 @@ class AIService:
         context: Optional[dict] = None,
         system_message_override: Optional[str] = None,
         category: str = "chat",
+        message_metadata: Optional[dict] = None,
     ) -> AsyncIterator[str]:
         """Streaming chat with AI.
 
@@ -416,6 +417,7 @@ class AIService:
             role="assistant",
             content=full_response,
             citations=context.get("citations", []) if context else [],
+            metadata=message_metadata,
         )
         await ai_message.insert()
 

@@ -20,6 +20,7 @@ ROLE_MENTION_MAP = {
 GENERAL_AI_MENTIONS = {
     "@AISCL",
     "@AI",
+    "@AI智能助手",
     "@智能助手",
     "@智能体",
     "@智能导师",
@@ -146,6 +147,8 @@ def _extract_routing_context(project: object, content: str) -> dict:
         "project_id": str(getattr(project, "id", "")) if project else None,
         "experiment_version_id": experiment_version.get("version_name") or experiment_version.get("name"),
         "current_stage": experiment_version.get("current_stage"),
+        "ai_scaffold_mode": experiment_version.get("ai_scaffold_mode"),
+        "process_scaffold_mode": experiment_version.get("process_scaffold_mode"),
         "enabled_scaffold_roles": enabled_roles,
         "enabled_subagents": enabled_subagents,
         "preferred_subagent": _detect_preferred_subagent(content),
@@ -427,6 +430,9 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
     try:
         from app.services.agents.agent_service import agent_service
         from app.services.agents.deep_agents_shim import derive_routing_decision_from_context
+        from app.services.ai_service import ai_service
+        from app.services.rag_service import rag_service
+        from app.repositories.project import Project
         from app.repositories.chat_log import ChatLog
         from app.services.activity_service import activity_service
         
@@ -441,6 +447,9 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
         # Accumulate response
         full_response = ""
         displayed_response = ""
+        project = await Project.get(project_id)
+        experiment_version = getattr(project, "experiment_version", None) or {}
+        ai_scaffold_mode = experiment_version.get("ai_scaffold_mode") or (routing_context or {}).get("ai_scaffold_mode")
         # Using project_id as session_id for continuity within the project
         graph_context = {
             **(routing_context or {}),
@@ -448,18 +457,19 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
             "room_id": room_id,
             "source_actor_type": "ai_assistant",
         }
-        routing_decision = derive_routing_decision_from_context(
-            subagents=agent_service._get_research_subagents(),
-            context=graph_context,
-        )
-        ai_meta = _build_group_ai_meta(
-            routing_decision.get("selected_subagent"),
-            routing_decision,
-        )
         ai_user_id = "ai_assistant"
         message_id = str(uuid.uuid4())
         message_timestamp = _utc_iso_timestamp()
         last_emit_time = 0.0
+        routing_decision = {}
+        ai_meta = {
+            "primary_agent": "AI智能助手",
+            "rationale_summary": "当前班级采用单 AI 模式，本轮由通用 AI 助手直接回应。",
+            "routing_summary": [
+                "AI模式：单AI直接回复",
+                "编排方式：不经过多智能体 graph 路由",
+            ],
+        }
 
         async def emit_partial(content: str) -> None:
             response_op = {
@@ -483,27 +493,76 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
             }
             await sio.emit("operation", response_op, room=room_id)
 
-        async for chunk in agent_service.chat_stream(
-            persona_key="supervisor", # Entry point
-            message=user_content,
-            session_id=session_id,
-            context=graph_context,
-        ):
-            full_response += chunk
-            candidate_display = _sanitize_stream_display_content(full_response)
-            now = time.monotonic()
-            should_emit = (
-                candidate_display
-                and candidate_display != displayed_response
-                and (
-                    now - last_emit_time >= 0.12
-                    or any(mark in chunk for mark in ("\n", "。", "！", "？", ".", "!", "?"))
+        if ai_scaffold_mode == "single_agent":
+            context = None
+            try:
+                context = await rag_service.retrieve_context(
+                    project_id,
+                    user_content,
+                    max_results=3,
+                    group_id=room_id,
+                    stage_id=experiment_version.get("current_stage"),
+                    actor_type="ai_assistant",
                 )
+            except Exception as exc:
+                logger.warning("Group chat single-AI RAG unavailable: %s", exc)
+
+            async for chunk in ai_service.chat_stream(
+                project_id=project_id,
+                user_id=ai_user_id,
+                message=user_content,
+                role_id=None,
+                conversation_id=None,
+                context=context,
+                category="group_chat",
+                message_metadata={"ai_meta": ai_meta},
+            ):
+                full_response += chunk
+                candidate_display = _sanitize_stream_display_content(full_response)
+                now = time.monotonic()
+                should_emit = (
+                    candidate_display
+                    and candidate_display != displayed_response
+                    and (
+                        now - last_emit_time >= 0.12
+                        or any(mark in chunk for mark in ("\n", "。", "！", "？", ".", "!", "?"))
+                    )
+                )
+                if should_emit:
+                    displayed_response = candidate_display
+                    last_emit_time = now
+                    await emit_partial(displayed_response)
+        else:
+            routing_decision = derive_routing_decision_from_context(
+                subagents=agent_service._get_research_subagents(),
+                context=graph_context,
+            ) or {}
+            ai_meta = _build_group_ai_meta(
+                routing_decision.get("selected_subagent"),
+                routing_decision,
             )
-            if should_emit:
-                displayed_response = candidate_display
-                last_emit_time = now
-                await emit_partial(displayed_response)
+
+            async for chunk in agent_service.chat_stream(
+                persona_key="supervisor", # Entry point
+                message=user_content,
+                session_id=session_id,
+                context=graph_context,
+            ):
+                full_response += chunk
+                candidate_display = _sanitize_stream_display_content(full_response)
+                now = time.monotonic()
+                should_emit = (
+                    candidate_display
+                    and candidate_display != displayed_response
+                    and (
+                        now - last_emit_time >= 0.12
+                        or any(mark in chunk for mark in ("\n", "。", "！", "？", ".", "!", "?"))
+                    )
+                )
+                if should_emit:
+                    displayed_response = candidate_display
+                    last_emit_time = now
+                    await emit_partial(displayed_response)
 
         final_response = _sanitize_stream_display_content(full_response)
 

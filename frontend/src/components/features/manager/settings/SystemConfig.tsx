@@ -34,6 +34,10 @@ export default function SystemConfig() {
     const [isSaving, setIsSaving] = useState(false)
     const [isSavingLLM, setIsSavingLLM] = useState(false)
     const [isSavingEmbedding, setIsSavingEmbedding] = useState(false)
+    const [isTestingLLM, setIsTestingLLM] = useState(false)
+    const [isTestingEmbedding, setIsTestingEmbedding] = useState(false)
+    const [llmTestResult, setLlmTestResult] = useState<any>(null)
+    const [embeddingTestResult, setEmbeddingTestResult] = useState<any>(null)
 
     // Mapping keys to local state for easier UI handling
     const [configValues, setConfigValues] = useState({
@@ -124,6 +128,92 @@ export default function SystemConfig() {
 
     const hasConfiguredValue = (value: unknown) => {
         return typeof value === 'string' && value.trim().length > 0
+    }
+
+    const formatTestSummary = (result: any) => {
+        if (!result) return ''
+        if (result.success) {
+            if (result.service === 'embedding') {
+                return `测试成功，返回 ${result.vector_dimensions ?? '-'} 维向量，耗时 ${result.latency_ms ?? '-'} ms。`
+            }
+            return `测试成功，模型返回 ${result.response_preview || '有效响应'}，耗时 ${result.latency_ms ?? '-'} ms。`
+        }
+        return `测试失败：${result.error || '未知错误'}`
+    }
+
+    const renderTestResult = (result: any) => {
+        if (!result) return null
+        return (
+            <div className={`rounded-xl border p-3 text-xs leading-relaxed ${result.success
+                ? 'border-emerald-100 bg-emerald-50 text-emerald-800'
+                : 'border-rose-100 bg-rose-50 text-rose-800'
+                }`}>
+                <div className="flex items-center gap-2 font-bold">
+                    {result.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                    {result.success ? '连通性测试通过' : '连通性测试未通过'}
+                </div>
+                <p className="mt-1">{formatTestSummary(result)}</p>
+                <p className="mt-1 opacity-80">
+                    当前测试配置：provider={result.config?.provider || '-'}，model={result.config?.model || '-'}，base_url={result.config?.base_url || '-'}。
+                </p>
+            </div>
+        )
+    }
+
+    const handleTestLLM = async () => {
+        try {
+            setIsTestingLLM(true)
+            setIsSavingLLM(true)
+            setLlmTestResult(null)
+            await Promise.all([
+                adminService.updateConfig('llm_provider', configValues.llmProvider, 'LLM provider type'),
+                adminService.updateConfig('llm_key', configValues.llmKey, 'LLM API Authorization Key'),
+                adminService.updateConfig('llm_base_url', configValues.llmBaseUrl, 'LLM API base URL'),
+                adminService.updateConfig('llm_model', configValues.llmModel, 'Default LLM model'),
+                adminService.updateConfig('user_custom_models', JSON.stringify(customModels), 'User defined LLM models'),
+            ])
+            const result = await adminService.testLLMConfig()
+            setLlmTestResult(result)
+        } catch (error: any) {
+            console.error('Failed to test LLM config:', error)
+            setLlmTestResult({
+                success: false,
+                service: 'llm',
+                error: error?.response?.data?.detail || error?.message || '请求测试接口失败'
+            })
+        } finally {
+            setIsTestingLLM(false)
+            setIsSavingLLM(false)
+        }
+    }
+
+    const handleTestEmbedding = async () => {
+        try {
+            setIsTestingEmbedding(true)
+            setIsSavingEmbedding(true)
+            setEmbeddingTestResult(null)
+            await Promise.all([
+                adminService.updateConfig('embedding_provider', configValues.embeddingProvider, 'Embedding provider type for RAG and Wiki retrieval'),
+                adminService.updateConfig('embedding_key', configValues.embeddingKey, 'Embedding API Authorization Key'),
+                adminService.updateConfig('embedding_base_url', configValues.embeddingBaseUrl, 'Embedding API base URL'),
+                adminService.updateConfig('embedding_model', configValues.embeddingModel, 'Embedding model ID'),
+                adminService.updateConfig('embedding_type', configValues.embeddingType, 'Embedding request type or purpose'),
+                adminService.updateConfig('embedding_group_id', configValues.embeddingGroupId, 'MiniMax embedding group id'),
+                adminService.updateConfig('embedding_dimensions', configValues.embeddingDimensions, 'Embedding vector dimensions'),
+            ])
+            const result = await adminService.testEmbeddingConfig()
+            setEmbeddingTestResult(result)
+        } catch (error: any) {
+            console.error('Failed to test embedding config:', error)
+            setEmbeddingTestResult({
+                success: false,
+                service: 'embedding',
+                error: error?.response?.data?.detail || error?.message || '请求测试接口失败'
+            })
+        } finally {
+            setIsTestingEmbedding(false)
+            setIsSavingEmbedding(false)
+        }
     }
 
     const handleSave = async () => {
@@ -286,16 +376,28 @@ export default function SystemConfig() {
                             <ShieldCheck className="w-5 h-5 text-indigo-600" />
                             对话模型服务 (Chat LLM)
                         </h3>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 gap-1.5 font-bold"
-                            onClick={handleSaveLLM}
-                            disabled={isSavingLLM}
-                        >
-                            {isSavingLLM ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            同步配置
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-slate-600 border-slate-200 hover:bg-slate-50 gap-1.5 font-bold"
+                                onClick={handleTestLLM}
+                                disabled={isTestingLLM || isSavingLLM}
+                            >
+                                {isTestingLLM ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                保存并测试
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 gap-1.5 font-bold"
+                                onClick={handleSaveLLM}
+                                disabled={isSavingLLM}
+                            >
+                                {isSavingLLM ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                同步配置
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="space-y-4">
@@ -370,6 +472,7 @@ export default function SystemConfig() {
                             <p>DeepSeek：provider=deepseek，Base URL=https://api.deepseek.com，model=deepseek-chat 或 deepseek-reasoner。</p>
                             <p className="text-indigo-800/80">如果服务商使用 OpenAI Chat Completions 兼容协议，通常都填写 `openai_compatible`。</p>
                         </div>
+                        {renderTestResult(llmTestResult)}
                     </div>
                 </div>
 
@@ -380,16 +483,28 @@ export default function SystemConfig() {
                             <Cpu className="w-5 h-5 text-emerald-600" />
                             向量模型服务 (Embedding)
                         </h3>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 gap-1.5 font-bold"
-                            onClick={handleSaveEmbedding}
-                            disabled={isSavingEmbedding}
-                        >
-                            {isSavingEmbedding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            同步配置
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-slate-600 border-slate-200 hover:bg-slate-50 gap-1.5 font-bold"
+                                onClick={handleTestEmbedding}
+                                disabled={isTestingEmbedding || isSavingEmbedding}
+                            >
+                                {isTestingEmbedding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                保存并测试
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 gap-1.5 font-bold"
+                                onClick={handleSaveEmbedding}
+                                disabled={isSavingEmbedding}
+                            >
+                                {isSavingEmbedding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                同步配置
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="space-y-4">
@@ -503,6 +618,7 @@ export default function SystemConfig() {
                             <p>SiliconFlow Qwen3 示例：provider=openai_compatible，Base URL=https://api.siliconflow.cn/v1，model=Qwen/Qwen3-Embedding-4B，dimensions=1024 或 1536。</p>
                             <p className="text-emerald-800/80">注意：更换向量模型时，向量维度必须与 Qdrant collection 的维度一致；如维度不同，需要重建向量集合。</p>
                         </div>
+                        {renderTestResult(embeddingTestResult)}
                     </div>
                 </div>
 

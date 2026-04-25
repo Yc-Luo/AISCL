@@ -17,7 +17,8 @@ import {
     FileText,
     Upload,
     Search,
-    Loader2
+    Loader2,
+    Users
 } from 'lucide-react'
 import { projectService } from '../../../../services/api/project'
 import { storageService } from '../../../../services/api/storage'
@@ -52,6 +53,8 @@ export default function ProjectEditModal({
 
     // Members state
     const [members, setMembers] = useState<User[]>([])
+    const [courseStudents, setCourseStudents] = useState<User[]>([])
+    const [loadingCourseStudents, setLoadingCourseStudents] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
     const [searchResults, setSearchResults] = useState<User[]>([])
     const [searching, setSearching] = useState(false)
@@ -99,6 +102,34 @@ export default function ProjectEditModal({
         }
     }, [project, isOpen])
 
+    useEffect(() => {
+        if (!isOpen || !formData.course_id) {
+            setCourseStudents([])
+            return
+        }
+
+        let cancelled = false
+        const fetchCourseStudents = async () => {
+            setLoadingCourseStudents(true)
+            try {
+                const students = await courseService.getCourseStudents(formData.course_id)
+                if (!cancelled) {
+                    setCourseStudents(students as User[])
+                }
+            } catch (error) {
+                console.error('Failed to fetch course students:', error)
+                if (!cancelled) setCourseStudents([])
+            } finally {
+                if (!cancelled) setLoadingCourseStudents(false)
+            }
+        }
+
+        fetchCourseStudents()
+        return () => {
+            cancelled = true
+        }
+    }, [formData.course_id, isOpen])
+
     const fetchResources = async (id: string) => {
         try {
             const data = await storageService.getResources(id)
@@ -126,8 +157,11 @@ export default function ProjectEditModal({
         }
         setSearching(true)
         try {
-            // Search all students by default
-            const users = await userService.searchUsers({ search: val, role: 'student' })
+            const users = await userService.searchUsers({
+                search: val,
+                role: 'student',
+                class_id: formData.course_id || undefined,
+            })
             setSearchResults(users.filter(u => !members.find(m => m.id === u.id)))
         } catch (error) {
             console.error('Search failed:', error)
@@ -137,6 +171,7 @@ export default function ProjectEditModal({
     }
 
     const addMember = (user: User) => {
+        if (members.some((member) => member.id === user.id)) return
         setMembers([...members, user])
         setSearchTerm('')
         setSearchResults([])
@@ -179,6 +214,14 @@ export default function ProjectEditModal({
         } finally {
             setUploading(false)
         }
+    }
+
+    const toggleCourseStudent = (student: User) => {
+        if (members.some((member) => member.id === student.id)) {
+            removeMember(student.id)
+            return
+        }
+        addMember(student)
     }
 
     const handleDeleteResource = async (resId: string) => {
@@ -278,7 +321,12 @@ export default function ProjectEditModal({
                                     <label className="text-sm font-medium text-slate-700">所属班级（可选）</label>
                                     <select
                                         value={formData.course_id}
-                                        onChange={(e) => setFormData({ ...formData, course_id: e.target.value })}
+                                        onChange={(e) => {
+                                            setFormData({ ...formData, course_id: e.target.value })
+                                            setSearchTerm('')
+                                            setSearchResults([])
+                                            setMembers([])
+                                        }}
                                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
                                     >
                                         <option value="">不绑定班级</option>
@@ -312,11 +360,67 @@ export default function ProjectEditModal({
                             <label className="text-sm font-medium text-slate-700">小组成员 ({members.length})</label>
                         </div>
 
+                        {formData.course_id && (
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                                        <Users className="h-3.5 w-3.5 text-indigo-500" />
+                                        从所选班级选择学生
+                                    </div>
+                                    {courseStudents.length > 0 && (
+                                        <span className="text-[11px] text-slate-400">{courseStudents.length} 名学生</span>
+                                    )}
+                                </div>
+                                {loadingCourseStudents ? (
+                                    <div className="flex items-center gap-2 py-2 text-xs text-slate-400">
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        正在加载班级学生...
+                                    </div>
+                                ) : courseStudents.length > 0 ? (
+                                    <div className="max-h-44 overflow-y-auto rounded-lg bg-white p-2">
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                            {courseStudents.map((student) => {
+                                                const selected = members.some((member) => member.id === student.id)
+                                                return (
+                                                    <button
+                                                        key={student.id}
+                                                        type="button"
+                                                        onClick={() => toggleCourseStudent(student)}
+                                                        className={cn(
+                                                            "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                                                            selected
+                                                                ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                                                                : "border-slate-100 bg-white text-slate-600 hover:border-indigo-100 hover:bg-indigo-50/60"
+                                                        )}
+                                                    >
+                                                        <span className="min-w-0 truncate">
+                                                            {student.username}
+                                                            <span className="ml-1 text-slate-400">({student.email})</span>
+                                                        </span>
+                                                        <span className={cn(
+                                                            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                                            selected ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400"
+                                                        )}>
+                                                            {selected ? '已选' : '选择'}
+                                                        </span>
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="rounded-lg bg-white px-3 py-2 text-xs text-slate-400">
+                                        当前班级暂无学生，请先通过邀请码或批量导入加入学生。
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         <div className="relative">
                             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                             <Input
                                 className="pl-9"
-                                placeholder="搜索并添加学生..."
+                                placeholder={formData.course_id ? "在当前班级内搜索学生..." : "搜索并添加学生..."}
                                 value={searchTerm}
                                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearchUsers(e.target.value)}
                             />
@@ -435,7 +539,7 @@ export default function ProjectEditModal({
                     <Button
                         className="bg-indigo-600 hover:bg-indigo-700 text-white"
                         onClick={handleSubmit}
-                        disabled={loading || !formData.name.trim()}
+                        disabled={loading || !formData.name.trim() || (!isEdit && members.length === 0)}
                     >
                         {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                         {isEdit ? '保存修改' : '立即创建'}

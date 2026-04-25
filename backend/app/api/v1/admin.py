@@ -1,7 +1,8 @@
 """Admin API routes for system management."""
 
 from datetime import datetime, timedelta
-from typing import List, Optional
+from time import perf_counter
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -29,8 +30,39 @@ from app.repositories.project import Project
 from app.repositories.resource import Resource
 from app.repositories.activity_log import ActivityLog
 from app.services.auth_service import get_password_hash
+from app.core.llm_config import get_llm
+from app.services.embedding_service import embedding_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+async def _require_admin(current_user: User) -> None:
+    """Guard endpoints that must only be available to system administrators."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin only",
+        )
+
+
+def _safe_config_summary(configs: Dict[str, Optional[str]], prefix: str) -> Dict[str, Any]:
+    """Return non-secret config fields for test responses."""
+    return {
+        "provider": configs.get(f"{prefix}_provider"),
+        "base_url": configs.get(f"{prefix}_base_url"),
+        "model": configs.get(f"{prefix}_model"),
+        "has_key": bool(configs.get(f"{prefix}_key")),
+    }
+
+
+async def _get_config_map(keys: List[str]) -> Dict[str, Optional[str]]:
+    """Read selected system config values."""
+    result: Dict[str, Optional[str]] = {}
+    for key in keys:
+        config = await SystemConfig.find_one(SystemConfig.key == key)
+        value = config.value if config else None
+        result[key] = value.strip() if isinstance(value, str) else value
+    return result
 
 
 @router.get("/system-configs", response_model=List[SystemConfigResponse])
@@ -96,6 +128,100 @@ async def update_system_config(
         updated_by=config.updated_by,
         updated_at=config.updated_at,
     )
+
+
+@router.post("/system-configs/test-llm")
+async def test_llm_config(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Test the currently active dialogue LLM configuration without exposing secrets."""
+    await _require_admin(current_user)
+
+    configs = await _get_config_map(["llm_provider", "llm_base_url", "llm_model", "llm_key"])
+    started_at = perf_counter()
+
+    try:
+        llm = await get_llm(temperature=0)
+        response = await llm.ainvoke("请只回复：AISCL_OK")
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        content = response.content if hasattr(response, "content") else str(response)
+
+        return {
+            "success": True,
+            "service": "llm",
+            "latency_ms": elapsed_ms,
+            "response_preview": content[:120],
+            "config": _safe_config_summary(configs, "llm"),
+        }
+    except Exception as exc:
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        return {
+            "success": False,
+            "service": "llm",
+            "latency_ms": elapsed_ms,
+            "error": str(exc),
+            "config": _safe_config_summary(configs, "llm"),
+        }
+
+
+@router.post("/system-configs/test-embedding")
+async def test_embedding_config(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Test the currently active embedding configuration without exposing secrets."""
+    await _require_admin(current_user)
+
+    configs = await _get_config_map(
+        [
+            "embedding_provider",
+            "embedding_base_url",
+            "embedding_model",
+            "embedding_key",
+            "embedding_dimensions",
+        ]
+    )
+    started_at = perf_counter()
+
+    try:
+        vector = await embedding_service.embed_text(
+            "AISCL embedding connectivity test",
+            purpose="query",
+        )
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        if not vector:
+            return {
+                "success": False,
+                "service": "embedding",
+                "latency_ms": elapsed_ms,
+                "error": "未返回向量。请检查 RAG_VECTOR_ENABLED、API Key、Base URL、模型 ID 和向量维度配置。",
+                "config": {
+                    **_safe_config_summary(configs, "embedding"),
+                    "configured_dimensions": configs.get("embedding_dimensions"),
+                },
+            }
+
+        return {
+            "success": True,
+            "service": "embedding",
+            "latency_ms": elapsed_ms,
+            "vector_dimensions": len(vector),
+            "config": {
+                **_safe_config_summary(configs, "embedding"),
+                "configured_dimensions": configs.get("embedding_dimensions"),
+            },
+        }
+    except Exception as exc:
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        return {
+            "success": False,
+            "service": "embedding",
+            "latency_ms": elapsed_ms,
+            "error": str(exc),
+            "config": {
+                **_safe_config_summary(configs, "embedding"),
+                "configured_dimensions": configs.get("embedding_dimensions"),
+            },
+        }
 
 
 @router.get("/system-logs", response_model=SystemLogListResponse)

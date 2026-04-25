@@ -1,5 +1,6 @@
 """Analytics service for aggregating behavior data and calculating metrics."""
 
+from collections import Counter
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
 
@@ -203,6 +204,12 @@ class AnalyticsService:
 
         process_results(activity_results)
         process_results(behavior_results)
+        await cls._ensure_four_c_participant_keys(
+            user_activity_map,
+            project_id=project_id,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+        )
 
         # Calculate 4C Core Competencies
         stats_records = []
@@ -219,19 +226,14 @@ class AnalyticsService:
                 "activity_breakdown": {}
             })
             
-            # Calculate 4C scores (simplified version)
-            communication_score = await cls._calculate_communication_score(
+            # Calculate 4C scores from traceable collaboration evidence.
+            four_c_scores = await cls._calculate_four_c_scores(
                 project_id, user_id, start_datetime, end_datetime
             )
-            collaboration_score = await cls._calculate_collaboration_score(
-                project_id, user_id, start_datetime, end_datetime
-            )
-            critical_thinking_score = await cls._calculate_critical_thinking_score(
-                project_id, user_id, start_datetime, end_datetime
-            )
-            creativity_score = await cls._calculate_creativity_score(
-                project_id, user_id, start_datetime, end_datetime
-            )
+            communication_score = four_c_scores["communication"]
+            collaboration_score = four_c_scores["collaboration"]
+            critical_thinking_score = four_c_scores["critical_thinking"]
+            creativity_score = four_c_scores["creativity"]
 
             # Get active minutes
             active_minutes = active_minutes_map.get(key, 0)
@@ -277,6 +279,432 @@ class AnalyticsService:
 
         return len(stats_records)
 
+    @staticmethod
+    def _scale_count(value: float, target: float) -> float:
+        """Normalize an observed behavior count to a 0-100 score."""
+        if target <= 0:
+            return 0.0
+        return min(100.0, max(0.0, (value / target) * 100.0))
+
+    @staticmethod
+    def _weighted_score(components: List[tuple[float, float]]) -> float:
+        """Blend normalized components into a bounded score."""
+        return round(min(100.0, sum(score * weight for score, weight in components)), 1)
+
+    @classmethod
+    async def _ensure_four_c_participant_keys(
+        cls,
+        user_activity_map: Dict[str, Dict[str, Any]],
+        *,
+        project_id: Optional[str],
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ) -> None:
+        """Include users who only appear in chat/research traces in daily 4C aggregation."""
+        from app.core.db.mongodb import mongodb
+
+        db = mongodb.get_database()
+
+        def ensure(project_id_value: Optional[str], user_id_value: Optional[str]) -> None:
+            if not project_id_value or not user_id_value:
+                return
+            key = f"{project_id_value}:{user_id_value}"
+            if key not in user_activity_map:
+                user_activity_map[key] = {
+                    "project_id": project_id_value,
+                    "user_id": user_id_value,
+                    "activity_breakdown": {},
+                    "activity_score": 0.0,
+                }
+
+        async def add_grouped_users(
+            collection_name: str,
+            time_field: str,
+            user_field: str = "user_id",
+            project_field: str = "project_id",
+            extra_match: Optional[Dict[str, Any]] = None,
+        ) -> None:
+            match: Dict[str, Any] = {
+                time_field: {"$gte": start_datetime, "$lte": end_datetime},
+                user_field: {"$nin": [None, ""]},
+            }
+            if project_id:
+                match[project_field] = project_id
+            if extra_match:
+                match.update(extra_match)
+
+            rows = await db[collection_name].aggregate(
+                [
+                    {"$match": match},
+                    {
+                        "$group": {
+                            "_id": {
+                                "project_id": f"${project_field}",
+                                "user_id": f"${user_field}",
+                            }
+                        }
+                    },
+                ]
+            ).to_list(length=None)
+            for row in rows:
+                group_id = row.get("_id") or {}
+                ensure(group_id.get("project_id"), group_id.get("user_id"))
+
+        await add_grouped_users("chat_logs", "created_at", extra_match={"message_type": "text"})
+        await add_grouped_users("research_events", "event_time")
+        await add_grouped_users("documents", "updated_at", user_field="last_modified_by")
+
+    @classmethod
+    async def _collect_four_c_observations(
+        cls,
+        project_id: str,
+        user_id: Optional[str],
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ) -> Dict[str, Any]:
+        """Collect real collaboration traces used by the 4C scoring model."""
+        from app.core.db.mongodb import mongodb
+
+        db = mongodb.get_database()
+        time_range = {"$gte": start_datetime, "$lte": end_datetime}
+
+        user_filter: Dict[str, Any] = {}
+        if user_id:
+            user_filter["user_id"] = user_id
+
+        chat_query: Dict[str, Any] = {
+            "project_id": project_id,
+            "message_type": "text",
+            "created_at": time_range,
+            **user_filter,
+        }
+        chat_count = await db["chat_logs"].count_documents(chat_query)
+
+        event_query: Dict[str, Any] = {
+            "project_id": project_id,
+            "event_time": time_range,
+        }
+        if user_id:
+            event_query["user_id"] = user_id
+
+        events = await db["research_events"].find(
+            event_query,
+            {
+                "event_type": 1,
+                "event_domain": 1,
+                "payload": 1,
+            },
+        ).to_list(length=None)
+
+        event_counts: Counter[str] = Counter()
+        node_type_counts: Counter[str] = Counter()
+        ai_mention_count = 0
+        long_message_count = 0
+        for event in events:
+            event_type = event.get("event_type")
+            if event_type:
+                event_counts[event_type] += 1
+            payload = event.get("payload") or {}
+            if payload.get("contains_ai_mention"):
+                ai_mention_count += 1
+            message_length = payload.get("message_length")
+            if isinstance(message_length, (int, float)) and message_length >= 80:
+                long_message_count += 1
+            node_type = payload.get("node_type") or payload.get("to_type")
+            if node_type:
+                node_type_counts[str(node_type)] += 1
+
+        project_docs = await db["documents"].find(
+            {"project_id": project_id},
+            {"_id": 1},
+        ).to_list(length=None)
+        doc_ids = [str(doc["_id"]) for doc in project_docs]
+
+        comment_count = 0
+        long_comment_count = 0
+        if doc_ids:
+            comment_query: Dict[str, Any] = {
+                "document_id": {"$in": doc_ids},
+                "created_at": time_range,
+            }
+            if user_id:
+                comment_query["created_by"] = user_id
+            comments = await db["doc_comments"].find(comment_query).to_list(length=None)
+            comment_count = len(comments)
+            for comment in comments:
+                messages = comment.get("messages") or []
+                content_length = sum(len(str(message.get("content", ""))) for message in messages)
+                if content_length >= 80:
+                    long_comment_count += 1
+
+        activity_query: Dict[str, Any] = {
+            "project_id": project_id,
+            "timestamp": time_range,
+        }
+        if user_id:
+            activity_query["user_id"] = user_id
+        activity_rows = await db["activity_logs"].find(
+            activity_query,
+            {"module": 1, "action": 1},
+        ).to_list(length=None)
+        activity_counts: Counter[str] = Counter(
+            f"{row.get('module')}:{row.get('action')}" for row in activity_rows
+        )
+
+        document_create_query: Dict[str, Any] = {
+            "project_id": project_id,
+            "created_at": time_range,
+        }
+        document_update_query: Dict[str, Any] = {
+            "project_id": project_id,
+            "updated_at": time_range,
+        }
+        if user_id:
+            document_create_query["last_modified_by"] = user_id
+            document_update_query["last_modified_by"] = user_id
+        document_creations = await db["documents"].count_documents(document_create_query)
+        document_updates = await db["documents"].count_documents(document_update_query)
+
+        ai_query_count = 0
+        conv_query: Dict[str, Any] = {"project_id": project_id}
+        if user_id:
+            conv_query["user_id"] = user_id
+        conversations = await db["ai_conversations"].find(conv_query, {"_id": 1}).to_list(length=None)
+        conversation_ids = [str(conv["_id"]) for conv in conversations]
+        if conversation_ids:
+            ai_query_count = await db["ai_messages"].count_documents(
+                {
+                    "conversation_id": {"$in": conversation_ids},
+                    "role": "user",
+                    "created_at": time_range,
+                }
+            )
+
+        peer_message_events = event_counts.get("peer_message_send", 0)
+        interaction_messages = max(chat_count, peer_message_events)
+        annotation_events = (
+            event_counts.get("shared_record_annotation_create", 0)
+            + event_counts.get("shared_record_annotation_reply", 0)
+        )
+        shared_record_commits = event_counts.get("shared_record_content_commit", 0)
+        inquiry_nodes = event_counts.get("node_add", 0)
+        inquiry_edges = event_counts.get("edge_add", 0)
+        inquiry_revisions = event_counts.get("node_content_commit", 0)
+        evidence_events = (
+            event_counts.get("evidence_source_bind", 0)
+            + event_counts.get("evidence_source_open", 0)
+            + event_counts.get("citation_attached", 0)
+        )
+        counter_argument_events = (
+            node_type_counts.get("counter-argument", 0)
+            + node_type_counts.get("counter_argument", 0)
+            + node_type_counts.get("challenge", 0)
+        )
+        idea_nodes = (
+            node_type_counts.get("idea", 0)
+            + node_type_counts.get("claim", 0)
+            + node_type_counts.get("question", 0)
+            + node_type_counts.get("solution", 0)
+        )
+        resource_actions = sum(
+            count
+            for key, count in activity_counts.items()
+            if key.startswith("resource:") or key.startswith("resources:")
+        )
+        task_actions = sum(
+            count
+            for key, count in activity_counts.items()
+            if key.startswith("task:")
+        )
+        whiteboard_actions = sum(
+            count
+            for key, count in activity_counts.items()
+            if key.startswith("whiteboard:")
+        )
+        document_activity = sum(
+            count
+            for key, count in activity_counts.items()
+            if key.startswith("document:")
+        )
+        wiki_actions = (
+            event_counts.get("wiki_item_created", 0)
+            + event_counts.get("wiki_item_updated", 0)
+            + event_counts.get("wiki_item_quoted", 0)
+        )
+        scaffold_accepts = event_counts.get("scaffold_rule_recommendation_accept", 0)
+        stage_transitions = (
+            event_counts.get("learning_stage_enter", 0)
+            + event_counts.get("learning_stage_transition", 0)
+        )
+        rag_events = (
+            event_counts.get("retrieval_requested", 0)
+            + event_counts.get("citation_attached", 0)
+        )
+        artifact_diversity = sum(
+            1
+            for value in [
+                document_creations,
+                inquiry_nodes,
+                resource_actions,
+                wiki_actions,
+                whiteboard_actions,
+            ]
+            if value > 0
+        )
+
+        counts = {
+            "chat_messages": interaction_messages,
+            "document_comments": comment_count,
+            "annotation_events": annotation_events,
+            "ai_mentions": ai_mention_count + ai_query_count,
+            "shared_record_commits": shared_record_commits,
+            "document_activity": document_activity + document_updates,
+            "inquiry_nodes": inquiry_nodes,
+            "inquiry_edges": inquiry_edges,
+            "resource_actions": resource_actions,
+            "task_actions": task_actions,
+            "wiki_actions": wiki_actions,
+            "scaffold_accepts": scaffold_accepts,
+            "stage_transitions": stage_transitions,
+            "evidence_events": evidence_events,
+            "counter_argument_events": counter_argument_events,
+            "revision_events": shared_record_commits + inquiry_revisions + document_activity,
+            "substantial_comments": long_comment_count + long_message_count,
+            "idea_nodes": idea_nodes,
+            "document_creations": document_creations,
+            "artifact_diversity": artifact_diversity,
+            "media_or_resource_actions": resource_actions + whiteboard_actions,
+            "rag_events": rag_events,
+        }
+
+        return {
+            "counts": counts,
+            "event_counts": dict(event_counts),
+            "node_type_counts": dict(node_type_counts),
+        }
+
+    @classmethod
+    def _score_four_c_from_observations(cls, observations: Dict[str, Any]) -> Dict[str, float]:
+        """Map observed collaboration traces to 4C scores."""
+        counts = observations.get("counts", {})
+
+        communication = cls._weighted_score(
+            [
+                (cls._scale_count(counts.get("chat_messages", 0), 8), 0.50),
+                (cls._scale_count(counts.get("document_comments", 0) + counts.get("annotation_events", 0), 3), 0.25),
+                (cls._scale_count(counts.get("ai_mentions", 0), 3), 0.15),
+                (cls._scale_count(counts.get("substantial_comments", 0), 2), 0.10),
+            ]
+        )
+        collaboration = cls._weighted_score(
+            [
+                (cls._scale_count(counts.get("shared_record_commits", 0) + counts.get("document_activity", 0), 5), 0.30),
+                (cls._scale_count(counts.get("inquiry_nodes", 0) + counts.get("inquiry_edges", 0), 6), 0.30),
+                (cls._scale_count(counts.get("resource_actions", 0) + counts.get("wiki_actions", 0), 4), 0.20),
+                (cls._scale_count(counts.get("scaffold_accepts", 0) + counts.get("stage_transitions", 0) + counts.get("task_actions", 0), 3), 0.20),
+            ]
+        )
+        critical_thinking = cls._weighted_score(
+            [
+                (cls._scale_count(counts.get("evidence_events", 0) + counts.get("rag_events", 0), 4), 0.35),
+                (cls._scale_count(counts.get("counter_argument_events", 0), 2), 0.25),
+                (cls._scale_count(counts.get("revision_events", 0), 5), 0.25),
+                (cls._scale_count(counts.get("substantial_comments", 0), 2), 0.15),
+            ]
+        )
+        creativity = cls._weighted_score(
+            [
+                (cls._scale_count(counts.get("idea_nodes", 0) + counts.get("inquiry_nodes", 0), 4), 0.35),
+                (cls._scale_count(counts.get("document_creations", 0) + counts.get("wiki_actions", 0), 3), 0.30),
+                (cls._scale_count(counts.get("artifact_diversity", 0), 3), 0.20),
+                (cls._scale_count(counts.get("media_or_resource_actions", 0), 3), 0.15),
+            ]
+        )
+
+        return {
+            "communication": communication,
+            "collaboration": collaboration,
+            "critical_thinking": critical_thinking,
+            "creativity": creativity,
+        }
+
+    @classmethod
+    async def _calculate_four_c_scores(
+        cls,
+        project_id: str,
+        user_id: str,
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ) -> Dict[str, float]:
+        """Calculate 4C scores from observed collaboration traces."""
+        observations = await cls._collect_four_c_observations(
+            project_id, user_id, start_datetime, end_datetime
+        )
+        return cls._score_four_c_from_observations(observations)
+
+    @classmethod
+    async def _build_four_c_evidence(
+        cls,
+        project_id: str,
+        user_id: Optional[str],
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ) -> Dict[str, Any]:
+        """Build transparent evidence blocks for the student-facing 4C dashboard."""
+        observations = await cls._collect_four_c_observations(
+            project_id, user_id, start_datetime, end_datetime
+        )
+        scores = cls._score_four_c_from_observations(observations)
+        counts = observations.get("counts", {})
+
+        return {
+            "scores": scores,
+            "communication": {
+                "label": "沟通",
+                "score": scores["communication"],
+                "basis": "聊天表达、文档批注、AI提及和较充分的解释性发言。",
+                "counts": {
+                    "聊天/同伴消息": counts.get("chat_messages", 0),
+                    "文档批注": counts.get("document_comments", 0),
+                    "批注互动": counts.get("annotation_events", 0),
+                    "AI提问/提及": counts.get("ai_mentions", 0),
+                },
+            },
+            "collaboration": {
+                "label": "协作",
+                "score": scores["collaboration"],
+                "basis": "共同编辑文档、搭建探究结构、共享资源/Wiki和采纳过程支架。",
+                "counts": {
+                    "共享文档提交": counts.get("shared_record_commits", 0),
+                    "探究节点/连线": counts.get("inquiry_nodes", 0) + counts.get("inquiry_edges", 0),
+                    "资源/Wiki操作": counts.get("resource_actions", 0) + counts.get("wiki_actions", 0),
+                    "支架采纳/阶段推进": counts.get("scaffold_accepts", 0) + counts.get("stage_transitions", 0),
+                },
+            },
+            "critical_thinking": {
+                "label": "批判性思维",
+                "score": scores["critical_thinking"],
+                "basis": "证据绑定、检索引用、反驳/质疑节点、内容修订和较充分的论证性表达。",
+                "counts": {
+                    "证据/引用": counts.get("evidence_events", 0) + counts.get("rag_events", 0),
+                    "反驳/质疑": counts.get("counter_argument_events", 0),
+                    "修订提交": counts.get("revision_events", 0),
+                    "充分解释": counts.get("substantial_comments", 0),
+                },
+            },
+            "creativity": {
+                "label": "创造力",
+                "score": scores["creativity"],
+                "basis": "新观点节点、成果/知识卡片生成、多样化表达和资源素材引入。",
+                "counts": {
+                    "新想法/探究节点": counts.get("idea_nodes", 0) + counts.get("inquiry_nodes", 0),
+                    "文档/Wiki新产物": counts.get("document_creations", 0) + counts.get("wiki_actions", 0),
+                    "产物类型多样性": counts.get("artifact_diversity", 0),
+                    "素材/媒体操作": counts.get("media_or_resource_actions", 0),
+                },
+            },
+        }
+
     @classmethod
     async def _calculate_communication_score(
         cls,
@@ -286,48 +714,9 @@ class AnalyticsService:
         end_datetime: datetime,
     ) -> float:
         """Calculate Communication score (0-100)."""
-        from app.core.db.mongodb import mongodb
-        db = mongodb.get_database()
-
-        # Count chat messages
-        chat_count = await db["chat_logs"].count_documents(
-            {
-                "project_id": project_id,
-                "user_id": user_id,
-                "created_at": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Count comments
-        comments_count = await db["doc_comments"].count_documents(
-            {
-                "created_by": user_id,
-                "created_at": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Count document edits
-        doc_edits_count = await db["activity_logs"].count_documents(
-            {
-                "project_id": project_id,
-                "user_id": user_id,
-                "module": "document",
-                "action": "edit",
-                "timestamp": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Calculate weighted score
-        score = (
-            chat_count * cls.COMMUNICATION_WEIGHTS["chat_messages"]
-            + comments_count * cls.COMMUNICATION_WEIGHTS["comments"]
-            + doc_edits_count * cls.COMMUNICATION_WEIGHTS["document_edits"]
-        )
-
-        # Normalize to 0-100 (simple normalization)
-        normalized_score = min(100.0, score * 2.0)
-
-        return normalized_score
+        return (
+            await cls._calculate_four_c_scores(project_id, user_id, start_datetime, end_datetime)
+        )["communication"]
 
     @classmethod
     async def _calculate_collaboration_score(
@@ -338,53 +727,9 @@ class AnalyticsService:
         end_datetime: datetime,
     ) -> float:
         """Calculate Collaboration score (0-100)."""
-        from app.core.db.mongodb import mongodb
-        db = mongodb.get_database()
-
-        # Count whiteboard collaborations (edits when others are online)
-        whiteboard_collabs = await db["activity_logs"].count_documents(
-            {
-                "project_id": project_id,
-                "user_id": user_id,
-                "module": "whiteboard",
-                "action": "edit",
-                "timestamp": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Count resource shares
-        resource_shares = await db["activity_logs"].count_documents(
-            {
-                "project_id": project_id,
-                "user_id": user_id,
-                "module": "resource",
-                "action": "upload",
-                "timestamp": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Count task collaborations
-        task_collabs = await db["activity_logs"].count_documents(
-            {
-                "project_id": project_id,
-                "user_id": user_id,
-                "module": "task",
-                "action": {"$in": ["create", "update"]},
-                "timestamp": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Calculate weighted score
-        score = (
-            whiteboard_collabs * cls.COLLABORATION_WEIGHTS["whiteboard_collaborations"]
-            + resource_shares * cls.COLLABORATION_WEIGHTS["resource_shares"]
-            + task_collabs * cls.COLLABORATION_WEIGHTS["task_collaborations"]
-        )
-
-        # Normalize to 0-100
-        normalized_score = min(100.0, score * 1.5)
-
-        return normalized_score
+        return (
+            await cls._calculate_four_c_scores(project_id, user_id, start_datetime, end_datetime)
+        )["collaboration"]
 
     @classmethod
     async def _calculate_critical_thinking_score(
@@ -395,44 +740,9 @@ class AnalyticsService:
         end_datetime: datetime,
     ) -> float:
         """Calculate Critical Thinking score (0-100)."""
-        from app.core.db.mongodb import mongodb
-        db = mongodb.get_database()
-
-        # Calculate comment quality (average comment length)
-        comments = await db["doc_comments"].find(
-            {
-                "created_by": user_id,
-                "created_at": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        ).to_list(length=None)
-
-        avg_comment_length = 0.0
-        if comments:
-            total_length = sum(
-                len(msg.get("content", "")) for c in comments for msg in c.get("messages", [])
-            )
-            avg_comment_length = total_length / len(comments)
-
-        # Count document revisions
-        doc_revisions = await db["activity_logs"].count_documents(
-            {
-                "project_id": project_id,
-                "user_id": user_id,
-                "module": "document",
-                "action": "edit",
-                "timestamp": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Calculate weighted score
-        comment_quality_score = min(100.0, avg_comment_length / 10.0)  # Normalize
-        score = (
-            comment_quality_score * cls.CRITICAL_THINKING_WEIGHTS["comment_quality"]
-            + min(100.0, doc_revisions * 5.0)
-            * cls.CRITICAL_THINKING_WEIGHTS["document_revisions"]
-        )
-
-        return min(100.0, score)
+        return (
+            await cls._calculate_four_c_scores(project_id, user_id, start_datetime, end_datetime)
+        )["critical_thinking"]
 
     @classmethod
     async def _calculate_creativity_score(
@@ -443,38 +753,9 @@ class AnalyticsService:
         end_datetime: datetime,
     ) -> float:
         """Calculate Creativity score (0-100)."""
-        from app.core.db.mongodb import mongodb
-        db = mongodb.get_database()
-
-        # Count whiteboard shapes created
-        whiteboard_shapes = await db["activity_logs"].count_documents(
-            {
-                "project_id": project_id,
-                "user_id": user_id,
-                "module": "whiteboard",
-                "action": "create",
-                "timestamp": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Count document creations
-        doc_creations = await db["documents"].count_documents(
-            {
-                "project_id": project_id,
-                "last_modified_by": user_id,
-                "created_at": {"$gte": start_datetime, "$lte": end_datetime},
-            }
-        )
-
-        # Calculate weighted score
-        score = (
-            whiteboard_shapes * cls.CREATIVITY_WEIGHTS["whiteboard_shapes"]
-            + doc_creations * cls.CREATIVITY_WEIGHTS["document_creations"]
-        )
-
-        # Normalize to 0-100
-        normalized_score = min(100.0, score * 10.0)
-        return normalized_score
+        return (
+            await cls._calculate_four_c_scores(project_id, user_id, start_datetime, end_datetime)
+        )["creativity"]
 
     @classmethod
     async def get_daily_stats(
@@ -1027,6 +1308,19 @@ JSON Output Format:
             "summary": snapshot.summary,
             "last_updated": snapshot.updated_at.isoformat()
         }
+
+        end_datetime = datetime.utcnow()
+        start_datetime = end_datetime - timedelta(days=7)
+        result["four_c_evidence"] = {
+            "window_days": 7,
+            "method": "4C 分数由近 7 天真实协作过程数据加权形成，包含聊天、文档、探究空间、支架采纳、Wiki/RAG 等行为证据。",
+            "group": await cls._build_four_c_evidence(
+                project_id,
+                None,
+                start_datetime,
+                end_datetime,
+            ),
+        }
         
         # 3. If user_id is provided, merge personal stats into the trend
         if user_id:
@@ -1099,6 +1393,12 @@ JSON Output Format:
                 personal_four_c = curr
                 
             result["personal_four_c"] = personal_four_c
+            result["four_c_evidence"]["personal"] = await cls._build_four_c_evidence(
+                project_id,
+                user_id,
+                start_datetime,
+                end_datetime,
+            )
             
         return result
 
@@ -1118,4 +1418,3 @@ JSON Output Format:
 
 
 analytics_service = AnalyticsService()
-

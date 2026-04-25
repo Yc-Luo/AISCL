@@ -108,8 +108,9 @@ export function isAssistantActionEnabled(
 
 export function isTutorTabEnabled(experimentVersion: ExperimentVersion | null | undefined) {
   if (!experimentVersion) return true
+  if (experimentVersion.ai_scaffold_mode === 'single_agent') return true
   if (experimentVersion.ai_scaffold_mode !== 'multi_agent') return false
-  if (!isProcessScaffoldActive(experimentVersion)) return false
+  if (!isLayerConfigured(experimentVersion, 'multi_agent_scaffold')) return false
   const configuredRoles = normalizeRoleKeys(experimentVersion.enabled_scaffold_roles)
   if (configuredRoles.length === 0) return true
   return configuredRoles.some((role) => PROCESS_ROLES.includes(role))

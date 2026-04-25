@@ -38,6 +38,8 @@ export const API_ENDPOINTS = {
         BROADCAST: '/admin/broadcast',
         CONFIGS: '/admin/system-configs',
         CONFIG_DETAIL: (key: string) => `/admin/system-configs/${key}`,
+        TEST_LLM_CONFIG: '/admin/system-configs/test-llm',
+        TEST_EMBEDDING_CONFIG: '/admin/system-configs/test-embedding',
         BEHAVIOR_LOGS: '/admin/behavior-logs',
         BEHAVIOR_LOGS_EXPORT: '/admin/behavior-logs/export',
     },

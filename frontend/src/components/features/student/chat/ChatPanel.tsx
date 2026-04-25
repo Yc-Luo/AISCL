@@ -21,7 +21,7 @@ import { useAuthStore } from '../../../../stores/authStore'
 import { projectService } from '../../../../services/api/project'
 import { userService } from '../../../../services/api/user'
 import api from '../../../../services/api/client'
-import { User } from '../../../../types'
+import { ExperimentVersion, User } from '../../../../types'
 import { useChatSync } from '../../../../hooks/chat/useChatSync'
 import { ChatMessage, getChatTimestampMs, normalizeChatTimestamp } from '../../../../modules/chat/ChatPersistence' // Use shared type
 import { trackingService } from '../../../../services/tracking/TrackingService'
@@ -44,6 +44,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [members, setMembers] = useState<User[]>([])
+  const [experimentVersion, setExperimentVersion] = useState<ExperimentVersion | null>(null)
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
 
   // New States for Lightbox, Context Menu, and Reply
@@ -75,6 +76,8 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
           const memberUsers = await userService.getUsers(memberIds)
           setMembers(memberUsers)
         }
+        const version = await projectService.getExperimentVersion(projectId)
+        setExperimentVersion(version)
       } catch (error) {
         console.error('Failed to fetch members:', error)
       }
@@ -151,12 +154,17 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
 
 
 
-  const AI_AGENTS = [
-    { id: 'ai-research', name: '资料研究员', description: '提供资料线索与出处支持' },
-    { id: 'ai-challenge', name: '观点挑战者', description: '暴露反驳与替代解释' },
-    { id: 'ai-feedback', name: '反馈追问者', description: '追问证据与修订依据' },
-    { id: 'ai-progress', name: '问题推进者', description: '推进任务澄清与下一步' }
-  ]
+  const isSingleAIMode = experimentVersion?.ai_scaffold_mode === 'single_agent'
+  const AI_AGENTS = isSingleAIMode
+    ? [
+      { id: 'ai-single', name: 'AI智能助手', description: '直接调用通用 AI 回复' },
+    ]
+    : [
+      { id: 'ai-research', name: '资料研究员', description: '提供资料线索与出处支持' },
+      { id: 'ai-challenge', name: '观点挑战者', description: '暴露反驳与替代解释' },
+      { id: 'ai-feedback', name: '反馈追问者', description: '追问证据与修订依据' },
+      { id: 'ai-progress', name: '问题推进者', description: '推进任务澄清与下一步' }
+    ]
 
   const EMOJIS = ['😊', '😂', '🥰', '😍', '🤔', '😎', '😭', '😮', '👍', '🔥', '🙌', '✨', '🎉', '💡', '✅', '❌']
   const [expandedRouting, setExpandedRouting] = useState<Record<string, boolean>>({})
@@ -717,7 +725,9 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
         {/* AI Agents Menu */}
         {showAIMenu && (
           <div className="absolute bottom-[calc(100%-8px)] left-16 w-60 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-            <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500">选择智能体助手</div>
+            <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500">
+              {isSingleAIMode ? '选择 AI 助手' : '选择智能体助手'}
+            </div>
             {AI_AGENTS.map((agent) => (
               <button
                 key={agent.id}

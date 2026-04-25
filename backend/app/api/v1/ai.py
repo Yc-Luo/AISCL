@@ -331,10 +331,6 @@ async def chat_stream(
         await conversation.save()
 
     async def generate():
-        # Unified Deep Agents Routing
-        # We ignore the distinction between legacy roles and new personas.
-        # The Supervisor (in AgentService) will handle intent and delegation.
-        
         # Construct context string if RAG is enabled
         final_message = chat_data.message
         if context:
@@ -342,11 +338,40 @@ async def chat_stream(
         
         full_response = ""
         try:
+            experiment_version = (
+                project.experiment_version or {}
+                if getattr(project, "experiment_version", None)
+                else {}
+            )
+            if experiment_version.get("ai_scaffold_mode") == "single_agent":
+                async for chunk in ai_service.chat_stream(
+                    project_id=chat_data.project_id,
+                    user_id=str(current_user.id),
+                    message=chat_data.message or "",
+                    role_id=chat_data.role_id,
+                    conversation_id=str(conversation.id),
+                    context=context,
+                    category="chat",
+                    message_metadata=(
+                        {"ai_meta": _build_tutor_ai_meta(chat_data)}
+                        if chat_data.role_id == "default-tutor"
+                        else None
+                    ),
+                ):
+                    full_response += chunk
+                    yield chunk
+
+                conversation.updated_at = datetime.utcnow()
+                await conversation.save()
+                return
+
+            # Multi-agent mode uses graph routing. The Supervisor handles intent
+            # and delegates to the constrained research sub-agent when needed.
             graph_context = {
                 "project_id": chat_data.project_id,
                 "experiment_version_id": (
-                    (project.experiment_version or {}).get("version_name")
-                    if getattr(project, "experiment_version", None)
+                    experiment_version.get("version_name")
+                    if experiment_version
                     else None
                 ),
                 "current_stage": chat_data.current_stage,

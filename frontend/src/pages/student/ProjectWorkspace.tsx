@@ -24,7 +24,7 @@ import { useBehaviorTracking } from '../../hooks/common/useBehaviorTracking'
 import { useActivityTracking } from '../../hooks/common/useActivityTracking'
 import { useContextStore } from '../../stores/contextStore'
 import { trackingService } from '../../services/tracking/TrackingService'
-import { isTutorTabEnabled } from '../../lib/experimentScaffold'
+import { isProcessScaffoldActive, isTutorTabEnabled } from '../../lib/experimentScaffold'
 
 const DEFAULT_STAGE_LABELS: Record<string, string> = {
   orientation: '任务导入',
@@ -115,8 +115,8 @@ const getStageToolGuidance = (stageId: string | null) => {
   if (!stageId) {
     return {
       primaryTab: 'document',
-      recommendedTabs: ['document', 'inquiry', 'resources', 'wiki', 'browser', 'ai', 'dashboard'],
-      guidance: '当前未配置实验阶段，按任务需要自主选择工具。',
+      recommendedTabs: [],
+      guidance: '当前未配置任务阶段，按任务需要自主选择工具。',
     }
   }
 
@@ -227,6 +227,7 @@ export default function Main() {
 
   useEffect(() => {
     if (!currentStage) return
+    if (!isProcessScaffoldActive(experimentVersion)) return
 
     const guidance = getStageToolGuidance(currentStage)
     if (previousGuidedStageRef.current === currentStage) return
@@ -430,13 +431,17 @@ export default function Main() {
   const stageToolGuidance = getStageToolGuidance(currentStage)
   const stageControlMode = experimentVersion?.stage_control_mode || 'soft_guidance'
   const processScaffoldMode = experimentVersion?.process_scaffold_mode || 'on'
+  const hasConfiguredStages = (experimentVersion?.stage_sequence?.length || 0) > 0
+  const showProcessGuidance = Boolean(hasConfiguredStages && currentStage && isProcessScaffoldActive(experimentVersion))
   const tutorTabEnabled = isTutorTabEnabled(experimentVersion)
   const hiddenTabs = tutorTabEnabled ? [] : ['ai']
-  const filteredRecommendedTabs = stageToolGuidance.recommendedTabs.filter((tabId) => !hiddenTabs.includes(tabId))
-  const disabledTabs = stageControlMode === 'hard_constraint'
+  const filteredRecommendedTabs = showProcessGuidance
+    ? stageToolGuidance.recommendedTabs.filter((tabId) => !hiddenTabs.includes(tabId))
+    : []
+  const disabledTabs = showProcessGuidance && stageControlMode === 'hard_constraint'
     ? ALL_NAV_TABS.filter((tabId) => tabId !== 'dashboard' && !filteredRecommendedTabs.includes(tabId) && !hiddenTabs.includes(tabId))
     : []
-  const isOnRecommendedTool = filteredRecommendedTabs.includes(activeTab)
+  const isOnRecommendedTool = showProcessGuidance && filteredRecommendedTabs.includes(activeTab)
 
   return (
     <div className="h-screen flex flex-col bg-gray-100">
@@ -501,12 +506,12 @@ export default function Main() {
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">阶段调整提示</div>
                   <div className="mt-1 text-sm text-amber-900">
-                    教师已将当前实验阶段调整为
+                    教师已将当前任务阶段调整为
                     <span className="mx-1 font-semibold">{formatStageLabel(stageUpdateNotice.stageId)}</span>
                     {stageUpdateNotice.versionName ? (
                       <span className="text-amber-700">（版本：{stageUpdateNotice.versionName}）</span>
                     ) : null}
-                    。系统会提供相应工具建议，您仍可根据任务进展自主切换工具。
+                    。请根据当前任务进展安排小组协作。
                   </div>
                 </div>
                 <button
@@ -519,12 +524,12 @@ export default function Main() {
               </div>
             </div>
           )}
-          {(experimentVersion?.stage_sequence?.length || 0) > 0 && (
+          {hasConfiguredStages && (
             <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-white to-violet-50/70 px-4 py-1.5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-indigo-500">实验阶段</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-indigo-500">任务阶段</span>
                     {currentStage && (
                       <span className="rounded-full bg-indigo-600 px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm">
                         {formatStageLabel(currentStage)}
@@ -533,7 +538,7 @@ export default function Main() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {processScaffoldMode === 'on' && filteredRecommendedTabs.length > 0 && (
+                  {showProcessGuidance && filteredRecommendedTabs.length > 0 && (
                     <div className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${isOnRecommendedTool
                         ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
                         : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
@@ -541,13 +546,19 @@ export default function Main() {
                       {isOnRecommendedTool ? '当前工具与阶段建议一致' : '当前工具偏离阶段建议'}
                     </div>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => setShowStageDetails((prev) => !prev)}
-                    className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50"
-                  >
-                    {showStageDetails ? '收起阶段详情' : '展开阶段详情'}
-                  </button>
+                  {showProcessGuidance ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowStageDetails((prev) => !prev)}
+                      className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50"
+                    >
+                      {showStageDetails ? '收起阶段详情' : '展开阶段详情'}
+                    </button>
+                  ) : (
+                    <span className="rounded-full bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-500 ring-1 ring-slate-200">
+                      {processScaffoldMode === 'off' ? '未启用过程支架' : '仅显示任务进度'}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -584,7 +595,7 @@ export default function Main() {
                             ? 'border-slate-200 bg-slate-50 text-slate-400'
                             : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50'
                         }`}
-                      title={stageControlMode === 'hard_constraint' ? '当前实验版本采用硬约束阶段控制，阶段切换由教师端统一控制。' : undefined}
+                      title={stageControlMode === 'hard_constraint' ? '当前任务阶段采用硬约束控制，阶段切换由教师端统一控制。' : undefined}
                     >
                       {index + 1}. {formatStageLabel(stageId)}
                     </button>
@@ -592,12 +603,12 @@ export default function Main() {
                 })}
               </div>
 
-              {showStageDetails && (
+              {showStageDetails && showProcessGuidance && (
                 <div className="mt-2 rounded-2xl border border-indigo-100 bg-white/85 px-4 py-3">
                   <div className="text-xs text-slate-600">
                     {stageToolGuidance.guidance}
                   </div>
-                  {processScaffoldMode === 'on' && filteredRecommendedTabs.length > 0 && (
+                  {filteredRecommendedTabs.length > 0 && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <span className="text-xs font-semibold uppercase tracking-wide text-indigo-500">推荐工具</span>
                       {filteredRecommendedTabs.map((tabId) => (

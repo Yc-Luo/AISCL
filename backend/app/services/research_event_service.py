@@ -67,6 +67,7 @@ class ResearchEventService:
         "scaffold_rule_recommendation_accept": "rule_accept",
         "wiki_item_created": "wiki_create",
         "wiki_item_updated": "wiki_update",
+        "wiki_item_deleted": "wiki_delete",
         "wiki_item_quoted": "wiki_quote",
         "retrieval_requested": "rag_query",
         "citation_attached": "rag_cite",

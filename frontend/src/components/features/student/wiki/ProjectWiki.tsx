@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { BookOpen, CheckCircle2, FileText, Plus, Search, Sparkles } from 'lucide-react'
+import { BookOpen, CheckCircle2, ChevronDown, ChevronUp, FileText, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
 import { wikiService, WikiItem, WikiItemType } from '../../../../services/api/wiki'
+import { useAuthStore } from '../../../../stores/authStore'
 import { useContextStore } from '../../../../stores/contextStore'
 import { Toast } from '../../../ui/Toast'
 
@@ -29,12 +30,15 @@ const ITEM_TYPES: WikiItemType[] = [
 ]
 
 export default function ProjectWiki({ projectId }: ProjectWikiProps) {
+  const user = useAuthStore((state) => state.user)
   const currentStage = useContextStore((state) => state.currentStage)
   const [items, setItems] = useState<WikiItem[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [selectedType, setSelectedType] = useState<WikiItemType | ''>('')
   const [isCreating, setIsCreating] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
   const [draftTitle, setDraftTitle] = useState('')
   const [draftContent, setDraftContent] = useState('')
   const [draftType, setDraftType] = useState<WikiItemType>('note')
@@ -98,6 +102,51 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
       setToast({ message: '创建 Wiki 条目失败', visible: true })
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  const canDeleteWikiItem = (item: WikiItem) => {
+    if (!user) return false
+    if (user.role === 'teacher' || user.role === 'admin') return true
+    return item.created_by === user.id && item.source_type !== 'teacher_brief'
+  }
+
+  const toggleExpanded = (itemId: string) => {
+    setExpandedItemIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(itemId)) {
+        next.delete(itemId)
+      } else {
+        next.add(itemId)
+      }
+      return next
+    })
+  }
+
+  const handleDelete = async (item: WikiItem) => {
+    if (!canDeleteWikiItem(item)) {
+      setToast({ message: '该 Wiki 条目不能由当前账号删除', visible: true })
+      return
+    }
+
+    const confirmed = window.confirm(`确认删除 Wiki 条目“${item.title}”吗？删除后 AI 将不再检索该条目。`)
+    if (!confirmed) return
+
+    setDeletingId(item.id)
+    try {
+      await wikiService.deleteItem(item.id)
+      setItems((prev) => prev.filter((entry) => entry.id !== item.id))
+      setExpandedItemIds((prev) => {
+        const next = new Set(prev)
+        next.delete(item.id)
+        return next
+      })
+      setToast({ message: 'Wiki 条目已删除', visible: true })
+    } catch (error) {
+      console.error('Failed to delete wiki item:', error)
+      setToast({ message: '删除 Wiki 条目失败', visible: true })
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -166,40 +215,80 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-              {items.map((item) => (
-                <article
-                  key={item.id}
-                  className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-100">
-                          {ITEM_TYPE_LABELS[item.item_type] || item.item_type}
-                        </span>
-                        {item.confidence_level === 'verified' ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                            <CheckCircle2 className="h-3 w-3" />
-                            已确认
+              {items.map((item) => {
+                const isExpanded = expandedItemIds.has(item.id)
+                const collapsedText = item.summary || item.content
+                const shownText = isExpanded ? item.content : collapsedText
+                const canExpand = Boolean(item.summary && item.summary.trim() !== item.content.trim()) || item.content.length > 220
+                const canDelete = canDeleteWikiItem(item)
+
+                return (
+                  <article
+                    key={item.id}
+                    className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-100">
+                            {ITEM_TYPE_LABELS[item.item_type] || item.item_type}
                           </span>
-                        ) : null}
+                          {item.confidence_level === 'verified' ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                              <CheckCircle2 className="h-3 w-3" />
+                              已确认
+                            </span>
+                          ) : null}
+                        </div>
+                        <h3 className="truncate text-base font-bold text-slate-900" title={item.title}>{item.title}</h3>
                       </div>
-                      <h3 className="truncate text-base font-bold text-slate-900" title={item.title}>{item.title}</h3>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {canDelete ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(item)}
+                            disabled={deletingId === item.id}
+                            className="rounded-xl p-2 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="删除 Wiki 条目"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : null}
+                        <FileText className="h-5 w-5 text-slate-300" />
+                      </div>
                     </div>
-                    <FileText className="h-5 w-5 shrink-0 text-slate-300" />
-                  </div>
-                  {item.summary ? (
-                    <p className="mt-3 text-sm leading-6 text-slate-600">{item.summary}</p>
-                  ) : (
-                    <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-600">{item.content}</p>
-                  )}
-                  <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-                    <span>来源：{item.source_type}</span>
-                    {item.stage_id ? <span>阶段：{item.stage_id}</span> : null}
-                    <span>{new Date(item.updated_at).toLocaleString()}</span>
-                  </div>
-                </article>
-              ))}
+                    <p className={`mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600 ${isExpanded ? '' : 'line-clamp-3'}`}>
+                      {shownText}
+                    </p>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                        <span>来源：{item.source_type}</span>
+                        {item.stage_id ? <span>阶段：{item.stage_id}</span> : null}
+                        <span>{new Date(item.updated_at).toLocaleString()}</span>
+                      </div>
+                      {canExpand ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(item.id)}
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700"
+                        >
+                          {isExpanded ? (
+                            <>
+                              收起
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            </>
+                          ) : (
+                            <>
+                              展开
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </>
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                )
+              })}
             </div>
           )}
         </div>

@@ -110,6 +110,41 @@ class VectorStoreService:
             return False
 
     @staticmethod
+    async def delete_source_points(
+        *,
+        project_id: str,
+        source_type: str,
+        source_id: str,
+    ) -> bool:
+        """Delete all vector points belonging to one indexed source."""
+        if not VectorStoreService.is_enabled():
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(
+                    VectorStoreService._url(
+                        f"/collections/{settings.QDRANT_COLLECTION}/points/delete"
+                    ),
+                    headers=VectorStoreService._headers(),
+                    params={"wait": "true"},
+                    json={
+                        "filter": {
+                            "must": [
+                                {"key": "project_id", "match": {"value": project_id}},
+                                {"key": "source_type", "match": {"value": source_type}},
+                                {"key": "source_id", "match": {"value": source_id}},
+                            ]
+                        }
+                    },
+                )
+                response.raise_for_status()
+                return True
+        except Exception as exc:
+            logger.warning("Qdrant source delete failed: %s", exc)
+            return False
+
+    @staticmethod
     async def search(
         vector: List[float],
         *,

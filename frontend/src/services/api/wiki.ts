@@ -20,6 +20,10 @@ export interface WikiItem {
   summary?: string | null
   source_type: string
   source_id?: string | null
+  source_event_ids?: string[]
+  linked_item_ids?: string[]
+  created_by: string
+  updated_by?: string | null
   visibility: 'project' | 'group'
   confidence_level: 'unverified' | 'working' | 'verified'
   created_at: string
@@ -74,5 +78,9 @@ export const wikiService = {
   }): Promise<WikiItem> {
     const response = await api.post<WikiItem>('/wiki/items', data)
     return response.data
+  },
+
+  async deleteItem(itemId: string): Promise<void> {
+    await api.delete(`/wiki/items/${itemId}`)
   },
 }

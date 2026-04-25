@@ -209,6 +209,56 @@ class WikiService:
         return item
 
     @staticmethod
+    async def delete_item(
+        item: WikiItem,
+        *,
+        current_user_id: str,
+        actor_type: str = "student",
+    ) -> None:
+        """Delete a Wiki item and remove its vector index best effort."""
+        deleted_payload = {
+            "wiki_item_id": str(item.id),
+            "item_type": item.item_type,
+            "source_type": item.source_type,
+            "source_id": item.source_id,
+            "visibility": item.visibility,
+            "confidence_level": item.confidence_level,
+            "title": item.title,
+        }
+
+        try:
+            from app.services.vector_store_service import vector_store_service
+
+            await vector_store_service.delete_source_points(
+                project_id=item.project_id,
+                source_type="wiki",
+                source_id=str(item.id),
+            )
+        except Exception as exc:
+            print(f"Wiki vector delete error: {exc}")
+
+        project_id = item.project_id
+        group_id = item.group_id
+        stage_id = item.stage_id
+        await item.delete()
+
+        await research_event_service.record_batch_events(
+            events=[
+                {
+                    "project_id": project_id,
+                    "group_id": group_id,
+                    "user_id": current_user_id,
+                    "actor_type": actor_type,
+                    "event_domain": "wiki",
+                    "event_type": "wiki_item_deleted",
+                    "stage_id": stage_id,
+                    "payload": deleted_payload,
+                }
+            ],
+            current_user_id=current_user_id if actor_type != "system" else None,
+        )
+
+    @staticmethod
     async def search_items(
         project_id: str,
         query: str,

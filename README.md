@@ -93,6 +93,7 @@ AISCL_main-0110/
 ├── docker-compose.yml               # 本地开发/测试编排
 ├── docker-compose.experiment.yml    # 本地实验试跑编排
 ├── docker-compose.server.yml        # 服务器部署编排
+├── docker-compose.images.yml        # 服务器拉取远程镜像的低内存部署编排
 ├── .env.compose.server.example      # 服务器 compose 变量模板
 ├── package.json
 └── README.md
@@ -166,6 +167,7 @@ cp backend/.env.server.example backend/.env
 ```env
 # .env
 AISCL_HTTP_PORT=80
+AISCL_IMAGE_TAG=latest
 PIP_INDEX_URL=https://pypi.org/simple
 MINIO_ROOT_USER=replace-minio-root-user
 MINIO_ROOT_PASSWORD=replace-minio-root-password
@@ -199,6 +201,12 @@ PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 
 ### 5.4 启动服务
 
+服务器部署有两种方式。内存较小的云服务器建议使用“远程镜像模式”，避免在服务器上执行 `pip install` 和前端打包。
+
+#### 5.4.1 普通模式：服务器本机构建
+
+适用于 8 GB 以上内存或构建速度可接受的服务器。
+
 ```bash
 docker compose -f docker-compose.server.yml up -d --build
 ```
@@ -214,6 +222,36 @@ docker compose -f docker-compose.server.yml logs -f backend
 
 - `http://服务器公网IP`
 - 或绑定域名后的 `http://your-domain`
+
+#### 5.4.2 低内存模式：服务器只拉取镜像
+
+先在 GitHub Actions 的 `Publish Docker Images` workflow 中构建并发布镜像，或在本地电脑构建后推送到 GHCR。服务器只拉取 `backend` 和 `frontend` 镜像，不再构建应用层。
+
+如果 GHCR 镜像是私有的，服务器需要先登录：
+
+```bash
+echo "你的 GitHub Token" | docker login ghcr.io -u Yc-Luo --password-stdin
+```
+
+启动：
+
+```bash
+docker compose -f docker-compose.images.yml pull backend frontend
+docker compose -f docker-compose.images.yml up -d
+```
+
+查看状态：
+
+```bash
+docker compose -f docker-compose.images.yml ps
+docker compose -f docker-compose.images.yml logs -f backend
+```
+
+如果需要固定到某一次发布版本，在根目录 `.env` 中设置：
+
+```env
+AISCL_IMAGE_TAG=sha-xxxxxxx
+```
 
 ### 5.5 初始化管理员账号
 
@@ -237,7 +275,11 @@ docker compose -f docker-compose.server.yml run --rm --no-deps backend python sc
 
 脚本可重复执行：邮箱已存在时会把该账号更新为 `admin`，并重置为当前传入的密码。请将示例邮箱和密码替换为正式账号，不要把真实密码提交到 GitHub。
 
+如果采用低内存远程镜像模式，上面两条命令中的 `docker-compose.server.yml` 替换为 `docker-compose.images.yml`。
+
 ### 5.6 更新部署
+
+普通模式：
 
 ```bash
 git pull
@@ -245,10 +287,24 @@ docker compose -f docker-compose.server.yml build backend frontend
 docker compose -f docker-compose.server.yml up -d backend frontend nginx
 ```
 
+低内存远程镜像模式：
+
+```bash
+git pull
+docker compose -f docker-compose.images.yml pull backend frontend
+docker compose -f docker-compose.images.yml up -d
+```
+
 如修改了基础设施配置，再执行：
 
 ```bash
 docker compose -f docker-compose.server.yml up -d
+```
+
+低内存远程镜像模式对应执行：
+
+```bash
+docker compose -f docker-compose.images.yml up -d
 ```
 
 ## 6. 模型配置
@@ -477,6 +533,14 @@ docker compose -f docker-compose.experiment.yml logs -f backend
 docker compose -f docker-compose.server.yml up -d --build
 docker compose -f docker-compose.server.yml ps
 docker compose -f docker-compose.server.yml logs -f backend
+```
+
+低内存服务器编排：
+
+```bash
+docker compose -f docker-compose.images.yml pull backend frontend
+docker compose -f docker-compose.images.yml up -d
+docker compose -f docker-compose.images.yml ps
 ```
 
 只重建应用层：

@@ -311,6 +311,11 @@ const EVENT_TYPE_META: Record<string, EventTypeMeta> = {
     description: '学习者或教师修订项目知识库中的结构化条目。',
     analysisCategory: '知识沉淀',
   },
+  wiki_item_deleted: {
+    label: '知识库条目删除',
+    description: '学习者或教师删除项目知识库中的结构化条目。',
+    analysisCategory: '知识沉淀',
+  },
   wiki_item_quoted: {
     label: '知识库来源引用',
     description: '学习者将文档、资源或探究节点中的内容沉淀或引用到项目 Wiki。',
@@ -422,7 +427,7 @@ const buildDetailLabel = (
     return `触发规则：${ruleTypeLabel}`
   }
 
-  if (event.event_type === 'wiki_item_created' || event.event_type === 'wiki_item_updated') {
+  if (event.event_type === 'wiki_item_created' || event.event_type === 'wiki_item_updated' || event.event_type === 'wiki_item_deleted') {
     const itemType = getFirstString(payload, ['item_type'])
     return itemType ? `条目类型：${fallbackLabel(itemType)}` : ''
   }

@@ -144,3 +144,35 @@ async def update_wiki_item(
         actor_type=actor_type,
     )
     return _to_response(updated_item)
+
+
+@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_wiki_item(
+    item_id: str,
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Delete a project Wiki item."""
+    item = await WikiItem.get(item_id)
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Wiki item not found",
+        )
+    await _get_accessible_project(item.project_id, current_user)
+
+    is_owner = item.created_by == str(current_user.id)
+    if current_user.role == "student" and (not is_owner or item.source_type == "teacher_brief"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Students can only delete their own non-teacher Wiki items",
+        )
+
+    actor_type = "teacher" if current_user.role == "teacher" else "student"
+    if current_user.role == "admin":
+        actor_type = "system"
+
+    await wiki_service.delete_item(
+        item,
+        current_user_id=str(current_user.id),
+        actor_type=actor_type,
+    )

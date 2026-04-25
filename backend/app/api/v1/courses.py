@@ -19,6 +19,7 @@ from app.core.schemas.course import (
     CourseUpdateRequest,
 )
 from app.services.auth_service import get_password_hash
+from app.services.project_service import project_service
 from app.services.research_config_service import research_config_service
 
 router = APIRouter(prefix="/courses", tags=["courses"])
@@ -207,6 +208,13 @@ async def update_course(
 
     from datetime import datetime
 
+    previous_initial_task_title = course.initial_task_document_title
+    previous_initial_task_content = course.initial_task_document_content
+    should_sync_initial_task_document = (
+        "initial_task_document_title" in course_data.model_fields_set
+        or "initial_task_document_content" in course_data.model_fields_set
+    )
+
     if course_data.name:
         course.name = course_data.name
     if course_data.description is not None:
@@ -229,6 +237,14 @@ async def update_course(
     course.updated_at = datetime.utcnow()
 
     await course.save()
+
+    if should_sync_initial_task_document:
+        await project_service.sync_course_initial_task_documents(
+            course,
+            owner_id=str(current_user.id),
+            previous_title=previous_initial_task_title,
+            previous_content=previous_initial_task_content,
+        )
 
     return CourseResponse(
         id=str(course.id),

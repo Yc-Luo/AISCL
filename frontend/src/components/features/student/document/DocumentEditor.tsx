@@ -48,6 +48,26 @@ interface DocumentEditorProps {
   onDocumentChange?: (id: string) => void
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function normalizeInitialDocumentContent(content: string) {
+  const trimmed = content.trim()
+  if (!trimmed) return ''
+  if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed
+
+  return trimmed
+    .split(/\n{2,}/)
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
+    .join('')
+}
+
 export default function DocumentEditor({
   documentId,
   projectId,
@@ -79,6 +99,7 @@ export default function DocumentEditor({
   const lastCommittedTextRef = useRef('')
   const imageInputRef = useRef<HTMLInputElement>(null)
   const editorRef = useRef<TiptapEditor | null>(null)
+  const seededInitialContentDocumentRef = useRef<string | null>(null)
 
   const orderedDocuments = useMemo(() => {
     if (!documents.length || !initialTaskDocumentId) return documents
@@ -243,7 +264,7 @@ export default function DocumentEditor({
     loadDocument()
   }, [documentId, projectId])
 
-  const { provider, ydoc } = useDocumentSync({
+  const { provider, ydoc, isSynced } = useDocumentSync({
     documentId: documentId || document?.id || '',
   })
 
@@ -390,6 +411,29 @@ export default function DocumentEditor({
       editorRef.current = null
     }
   }, [editor])
+
+  useEffect(() => {
+    if (!editor || !documentId || !document?.content || !isSynced) return
+    if (seededInitialContentDocumentRef.current === documentId) return
+
+    seededInitialContentDocumentRef.current = documentId
+    if (!editor.isEmpty) return
+
+    const initialContent = normalizeInitialDocumentContent(document.content)
+    if (!initialContent) return
+
+    editor.commands.setContent(initialContent, { emitUpdate: true })
+    setContextDocumentContent(editor.getText())
+
+    try {
+      const update = Y.encodeStateAsUpdate(ydoc)
+      void documentService.saveSnapshot(documentId, update).catch((error) => {
+        console.error('Failed to persist initial document snapshot:', error)
+      })
+    } catch (error) {
+      console.error('Failed to encode initial document snapshot:', error)
+    }
+  }, [document?.content, documentId, editor, isSynced, setContextDocumentContent, ydoc])
 
   useEffect(() => {
     if (!editor) return

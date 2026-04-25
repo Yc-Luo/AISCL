@@ -118,40 +118,146 @@ class ProjectService:
             project.inherited_template_release_id = course.experiment_template_release_id
             project.inherited_template_source = course.experiment_template_source
 
-        if course.initial_task_document_title or course.initial_task_document_content:
-            task_title = course.initial_task_document_title or "项目说明"
-            task_content = course.initial_task_document_content or task_title
-            seeded_document = Document(
-                project_id=str(project.id),
-                title=task_title,
-                content=task_content,
-                content_state=b"",
-                preview_text=task_content[:200] or None,
-                last_modified_by=owner_id,
-            )
-            await seeded_document.insert()
+        seeded_document = await ProjectService._create_initial_task_document(
+            project=project,
+            course=course,
+            owner_id=owner_id,
+        )
+        if seeded_document:
             project.initial_task_document_id = str(seeded_document.id)
-
-            from app.services.wiki_service import wiki_service
-
-            await wiki_service.create_item(
-                {
-                    "project_id": str(project.id),
-                    "item_type": "task_brief",
-                    "title": task_title,
-                    "content": task_content,
-                    "summary": task_content[:500],
-                    "source_type": "teacher_brief",
-                    "source_id": str(seeded_document.id),
-                    "visibility": "project",
-                    "confidence_level": "verified",
-                },
-                current_user_id=owner_id,
-                actor_type="teacher",
-            )
 
         project.updated_at = datetime.utcnow()
         await project.save()
+
+    @staticmethod
+    def _resolve_initial_task_document_payload(course: Course) -> Optional[tuple[str, str]]:
+        """Return normalized task brief title/content for a course."""
+        title = (course.initial_task_document_title or "").strip() or "项目说明"
+        content = course.initial_task_document_content or ""
+        if not content.strip() and not (course.initial_task_document_title or "").strip():
+            return None
+        if not content.strip():
+            content = title
+        return title, content
+
+    @staticmethod
+    async def _create_initial_task_document(
+        *,
+        project: Project,
+        course: Course,
+        owner_id: str,
+    ) -> Optional[Document]:
+        """Create the project-scoped task brief document and its Wiki seed item."""
+        payload = ProjectService._resolve_initial_task_document_payload(course)
+        if not payload:
+            return None
+
+        task_title, task_content = payload
+        seeded_document = Document(
+            project_id=str(project.id),
+            title=task_title,
+            content=task_content,
+            content_state=b"",
+            preview_text=task_content[:200] or None,
+            last_modified_by=owner_id,
+        )
+        await seeded_document.insert()
+
+        from app.services.wiki_service import wiki_service
+
+        await wiki_service.create_item(
+            {
+                "project_id": str(project.id),
+                "item_type": "task_brief",
+                "title": task_title,
+                "content": task_content,
+                "summary": task_content[:500],
+                "source_type": "teacher_brief",
+                "source_id": str(seeded_document.id),
+                "visibility": "project",
+                "confidence_level": "verified",
+            },
+            current_user_id=owner_id,
+            actor_type="teacher",
+        )
+        return seeded_document
+
+    @staticmethod
+    async def sync_course_initial_task_documents(
+        course: Course,
+        *,
+        owner_id: str,
+        previous_title: Optional[str] = None,
+        previous_content: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """Backfill or safely refresh task brief documents for existing course groups.
+
+        Existing student-edited documents are not overwritten. The content is refreshed
+        only when the document is still empty or still matches the previous course brief.
+        """
+        payload = ProjectService._resolve_initial_task_document_payload(course)
+        if not payload:
+            return {"created": 0, "updated": 0, "skipped": 0}
+
+        task_title, task_content = payload
+        projects = await Project.find(Project.course_id == str(course.id)).to_list()
+        result = {"created": 0, "updated": 0, "skipped": 0}
+
+        for project in projects:
+            existing_document: Optional[Document] = None
+            if project.initial_task_document_id:
+                try:
+                    existing_document = await Document.get(project.initial_task_document_id)
+                except Exception:
+                    existing_document = None
+
+            if not existing_document:
+                seeded_document = await ProjectService._create_initial_task_document(
+                    project=project,
+                    course=course,
+                    owner_id=owner_id,
+                )
+                if seeded_document:
+                    project.initial_task_document_id = str(seeded_document.id)
+                    project.updated_at = datetime.utcnow()
+                    await project.save()
+                    result["created"] += 1
+                continue
+
+            previous_title_value = previous_title or ""
+            previous_content_value = previous_content or ""
+            existing_content = existing_document.content or ""
+            should_update_title = (
+                not existing_document.title.strip()
+                or existing_document.title == previous_title_value
+                or existing_document.title == "项目说明"
+            )
+            should_update_content = (
+                not existing_content.strip()
+                or (
+                    previous_content is not None
+                    and existing_content == previous_content_value
+                )
+            )
+
+            changed = False
+            if should_update_title and existing_document.title != task_title:
+                existing_document.title = task_title
+                changed = True
+            if should_update_content and existing_document.content != task_content:
+                existing_document.content = task_content
+                existing_document.preview_text = task_content[:200] or None
+                changed = True
+
+            if changed:
+                existing_document.last_modified_by = owner_id
+                existing_document.updated_at = datetime.utcnow()
+                await existing_document.save()
+                result["updated"] += 1
+            else:
+                result["skipped"] += 1
+
+        return result
 
 
 project_service = ProjectService()

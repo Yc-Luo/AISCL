@@ -18,6 +18,7 @@ import { Button, Input, Badge } from '../../../ui';
 import { courseService, Course } from '../../../../services/api/course';
 import { projectService } from '../../../../services/api/project';
 import { analyticsService } from '../../../../services/api/analytics';
+import { chatService } from '../../../../services/api/chat';
 import { Project } from '../../../../types';
 
 type GroupStatus = 'normal' | 'attention' | 'help' | 'inactive';
@@ -31,6 +32,14 @@ type HelpRequest = {
     createdAt: string;
     visibility: 'private' | 'group';
     status: 'pending' | 'replied' | 'resolved';
+};
+
+type SupportHistoryItem = {
+    id: string;
+    projectId: string;
+    supportType: string;
+    content: string;
+    createdAt: string;
 };
 
 const UNASSIGNED_COURSE_ID = '__unassigned__';
@@ -160,6 +169,9 @@ export default function ProjectMonitor() {
     const [onlyNeedsAttention, setOnlyNeedsAttention] = useState(false);
     const [supportType, setSupportType] = useState(SUPPORT_TEMPLATES[0].type);
     const [supportDraft, setSupportDraft] = useState(SUPPORT_TEMPLATES[0].text);
+    const [supportSending, setSupportSending] = useState(false);
+    const [supportFeedback, setSupportFeedback] = useState<string | null>(null);
+    const [supportHistory, setSupportHistory] = useState<Record<string, SupportHistoryItem[]>>({});
 
     useEffect(() => {
         const fetchOverviewData = async () => {
@@ -315,6 +327,7 @@ export default function ProjectMonitor() {
         const defaultTemplate = SUPPORT_TEMPLATES[0];
         setSupportType(defaultTemplate.type);
         setSupportDraft(defaultTemplate.text);
+        setSupportFeedback(null);
     }, [selectedProjectId]);
 
     const selectedProject = filteredProjects.find((project) => project.id === selectedProjectId) || filteredProjects[0];
@@ -323,6 +336,7 @@ export default function ProjectMonitor() {
     const selectedHelpRequests = selectedProject
         ? helpRequests.filter((request) => request.projectId === selectedProject.id && request.status === 'pending')
         : [];
+    const selectedSupportHistory = selectedProject ? supportHistory[selectedProject.id] || [] : [];
 
     const totalStudents = courses.reduce((acc, course) => acc + (course.students?.length || 0), 0);
     const attentionCount = projects.filter((project) => getProjectMetrics(project).status !== 'normal').length;
@@ -330,6 +344,43 @@ export default function ProjectMonitor() {
     const handleTemplateSelect = (template: (typeof SUPPORT_TEMPLATES)[number]) => {
         setSupportType(template.type);
         setSupportDraft(template.text);
+        setSupportFeedback(null);
+    };
+
+    const handleSendTeacherSupport = async () => {
+        if (!selectedProject || !supportDraft.trim()) return;
+
+        try {
+            setSupportSending(true);
+            setSupportFeedback(null);
+            const message = await chatService.sendTeacherSupport(selectedProject.id, {
+                content: supportDraft.trim(),
+                support_type: supportType,
+            });
+
+            setSupportHistory((previous) => {
+                const current = previous[selectedProject.id] || [];
+                return {
+                    ...previous,
+                    [selectedProject.id]: [
+                        {
+                            id: message.id,
+                            projectId: selectedProject.id,
+                            supportType,
+                            content: message.content,
+                            createdAt: message.created_at,
+                        },
+                        ...current,
+                    ].slice(0, 5),
+                };
+            });
+            setSupportFeedback('已发送到小组聊天，并记录为教师支持事件。');
+        } catch (error) {
+            console.error('Failed to send teacher support:', error);
+            setSupportFeedback('发送失败，请检查权限或网络后重试。');
+        } finally {
+            setSupportSending(false);
+        }
     };
 
     if (loading) {
@@ -666,21 +717,28 @@ export default function ProjectMonitor() {
                             <textarea
                                 value={supportDraft}
                                 onChange={(event) => setSupportDraft(event.target.value)}
+                                disabled={!selectedProject || supportSending}
                                 rows={6}
                                 className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                                 placeholder="编辑教师支持内容..."
                             />
                             <Button
                                 className="mt-3 w-full gap-2"
-                                disabled
-                                title="下一步接入教师支持线程与群聊发送接口"
+                                disabled={!selectedProject || supportSending || !supportDraft.trim()}
+                                onClick={handleSendTeacherSupport}
                             >
                                 <Send className="h-4 w-4" />
-                                发送到小组聊天
+                                {supportSending ? '发送中...' : '发送到小组聊天'}
                             </Button>
-                            <p className="mt-2 text-xs leading-relaxed text-slate-400">
-                                当前已完成支持面板结构；发送功能将接入教师支持线程后启用，并记录研究事件。
-                            </p>
+                            {supportFeedback ? (
+                                <p className={`mt-2 text-xs leading-relaxed ${supportFeedback.includes('失败') ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                    {supportFeedback}
+                                </p>
+                            ) : (
+                                <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                                    消息会进入该小组群聊，不弹窗、不强制控制，并记录为教师低频支持事件。
+                                </p>
+                            )}
                         </section>
 
                         <section>
@@ -688,9 +746,23 @@ export default function ProjectMonitor() {
                                 <Clock3 className="h-4 w-4 text-indigo-500" />
                                 教师支持记录
                             </div>
-                            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                                暂无教师支持记录。后续将显示私信回复、小组公开指导、已解决状态等过程数据。
-                            </div>
+                            {selectedSupportHistory.length > 0 ? (
+                                <div className="space-y-2">
+                                    {selectedSupportHistory.map((item) => (
+                                        <div key={item.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-xs font-bold text-indigo-700">{item.supportType}</span>
+                                                <span className="text-[11px] text-slate-400">{formatDateTime(item.createdAt)}</span>
+                                            </div>
+                                            <p className="mt-2 text-sm leading-relaxed text-slate-600">{item.content}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                                    暂无本轮教师支持记录。发送后会在这里显示，并同步进入小组群聊。
+                                </div>
+                            )}
                         </section>
                     </div>
                 </aside>

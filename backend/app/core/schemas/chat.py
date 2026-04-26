@@ -40,3 +40,10 @@ class ChatLogListResponse(BaseModel):
 
     messages: List[ChatLogResponse]
     total: int
+
+
+class TeacherSupportMessageRequest(BaseModel):
+    """Teacher-side low-frequency support message sent to group chat."""
+
+    content: str = Field(..., min_length=1, max_length=1000)
+    support_type: Optional[str] = Field(default=None, max_length=50)

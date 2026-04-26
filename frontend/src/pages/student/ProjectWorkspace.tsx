@@ -12,7 +12,6 @@ import { InquirySpace } from '../../modules/inquiry/components/InquirySpace'
 import AITutor from '../../components/features/student/ai/AITutor'
 import AIAssistant from '../../components/features/student/ai/AIAssistant'
 import NotificationCenter from '../../components/feedback/NotificationCenter'
-import WebAnnotationBrowser from '../../components/features/student/browser/WebAnnotationBrowser'
 import { projectService } from '../../services/api/project'
 import { documentService } from '../../services/api/document'
 import { ExperimentVersion, Project } from '../../types'
@@ -64,7 +63,7 @@ const getExperimentVersionSignature = (version: ExperimentVersion | null) => {
   })
 }
 
-const ALL_NAV_TABS = ['document', 'inquiry', 'resources', 'wiki', 'browser', 'ai', 'dashboard']
+const ALL_NAV_TABS = ['document', 'inquiry', 'resources', 'wiki', 'ai', 'dashboard']
 
 const STAGE_TOOL_GUIDANCE: Record<
   string,
@@ -81,22 +80,22 @@ const STAGE_TOOL_GUIDANCE: Record<
   },
   planning: {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'resources', 'wiki', 'browser', 'ai'],
-    guidance: '优先形成问题清单和初步方案，文档区用于记录计划，资源与浏览器用于补充信息。',
+    recommendedTabs: ['document', 'resources', 'wiki', 'ai'],
+    guidance: '优先形成问题清单和初步方案，文档区用于记录计划，资源库与项目 Wiki 用于补充信息。',
   },
   inquiry: {
     primaryTab: 'inquiry',
-    recommendedTabs: ['inquiry', 'resources', 'wiki', 'browser', 'ai', 'document'],
+    recommendedTabs: ['inquiry', 'resources', 'wiki', 'ai', 'document'],
     guidance: '以深度探究空间为主，围绕证据收集、来源核验和材料组织展开探究。',
   },
   argumentation: {
     primaryTab: 'inquiry',
-    recommendedTabs: ['inquiry', 'document', 'wiki', 'ai', 'browser'],
+    recommendedTabs: ['inquiry', 'document', 'wiki', 'ai'],
     guidance: '重点围绕主张、证据和反驳开展论证协商，深度探究空间和文档区应协同使用。',
   },
   revision: {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'inquiry', 'wiki', 'ai', 'browser'],
+    recommendedTabs: ['document', 'inquiry', 'wiki', 'ai'],
     guidance: '优先回到文档和探究记录进行修订，对照证据和反驳结果完善最终表达。',
   },
   summary: {
@@ -122,7 +121,7 @@ const getStageToolGuidance = (stageId: string | null) => {
 
   return STAGE_TOOL_GUIDANCE[stageId] || {
     primaryTab: 'document',
-    recommendedTabs: ['document', 'inquiry', 'resources', 'wiki', 'browser', 'ai'],
+    recommendedTabs: ['document', 'inquiry', 'resources', 'wiki', 'ai'],
     guidance: '当前阶段未预设专属工具规则，建议优先使用文档与探究空间。',
   }
 }
@@ -645,11 +644,9 @@ export default function Main() {
                                 ? '资源库'
                                 : tabId === 'wiki'
                                   ? '项目 Wiki'
-                                  : tabId === 'browser'
-                                    ? '浏览器'
-                                    : tabId === 'ai'
-                                      ? 'AI 导师'
-                                      : '仪表盘'}
+                                  : tabId === 'ai'
+                                    ? 'AI 导师'
+                                    : '仪表盘'}
                         </button>
                       ))}
                     </div>
@@ -703,12 +700,6 @@ export default function Main() {
                 {activeTab === 'wiki' && (
                   <div className="flex-1 flex flex-col bg-white rounded-lg shadow overflow-hidden">
                     <ProjectWiki projectId={currentProjectId} />
-                  </div>
-                )}
-
-                {activeTab === 'browser' && (
-                  <div className="flex-1 flex flex-col bg-white rounded-lg shadow overflow-hidden">
-                    <WebAnnotationBrowser projectId={currentProjectId} />
                   </div>
                 )}
 

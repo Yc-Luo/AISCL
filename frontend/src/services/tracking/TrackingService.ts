@@ -4,7 +4,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { API_ENDPOINTS } from '../../config/api';
 
 export interface TrackEvent {
-    module: 'whiteboard' | 'document' | 'chat' | 'resources' | 'browser' | 'ai' | 'task' | 'calendar' | 'dashboard' | 'analytics' | 'inquiry' | 'wiki';
+    module: 'whiteboard' | 'document' | 'chat' | 'resources' | 'ai' | 'task' | 'calendar' | 'dashboard' | 'analytics' | 'inquiry' | 'wiki';
     action: string;
     resource_id?: string;
     metadata?: Record<string, any>;

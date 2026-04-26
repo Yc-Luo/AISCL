@@ -179,7 +179,7 @@ export const aiService = {
     performAction: async (data: {
         project_id: string
         action_type: 'summarize' | 'knowledge_graph' | 'optimize' | 'devil_advocate' | 'inquiry_clustering'
-        context_type: 'document' | 'whiteboard' | 'browser' | 'dashboard'
+        context_type: 'document' | 'whiteboard' | 'dashboard'
         content: string
         additional_query?: string
     }) => {

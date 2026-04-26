@@ -109,9 +109,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
         activeTab,
         currentStage,
         documentContent,
-        whiteboardSummary,
-        browserUrl,
-        browserContent
+        whiteboardSummary
     } = useContextStore()
 
     const projectId = propProjectId || contextProjectId || undefined
@@ -161,7 +159,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
         }
 
         let content = ''
-        let contextType: 'document' | 'whiteboard' | 'browser' | 'dashboard' = 'dashboard'
+        let contextType: 'document' | 'whiteboard' | 'dashboard' = 'dashboard'
 
         if (activeTab === 'document') {
             content = documentContent || '文档内容为空。'
@@ -169,9 +167,6 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
         } else if (activeTab === 'inquiry') {
             content = whiteboardSummary || '白板当前无内容。'
             contextType = 'whiteboard'
-        } else if (activeTab === 'browser') {
-            content = `URL: ${browserUrl}\nAnnotations: ${browserContent || '无'}`
-            contextType = 'browser'
         } else {
             content = '正在小组仪表盘页面。'
             contextType = 'dashboard'
@@ -399,7 +394,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
                         </div>
                         <div className="flex items-center gap-2 select-none">
                             <div className="px-2 py-0.5 bg-white/20 rounded-md text-[10px] uppercase font-bold tracking-wider">
-                                {activeTab === 'document' ? '📝 文档模式' : activeTab === 'inquiry' ? '🧩 探究模式' : activeTab === 'browser' ? '🌐 浏览器模式' : '📊 仪表盘'}
+                                {activeTab === 'document' ? '📝 文档模式' : activeTab === 'inquiry' ? '🧩 探究模式' : '📊 仪表盘'}
                             </div>
                             <p className="text-xs text-indigo-100 italic">按住头部或下方图标可拖动</p>
                         </div>

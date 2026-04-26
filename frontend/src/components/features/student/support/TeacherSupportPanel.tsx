@@ -20,7 +20,6 @@ const SOURCE_LABEL: Record<string, string> = {
   inquiry: '深度探究',
   resources: '资源库',
   wiki: '项目 Wiki',
-  browser: '浏览器',
   ai: 'AI 导师',
   dashboard: '学习仪表盘',
   chat: '群组聊天',

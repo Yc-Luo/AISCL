@@ -7,7 +7,6 @@ const tabs = [
   { id: 'inquiry', label: '深度探究' },
   { id: 'resources', label: '资源库' },
   { id: 'wiki', label: '项目 Wiki' },
-  { id: 'browser', label: '浏览器' },
   { id: 'ai', label: 'AI 导师' },
   { id: 'dashboard', label: '仪表盘' },
 ]

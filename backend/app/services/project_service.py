@@ -3,9 +3,11 @@
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from app.repositories.collaboration_snapshot import CollaborationSnapshot
 from app.repositories.course import Course
 from app.repositories.document import Document
 from app.repositories.project import Project
+from app.repositories.wiki_item import WikiItem
 from app.services.research_config_service import research_config_service
 
 
@@ -190,10 +192,11 @@ class ProjectService:
         previous_title: Optional[str] = None,
         previous_content: Optional[str] = None,
     ) -> Dict[str, int]:
-        """Backfill or safely refresh task brief documents for existing course groups.
+        """Backfill or refresh task brief documents for existing course groups.
 
-        Existing student-edited documents are not overwritten. The content is refreshed
-        only when the document is still empty or still matches the previous course brief.
+        The initial task document is a teacher-managed project brief, so course changes
+        must propagate to existing groups. Stale collaborative snapshots are cleared so
+        clients do not keep rendering an older Yjs state over the updated brief content.
         """
         payload = ProjectService._resolve_initial_task_document_payload(course)
         if not payload:
@@ -224,40 +227,69 @@ class ProjectService:
                     result["created"] += 1
                 continue
 
-            previous_title_value = previous_title or ""
-            previous_content_value = previous_content or ""
-            existing_content = existing_document.content or ""
-            should_update_title = (
-                not existing_document.title.strip()
-                or existing_document.title == previous_title_value
-                or existing_document.title == "项目说明"
-            )
-            should_update_content = (
-                not existing_content.strip()
-                or (
-                    previous_content is not None
-                    and existing_content == previous_content_value
-                )
-            )
-
             changed = False
-            if should_update_title and existing_document.title != task_title:
+            if existing_document.title != task_title:
                 existing_document.title = task_title
                 changed = True
-            if should_update_content and existing_document.content != task_content:
+            if existing_document.content != task_content:
                 existing_document.content = task_content
                 existing_document.preview_text = task_content[:200] or None
+                changed = True
+            if existing_document.content_state:
+                existing_document.content_state = b""
                 changed = True
 
             if changed:
                 existing_document.last_modified_by = owner_id
                 existing_document.updated_at = datetime.utcnow()
                 await existing_document.save()
+                await CollaborationSnapshot.find(
+                    CollaborationSnapshot.project_id == str(existing_document.id)
+                ).delete()
+                await ProjectService._refresh_task_brief_wiki_item(
+                    project=project,
+                    document=existing_document,
+                    title=task_title,
+                    content=task_content,
+                    owner_id=owner_id,
+                )
                 result["updated"] += 1
             else:
                 result["skipped"] += 1
 
         return result
+
+    @staticmethod
+    async def _refresh_task_brief_wiki_item(
+        *,
+        project: Project,
+        document: Document,
+        title: str,
+        content: str,
+        owner_id: str,
+    ) -> None:
+        """Keep the project Wiki task brief aligned with the teacher project brief."""
+        wiki_item = await WikiItem.find_one(
+            WikiItem.project_id == str(project.id),
+            WikiItem.source_type == "teacher_brief",
+            WikiItem.source_id == str(document.id),
+        )
+        if not wiki_item:
+            return
+
+        wiki_item.title = title
+        wiki_item.content = content
+        wiki_item.summary = content[:500]
+        wiki_item.updated_by = owner_id
+        wiki_item.updated_at = datetime.utcnow()
+        await wiki_item.save()
+
+        try:
+            from app.services.rag_service import rag_service
+
+            await rag_service.index_wiki_item(wiki_item)
+        except Exception as exc:
+            print(f"Task brief wiki reindex error: {exc}")
 
 
 project_service = ProjectService()

@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import ChatPanel from '../features/student/chat/ChatPanel'
 import MemberList from '../features/student/chat/MemberList'
+import TeacherSupportPanel from '../features/student/support/TeacherSupportPanel'
 
 interface RightSidebarProps {
   projectId?: string
 }
 
 export default function RightSidebar({ projectId }: RightSidebarProps) {
-  const [activeTab, setActiveTab] = useState<'members' | 'chat'>('chat')
+  const [activeTab, setActiveTab] = useState<'members' | 'chat' | 'teacher-support'>('chat')
 
   return (
     <div className="w-full bg-white border-l border-gray-200 h-full flex flex-col">
@@ -36,6 +37,18 @@ export default function RightSidebar({ projectId }: RightSidebarProps) {
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
           )}
         </button>
+        <button
+          onClick={() => setActiveTab('teacher-support')}
+          className={`flex-1 py-3 text-sm font-medium transition-colors relative ${activeTab === 'teacher-support'
+            ? 'text-indigo-600'
+            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+        >
+          教师支持
+          {activeTab === 'teacher-support' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
+          )}
+        </button>
       </div>
       <div className="flex-1 overflow-hidden">
         {activeTab === 'members' && projectId && (
@@ -44,8 +57,10 @@ export default function RightSidebar({ projectId }: RightSidebarProps) {
         {activeTab === 'chat' && projectId && (
           <ChatPanel projectId={projectId} />
         )}
+        {activeTab === 'teacher-support' && projectId && (
+          <TeacherSupportPanel projectId={projectId} />
+        )}
       </div>
     </div>
   )
 }
-

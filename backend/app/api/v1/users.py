@@ -35,7 +35,7 @@ async def teacher_can_view_user(current_user: User, target_user: User) -> bool:
     if target_user.role != "student":
         return False
     if not target_user.class_id:
-        return True
+        return False
     teacher_course_ids = await get_teacher_course_ids(current_user)
     return target_user.class_id in teacher_course_ids
 
@@ -76,13 +76,7 @@ async def list_users(
         query["role"] = "student"
         if not class_id:
             teacher_course_ids = await get_teacher_course_ids(current_user)
-            scope_clause = {
-                "$or": [
-                    {"class_id": {"$in": teacher_course_ids}},
-                    {"class_id": None},
-                    {"class_id": {"$exists": False}},
-                ]
-            }
+            scope_clause = {"class_id": {"$in": teacher_course_ids}}
             if search_clause:
                 query.pop("$or", None)
                 query["$and"] = [search_clause, scope_clause]
@@ -223,6 +217,11 @@ async def create_user(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Teacher can only create student accounts",
+            )
+        if not user_data.class_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Teacher-created student accounts must be assigned to one of the teacher's classes",
             )
         await ensure_teacher_can_use_class(current_user, user_data.class_id)
 

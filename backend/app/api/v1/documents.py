@@ -226,6 +226,7 @@ async def update_document(
         # In real app, strip HTML tags
         document.preview_text = document_data.content[:200] if document_data.content else None
         
+    document.last_modified_by = str(current_user.id)
     document.updated_at = datetime.utcnow()
 
     await document.save()

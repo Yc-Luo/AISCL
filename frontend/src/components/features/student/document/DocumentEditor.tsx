@@ -143,6 +143,7 @@ export default function DocumentEditor({
         size: file.size,
         project_id: projectId,
         mime_type: file.type,
+        source_type: 'document_embed',
       })
 
       const imageUrl = storageService.getResourceViewUrl(resource.id)
@@ -414,13 +415,19 @@ export default function DocumentEditor({
 
   useEffect(() => {
     if (!editor || !documentId || !document?.content || !isSynced) return
-    if (seededInitialContentDocumentRef.current === documentId) return
 
-    seededInitialContentDocumentRef.current = documentId
-    if (!editor.isEmpty) return
+    const isProjectDescriptionDocument = document.id === initialTaskDocumentId
+    const seedKey = isProjectDescriptionDocument
+      ? `${documentId}:${document.updated_at || ''}`
+      : documentId
+    if (seededInitialContentDocumentRef.current === seedKey) return
+    if (!isProjectDescriptionDocument && !editor.isEmpty) return
 
     const initialContent = normalizeInitialDocumentContent(document.content)
     if (!initialContent) return
+
+    seededInitialContentDocumentRef.current = seedKey
+    if (isProjectDescriptionDocument && editor.getHTML() === initialContent) return
 
     editor.commands.setContent(initialContent, { emitUpdate: true })
     setContextDocumentContent(editor.getText())
@@ -433,7 +440,17 @@ export default function DocumentEditor({
     } catch (error) {
       console.error('Failed to encode initial document snapshot:', error)
     }
-  }, [document?.content, documentId, editor, isSynced, setContextDocumentContent, ydoc])
+  }, [
+    document?.content,
+    document?.id,
+    document?.updated_at,
+    documentId,
+    editor,
+    initialTaskDocumentId,
+    isSynced,
+    setContextDocumentContent,
+    ydoc,
+  ])
 
   useEffect(() => {
     if (!editor) return

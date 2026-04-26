@@ -316,6 +316,11 @@ async def join_course(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You are already a member of this course",
         )
+    if current_user.class_id and current_user.class_id != str(course.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You already belong to another class",
+        )
 
     # Add student to course
     course.students.append(str(current_user.id))

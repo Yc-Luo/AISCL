@@ -3,7 +3,7 @@
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, WebSocket, Query
+from fastapi import FastAPI, HTTPException, Request, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -118,7 +118,7 @@ setup_error_handlers(app)
 # CORS middleware - more restrictive configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -188,18 +188,9 @@ app.include_router(wiki.router, prefix="/api/v1")
 # Mount Socket.IO app
 app.mount("/socket.io", socketio_app)
 
-# Test WebSocket endpoint for debugging
-@app.websocket("/ws/test")
-async def test_ws(websocket: WebSocket):
-    print("=== TEST WEBSOCKET HIT ===")
-    await websocket.accept()
-    await websocket.send_text("Hello from test endpoint!")
-    await websocket.close()
-
 # Y.js WebSocket endpoint - using decorator pattern
 @app.websocket("/ysocket/{room_name:path}")
 async def ysocket_route(websocket: WebSocket, room_name: str, token: str = Query(None)):
-    print(f"=== YSOCKET ROUTE HIT: room_name={room_name}, token={token[:20] if token else None}...")
     await websocket_endpoint(websocket, room_name, token)
 
 
@@ -218,4 +209,6 @@ async def health():
 @app.get("/metrics")
 async def get_metrics():
     """Prometheus metrics endpoint."""
+    if not settings.METRICS_PUBLIC_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
     return await metrics_endpoint()

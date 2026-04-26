@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Dict, Optional, Any
 
@@ -6,6 +7,7 @@ from socketio.exceptions import ConnectionRefusedError
 
 from app.core.config import settings
 from app.services.auth_service import verify_token
+from app.services.room_mapping_service import validate_room_access
 from app.websocket.handlers.collaboration_handler import unload_resources
 
 # Create Socket.IO server
@@ -19,10 +21,37 @@ sio = AsyncServer(
 
 logger = logging.getLogger(__name__)
 
+MAX_BATCH_OPERATIONS = 100
+MAX_OPERATION_PAYLOAD_CHARS = 250_000
+MAX_BATCH_PAYLOAD_CHARS = 1_000_000
+
 # Store user connections: {user_id: [sid1, sid2, ...]}
 user_connections: Dict[str, list] = {}
 # Store room members: {room_id: {user_id: sid}}
 room_members: Dict[str, Dict[str, str]] = {}
+
+
+def normalize_room_id(room_id: str, module: Optional[str] = None) -> str:
+    """Normalize client room IDs before permission checks and broadcasts."""
+    if room_id.startswith(("project:", "doc:", "wb:", "inquiry:")):
+        return room_id
+    if module == "inquiry":
+        return f"inquiry:{room_id}"
+    if module == "document":
+        return f"doc:{room_id}"
+    if module in {"whiteboard", "collaboration"}:
+        # Socket.IO collaboration handlers route whiteboard/project operations through
+        # project-scoped rooms. The wb: prefix is reserved for Yjs websocket rooms.
+        return f"project:{room_id}"
+    return f"project:{room_id}"
+
+
+async def ensure_room_access(user_id: str, room_id: str) -> bool:
+    """Validate Socket.IO room access and keep denial logging in one place."""
+    has_access = await validate_room_access(room_id, user_id)
+    if not has_access:
+        logger.warning("Socket room access denied: user_id=%s room_id=%s", user_id, room_id)
+    return has_access
 
 
 async def authenticate_socket(auth: Optional[dict]) -> Optional[str]:
@@ -37,6 +66,14 @@ async def authenticate_socket(auth: Optional[dict]) -> Optional[str]:
 
     user_id = payload.get("sub")
     return user_id
+
+
+def _payload_size_chars(payload: Any) -> int:
+    """Estimate JSON payload size before dispatching WebSocket operations."""
+    try:
+        return len(json.dumps(payload, ensure_ascii=False, default=str))
+    except Exception:  # noqa: BLE001
+        return len(str(payload))
 
 
 @sio.event
@@ -116,14 +153,14 @@ async def join_room(sid, data):
     # Extract module to help formatting
     module = data.get("module")
 
-    # Format room ID: project:{project_id}, doc:{id}, wb:{id}, inquiry:{id}
-    if not (room_id.startswith("project:") or room_id.startswith("doc:") or room_id.startswith("wb:") or room_id.startswith("inquiry:")):
-        if module == "inquiry":
-            room_id = f"inquiry:{room_id}"
-        elif module == "document":
-            room_id = f"doc:{room_id}"
-        else:
-            room_id = f"project:{room_id}"
+    room_id = normalize_room_id(room_id, module)
+    if not await ensure_room_access(user_id, room_id):
+        await sio.emit(
+            "room_join_error",
+            {"room": room_id, "message": "No permission to join this room"},
+            room=sid,
+        )
+        return
 
     await sio.enter_room(sid, room_id)
     logger.info(f"[join_room] User {user_id} joined room {room_id}")
@@ -197,6 +234,22 @@ async def operation(sid, data):
     if not user_id:
         return
 
+    if _payload_size_chars(data) > MAX_OPERATION_PAYLOAD_CHARS:
+        logger.warning("Operation payload too large from user %s", user_id)
+        return
+
+    room_id = data.get("room_id") or data.get("roomId")
+    if not room_id:
+        logger.warning("Operation from user %s has no room id: %s", user_id, data)
+        return
+
+    normalized_room_id = normalize_room_id(room_id, data.get("module"))
+    if not await ensure_room_access(user_id, normalized_room_id):
+        return
+
+    data["roomId"] = normalized_room_id
+    data["room_id"] = normalized_room_id
+
     # Dispatch to appropriate handler
     from app.websocket.operation_dispatcher import dispatch_operation
     await dispatch_operation(sio, sid, data, user_id)
@@ -213,19 +266,47 @@ async def batch_operations(sid, data):
     operations = data.get("operations", [])
     if not operations:
         return {"status": "success", "count": 0}
+    if not isinstance(operations, list):
+        return {"status": "error", "message": "Invalid operations payload"}
+    if len(operations) > MAX_BATCH_OPERATIONS:
+        logger.warning("Batch operation count exceeded by user %s: %s", user_id, len(operations))
+        return {
+            "status": "error",
+            "message": f"Too many operations in one batch; max is {MAX_BATCH_OPERATIONS}",
+        }
+    if _payload_size_chars(data) > MAX_BATCH_PAYLOAD_CHARS:
+        logger.warning("Batch payload too large from user %s", user_id)
+        return {"status": "error", "message": "Batch payload too large"}
 
     from app.websocket.operation_dispatcher import dispatch_operation
 
     success_count = 0
+    denied_count = 0
     for op in operations:
         try:
+            if not isinstance(op, dict):
+                denied_count += 1
+                continue
+            if _payload_size_chars(op) > MAX_OPERATION_PAYLOAD_CHARS:
+                denied_count += 1
+                logger.warning("Single operation payload too large from user %s", user_id)
+                continue
+            room_id = op.get("room_id") or op.get("roomId")
+            if not room_id:
+                continue
+            normalized_room_id = normalize_room_id(room_id, op.get("module"))
+            if not await ensure_room_access(user_id, normalized_room_id):
+                denied_count += 1
+                continue
+            op["roomId"] = normalized_room_id
+            op["room_id"] = normalized_room_id
             await dispatch_operation(sio, sid, op, user_id)
             success_count += 1
         except Exception as e:
             print(f"Error processing operation in batch: {e}")
 
     # Return ACK
-    return {"status": "success", "processed": success_count}
+    return {"status": "success", "processed": success_count, "denied": denied_count}
 
 
 @sio.on("ping")

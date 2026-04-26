@@ -112,6 +112,9 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
             mentions: m.mentions || [],
             timestamp: normalizeChatTimestamp(m.created_at), // Map created_at to timestamp
             ai_meta: m.ai_meta,
+            teacher_support: m.teacher_support,
+            teacher_help_request: m.teacher_help_request,
+            file_info: m.file_info,
             isPending: false
           })).reverse() // API returns newest first
 
@@ -294,13 +297,22 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
 
       await storageService.uploadFile(upload_url, file)
 
-      const imageUrl = `${window.location.origin}/api/resources/download/${file_key}`
+      const resource = await storageService.createResource({
+        file_key,
+        filename: file.name,
+        size: file.size,
+        project_id: projectId,
+        mime_type: file.type,
+        source_type: 'chat_attachment',
+      })
+      const imageUrl = storageService.getResourceViewUrl(resource.id)
 
       await sendMessage('', [], {
         name: file.name,
         size: file.size,
         url: imageUrl,
-        mimeType: file.type
+        mimeType: file.type,
+        resourceId: resource.id,
       })
 
       trackingService.track({
@@ -309,7 +321,8 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
         metadata: {
           projectId,
           type: 'image',
-          size: file.size
+          size: file.size,
+          resourceId: resource.id,
         }
       })
 
@@ -323,6 +336,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
         payload: {
           mime_type: file.type,
           file_size: file.size,
+          resource_id: resource.id,
           has_reply_context: !!replyingTo,
         }
       })
@@ -604,6 +618,15 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
                             )}
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {msg.teacher_support && (
+                      <div className="mb-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        <div className="font-semibold">教师支持</div>
+                        <div className="mt-1 text-[11px] text-emerald-700">
+                          {msg.teacher_support.support_type || '同伴式支持'} · 已发送到小组
+                        </div>
                       </div>
                     )}
 

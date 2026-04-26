@@ -120,9 +120,9 @@ async def validate_room_access(room_id: str, user_id: str) -> bool:
             logger.warning(f"User not found: {user_id}")
             return False
 
-        # Admin and teacher have access to all rooms
-        if user.role in ["admin", "teacher"]:
-            logger.debug(f"Admin/Teacher access granted for user {user_id} to room {room_id}")
+        # Admin has global access. Teachers are checked through course/project scope below.
+        if user.role == "admin":
+            logger.debug(f"Admin access granted for user {user_id} to room {room_id}")
             return True
 
         # For Socket.IO and Y.js whiteboard rooms, check project membership
@@ -239,4 +239,3 @@ def extract_project_id_from_room(room_id: str) -> Optional[str]:
     """
     parsed = parse_room_id(room_id)
     return parsed.get("project_id")
-

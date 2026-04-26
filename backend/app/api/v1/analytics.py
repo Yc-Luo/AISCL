@@ -60,11 +60,14 @@ async def ensure_project_id_access(current_user: User, project_id: str) -> None:
 
 async def ensure_project_export_access(current_user: User, project: Project) -> None:
     """Ensure current user can export project-level research artifacts."""
-    if not await can_manage_project_scope(current_user, project):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only owner, admin, and scoped teacher can export project transcripts",
-        )
+    if current_user.role == "admin":
+        return
+    if current_user.role == "teacher" and await can_manage_project_scope(current_user, project):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only admin and scoped teacher can export project research data",
+    )
 
 
 async def log_behaviors_to_stream(obs: list):
@@ -255,7 +258,7 @@ async def get_research_events(
             detail="Project not found",
         )
 
-    await ensure_project_access(current_user, project)
+    await ensure_project_export_access(current_user, project)
     events, total = await research_event_service.get_events_by_project(
         project_id=project_id,
         skip=skip,
@@ -307,7 +310,7 @@ async def get_group_stage_features(
             detail="Project not found",
         )
 
-    await ensure_project_access(current_user, project)
+    await ensure_project_export_access(current_user, project)
     features = await research_event_service.export_group_stage_features(
         project_id=project_id,
         experiment_version_id=experiment_version_id,
@@ -339,7 +342,7 @@ async def get_lsa_ready_sequences(
             detail="Project not found",
         )
 
-    await ensure_project_access(current_user, project)
+    await ensure_project_export_access(current_user, project)
     sequences = await research_event_service.export_lsa_ready_sequences(
         project_id=project_id,
         experiment_version_id=experiment_version_id,
@@ -432,7 +435,7 @@ async def get_research_project_health(
             detail="Project not found",
         )
 
-    await ensure_project_access(current_user, project)
+    await ensure_project_export_access(current_user, project)
     snapshot = await research_event_service.get_project_health_snapshot(project_id)
     return ResearchProjectHealthResponse(**snapshot)
 
@@ -457,7 +460,7 @@ async def get_activity_logs(
             detail="Project not found",
         )
 
-    await ensure_project_access(current_user, project)
+    await ensure_project_export_access(current_user, project)
 
     query = {"project_id": project_id}
     if start_date:
@@ -519,6 +522,8 @@ async def get_dashboard_data(
 
     # Use current user if user_id not specified
     target_user_id = user_id or str(current_user.id)
+    if target_user_id != str(current_user.id):
+        await ensure_project_export_access(current_user, project)
 
     # Fetch cached dashboard data (pre-updated every 30 mins)
     dashboard_data = await analytics_service.get_cached_dashboard_data(
@@ -560,7 +565,7 @@ async def get_behavior_stream(
             detail="Project not found",
         )
 
-    await ensure_project_access(current_user, project)
+    await ensure_project_export_access(current_user, project)
 
     # Query behavior_stream Time Series Collection
     client = AsyncIOMotorClient(settings.MONGODB_URI)

@@ -1,5 +1,6 @@
 """Admin API routes for system management."""
 
+import json
 from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Any, Dict, List, Optional
@@ -35,6 +36,12 @@ from app.services.embedding_service import embedding_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+MASKED_SECRET_VALUE = "********"
+SECRET_CONFIG_KEYS = {
+    "llm_key",
+    "embedding_key",
+}
+
 
 async def _require_admin(current_user: User) -> None:
     """Guard endpoints that must only be available to system administrators."""
@@ -53,6 +60,77 @@ def _safe_config_summary(configs: Dict[str, Optional[str]], prefix: str) -> Dict
         "model": configs.get(f"{prefix}_model"),
         "has_key": bool(configs.get(f"{prefix}_key")),
     }
+
+
+def _is_secret_config_key(key: str) -> bool:
+    """Return whether a system config key contains sensitive material."""
+    lowered = key.lower()
+    return (
+        key in SECRET_CONFIG_KEYS
+        or lowered.endswith("_secret")
+        or lowered.endswith("_password")
+        or lowered.endswith("_token")
+    )
+
+
+def _mask_custom_model_keys(value: str) -> str:
+    """Mask API keys inside user-defined model JSON."""
+    try:
+        models = json.loads(value)
+    except Exception:  # noqa: BLE001
+        return value
+    if not isinstance(models, list):
+        return value
+    masked = []
+    for item in models:
+        if isinstance(item, dict):
+            next_item = dict(item)
+            if next_item.get("key"):
+                next_item["key"] = MASKED_SECRET_VALUE
+            masked.append(next_item)
+        else:
+            masked.append(item)
+    return json.dumps(masked, ensure_ascii=False)
+
+
+def _mask_config_value(key: str, value: str) -> str:
+    """Mask secret values before returning configs to the frontend."""
+    if key == "user_custom_models":
+        return _mask_custom_model_keys(value)
+    if _is_secret_config_key(key) and value:
+        return MASKED_SECRET_VALUE
+    return value
+
+
+def _merge_custom_model_secret_keys(next_value: str, current_value: Optional[str]) -> str:
+    """Preserve existing custom model keys when the frontend submits masked values."""
+    if not current_value:
+        return next_value
+    try:
+        next_models = json.loads(next_value)
+        current_models = json.loads(current_value)
+    except Exception:  # noqa: BLE001
+        return next_value
+    if not isinstance(next_models, list) or not isinstance(current_models, list):
+        return next_value
+
+    current_by_id = {
+        item.get("id"): item
+        for item in current_models
+        if isinstance(item, dict) and item.get("id")
+    }
+    merged = []
+    for item in next_models:
+        if not isinstance(item, dict):
+            merged.append(item)
+            continue
+        next_item = dict(item)
+        if next_item.get("key") == MASKED_SECRET_VALUE:
+            current_item = current_by_id.get(next_item.get("id"))
+            if current_item and current_item.get("key"):
+                next_item["key"] = current_item["key"]
+        merged.append(next_item)
+    return json.dumps(merged, ensure_ascii=False)
 
 
 async def _get_config_map(keys: List[str]) -> Dict[str, Optional[str]]:
@@ -81,7 +159,7 @@ async def get_system_configs(
     return [
         SystemConfigResponse(
             key=c.key,
-            value=c.value,
+            value=_mask_config_value(c.key, c.value),
             description=c.description,
             updated_by=c.updated_by,
             updated_at=c.updated_at,
@@ -103,18 +181,25 @@ async def update_system_config(
             detail="Only admin can update system configurations",
         )
 
+    next_value = config_data.value
+
     # Get or create config
     config = await SystemConfig.find_one(SystemConfig.key == key)
+    if config and _is_secret_config_key(key) and next_value == MASKED_SECRET_VALUE:
+        next_value = config.value
+    if config and key == "user_custom_models":
+        next_value = _merge_custom_model_secret_keys(next_value, config.value)
+
     if not config:
         config = SystemConfig(
             key=key,
-            value=config_data.value,
+            value=next_value,
             description=config_data.description,
             updated_by=str(current_user.id),
         )
         await config.insert()
     else:
-        config.value = config_data.value
+        config.value = next_value
         if config_data.description is not None:
             config.description = config_data.description
         config.updated_by = str(current_user.id)
@@ -123,7 +208,7 @@ async def update_system_config(
 
     return SystemConfigResponse(
         key=config.key,
-        value=config.value,
+        value=_mask_config_value(config.key, config.value),
         description=config.description,
         updated_by=config.updated_by,
         updated_at=config.updated_at,
@@ -234,11 +319,11 @@ async def get_system_logs(
     limit: int = Query(100, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
 ) -> SystemLogListResponse:
-    """Get system logs (Admin/Teacher only)."""
-    if current_user.role not in ["admin", "teacher"]:
+    """Get system logs (Admin only)."""
+    if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin and teacher can view system logs",
+            detail="Only admin can view system logs",
         )
 
     # Build query

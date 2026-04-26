@@ -67,6 +67,7 @@ export interface Resource {
   url: string
   size: number
   mime_type: string
+  source_type?: string
   uploaded_by: string
   uploaded_at: string
 }

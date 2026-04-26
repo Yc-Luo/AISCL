@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     LOG_LEVEL: str = "INFO"
     SECRET_KEY: str = Field(..., min_length=32)
+    PUBLIC_REGISTRATION_ENABLED: bool = False
+    PASSWORD_RESET_ENABLED: bool = False
+    METRICS_PUBLIC_ENABLED: bool = False
 
     # Database
     MONGODB_URI: str = "mongodb://localhost:27017/AISCL"

@@ -87,6 +87,7 @@ export const storageService = {
     size: number
     project_id: string
     mime_type: string
+    source_type?: 'library' | 'document_embed' | 'chat_attachment' | 'inquiry_material'
   }): Promise<Resource> {
     const response = await api.post<Resource>(
       `${API_ENDPOINTS.RESOURCES}/resources`,

@@ -22,14 +22,15 @@ This module handles user authentication, authorization, and session management.
 
 import asyncio
 import logging
-import time
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.repositories.refresh_token import RefreshToken
 from app.repositories.user import User
+from app.core.config import settings
 from app.core.db.mongodb import mongodb
+from app.core.security import limiter
 from app.core.schemas.auth import (
     LoginRequest,
     RegisterRequest,
@@ -46,65 +47,15 @@ from app.services.auth_service import (
     get_user_by_id,
     get_password_hash,
     hash_token,
+    revoke_all_refresh_tokens,
     revoke_refresh_token,
     save_refresh_token,
-    verify_password,
     verify_token,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer()
 logger = logging.getLogger(__name__)
-
-
-@router.get("/_debug/check")
-async def debug_auth_check(email: str = "man_teacher_manuallhr9@example.com") -> dict:
-    """Temporary auth diagnostics endpoint for local debugging."""
-    started_at = time.perf_counter()
-    diagnostics: dict[str, object] = {"email": email}
-
-    async def timed_step(name: str, coro):
-        step_started_at = time.perf_counter()
-        try:
-            result = await asyncio.wait_for(coro, timeout=5)
-            diagnostics[name] = {
-                "ok": True,
-                "elapsed_ms": round((time.perf_counter() - step_started_at) * 1000, 2),
-            }
-            return result
-        except Exception as exc:  # noqa: BLE001
-            diagnostics[name] = {
-                "ok": False,
-                "elapsed_ms": round((time.perf_counter() - step_started_at) * 1000, 2),
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-            return None
-
-    user = await timed_step("find_user", User.find_one(User.email == email))
-    if user:
-        verify_started_at = time.perf_counter()
-        try:
-            password_ok = await asyncio.to_thread(
-                verify_password, "Password123!", user.password_hash
-            )
-            diagnostics["verify_password"] = {
-                "ok": password_ok,
-                "elapsed_ms": round((time.perf_counter() - verify_started_at) * 1000, 2),
-            }
-        except Exception as exc:  # noqa: BLE001
-            diagnostics["verify_password"] = {
-                "ok": False,
-                "elapsed_ms": round((time.perf_counter() - verify_started_at) * 1000, 2),
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-
-        token_hash = hash_token("debug-refresh-token")
-        await timed_step("save_refresh_token", save_refresh_token(str(user.id), token_hash))
-
-    diagnostics["total_elapsed_ms"] = round((time.perf_counter() - started_at) * 1000, 2)
-    return diagnostics
 
 
 async def get_current_user(
@@ -159,8 +110,21 @@ async def get_me(current_user: User = Depends(get_current_user)) -> dict:
     summary="User Registration",
     description="Register a new user account",
 )
-async def register(register_data: RegisterRequest) -> TokenResponse:
+@limiter.limit("5/hour")
+async def register(request: Request, register_data: RegisterRequest) -> TokenResponse:
     """User registration endpoint."""
+    if not settings.PUBLIC_REGISTRATION_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled",
+        )
+
+    if register_data.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration can only create student accounts",
+        )
+
     users = mongodb.get_database()["users"]
 
     # Check if user already exists
@@ -262,7 +226,8 @@ async def register(register_data: RegisterRequest) -> TokenResponse:
         429: {"description": "Too many login attempts"}
     }
 )
-async def login(login_data: LoginRequest) -> TokenResponse:
+@limiter.limit("10/minute")
+async def login(request: Request, login_data: LoginRequest) -> TokenResponse:
     """User login endpoint."""
     user = await authenticate_user(
         email=login_data.email,
@@ -296,7 +261,8 @@ async def login(login_data: LoginRequest) -> TokenResponse:
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(token_data: TokenRefreshRequest) -> TokenResponse:
+@limiter.limit("30/minute")
+async def refresh_token(request: Request, token_data: TokenRefreshRequest) -> TokenResponse:
     """Refresh access token using refresh token."""
     payload = verify_token(token_data.refresh_token, token_type="refresh")
     if not payload:
@@ -328,18 +294,15 @@ async def refresh_token(token_data: TokenRefreshRequest) -> TokenResponse:
             detail="User not found or inactive",
         )
 
-    # Create new access token only
+    # Rotate refresh token to reduce the impact of token leakage.
     new_access_token = create_access_token(data={"sub": str(user.id)})
-    
-    # Reuse existing refresh token instead of rotating it
-    # This prevents race conditions in multi-tab scenarios where concurrent refreshes occur
-    # await revoke_refresh_token(token_hash)
-    # new_token_hash = hash_token(new_refresh_token)
-    # await save_refresh_token(str(user.id), new_token_hash)
+    new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    await revoke_refresh_token(token_hash)
+    await save_refresh_token(str(user.id), hash_token(new_refresh_token))
 
     return TokenResponse(
         access_token=new_access_token,
-        refresh_token=token_data.refresh_token, # Return the same refresh token
+        refresh_token=new_refresh_token,
         token_type="bearer",
     )
 
@@ -350,22 +313,27 @@ async def logout(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
     """Logout user by revoking refresh tokens."""
-    # In a real implementation, you might want to revoke all refresh tokens
-    # or maintain a token blacklist. For now, we'll just return success.
+    await revoke_all_refresh_tokens(str(current_user.id))
     return {"message": "Successfully logged out"}
 
 
 @router.post("/password/reset-request")
-async def request_password_reset(reset_data: PasswordResetRequest) -> dict:
+@limiter.limit("5/hour")
+async def request_password_reset(request: Request, reset_data: PasswordResetRequest) -> dict:
     """Request password reset (sends email with reset link)."""
+    if not settings.PASSWORD_RESET_ENABLED:
+        return {"message": "Password reset email sent (if user exists)"}
+
     user = await User.find_one(User.email == reset_data.email)
     if user:
         token = create_reset_token(reset_data.email)
-        # Mock email sending by logging the link
-        print(f"\n{'='*50}")
-        print(f"PASSWORD RESET LINK for {user.email}:")
-        print(f"http://localhost:5173/reset-password?token={token}")
-        print(f"{'='*50}\n")
+        if settings.DEBUG and settings.APP_ENV != "production":
+            print(f"\n{'='*50}")
+            print(f"PASSWORD RESET LINK for {user.email}:")
+            print(f"http://localhost:5173/reset-password?token={token}")
+            print(f"{'='*50}\n")
+        else:
+            logger.warning("Password reset requested but no production email backend is configured")
     
     # Always return success to prevent user enumeration
     return {"message": "Password reset email sent (if user exists)"}

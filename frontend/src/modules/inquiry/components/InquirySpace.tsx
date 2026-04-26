@@ -323,7 +323,8 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
                         filename: filename,
                         size: file.size,
                         project_id: projectId,
-                        mime_type: file.type
+                        mime_type: file.type,
+                        source_type: 'inquiry_material',
                     });
 
                     // 4. Add to scrapbook (The resource URL is needed here, assuming storage handles standard paths or we have an endpoint)

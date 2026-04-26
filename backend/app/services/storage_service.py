@@ -184,6 +184,29 @@ class StorageService:
                 response.close()
                 response.release_conn()
 
+    def get_file_prefix(self, file_key: str, length: int = 512) -> bytes:
+        """Download the first bytes of a file for lightweight content validation."""
+        if not self.client:
+            raise ValueError("Storage client not initialized")
+
+        self._ensure_bucket_exists()
+
+        response = None
+        try:
+            response = self.client.get_object(
+                settings.MINIO_BUCKET_NAME,
+                file_key,
+                offset=0,
+                length=max(1, length),
+            )
+            return response.read()
+        except S3Error as e:
+            raise ValueError(f"Failed to read file prefix: {e}")
+        finally:
+            if response is not None:
+                response.close()
+                response.release_conn()
+
     def get_file_size(self, file_key: str) -> Optional[int]:
         """Get file size."""
         if not self.client:

@@ -133,6 +133,14 @@ async def create_project(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to use this course",
             )
+        if current_user.role == "student" and (
+            current_user.class_id != str(course.id)
+            and str(current_user.id) not in course.students
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Students can only create groups inside their joined class",
+            )
 
     # Check student project limit (only 1 project per student)
     if current_user.role == "student":
@@ -425,20 +433,48 @@ async def add_project_member(
 
     # Resolve user
     target_user_id = member_data.user_id
+    target_user = None
     if member_data.email:
-        user = await User.find_one(User.email == member_data.email)
-        if not user:
+        target_user = await User.find_one(User.email == member_data.email)
+        if not target_user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User with this email not found",
             )
-        target_user_id = str(user.id)
+        target_user_id = str(target_user.id)
     
     if not target_user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Either user_id or email must be provided",
         )
+    if not target_user:
+        target_user = await User.get(target_user_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    if current_user.role != "admin":
+        if target_user.role != "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only student accounts can be added to a learning group",
+            )
+        if project.course_id and target_user.class_id != project.course_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Students can only be added to groups in their own class",
+            )
+        if current_user.role == "teacher" and not project.course_id:
+            teacher_courses = await Course.find(Course.teacher_id == str(current_user.id)).to_list()
+            teacher_course_ids = {str(course.id) for course in teacher_courses}
+            if target_user.class_id not in teacher_course_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Teacher can only add students from their own classes",
+                )
 
     # Check if user is already a member
     if any(m.get("user_id") == target_user_id for m in project.members):

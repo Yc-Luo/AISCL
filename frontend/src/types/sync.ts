@@ -99,11 +99,24 @@ export interface ChatOperationData {
         size: number;
         url: string;
         mimeType: string;
+        resourceId?: string;
     };
     aiMeta?: {
         primary_agent?: string;
         rationale_summary?: string;
         routing_summary?: string[];
+    };
+    teacherSupport?: {
+        supportType?: string;
+        source?: string;
+    };
+    teacherHelpRequest?: {
+        helpType?: string;
+        status?: string;
+        source?: string;
+        allowPublicReply?: boolean;
+        pageSource?: string;
+        stageId?: string;
     };
     isRecalled?: boolean;
 }

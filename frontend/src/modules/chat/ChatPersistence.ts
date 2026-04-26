@@ -37,11 +37,24 @@ export interface ChatMessage {
         rationale_summary?: string;
         routing_summary?: string[];
     };
+    teacher_support?: {
+        support_type?: string;
+        source?: string;
+    };
+    teacher_help_request?: {
+        help_type?: string;
+        status?: string;
+        source?: string;
+        allow_public_reply?: boolean;
+        page_source?: string;
+        stage_id?: string;
+    };
     file_info?: {
         name: string;
         size: number;
         url: string;
         mime_type: string;
+        resource_id?: string;
     };
     reply_to?: string;
     is_recalled?: boolean;
@@ -83,6 +96,7 @@ export class ChatPersistence {
      * 将 ChatOperation 转换为 ChatMessage
      */
     static operationToMessage(op: ChatOperation, user: any): ChatMessage {
+        const fileInfo = op.data.fileInfo as any;
         return {
             id: op.data.messageId || op.id,
             client_message_id: op.data.clientMessageId || op.data.messageId || op.id,
@@ -95,11 +109,24 @@ export class ChatPersistence {
             timestamp: normalizeChatTimestamp(op.timestamp),
             isPending: false,
             ai_meta: op.data.aiMeta,
-            file_info: op.data.fileInfo ? {
-                name: op.data.fileInfo.name,
-                size: op.data.fileInfo.size,
-                url: op.data.fileInfo.url,
-                mime_type: op.data.fileInfo.mimeType
+            teacher_support: op.data.teacherSupport ? {
+                support_type: op.data.teacherSupport.supportType,
+                source: op.data.teacherSupport.source,
+            } : undefined,
+            teacher_help_request: op.data.teacherHelpRequest ? {
+                help_type: op.data.teacherHelpRequest.helpType,
+                status: op.data.teacherHelpRequest.status,
+                source: op.data.teacherHelpRequest.source,
+                allow_public_reply: op.data.teacherHelpRequest.allowPublicReply,
+                page_source: op.data.teacherHelpRequest.pageSource,
+                stage_id: op.data.teacherHelpRequest.stageId,
+            } : undefined,
+            file_info: fileInfo ? {
+                name: fileInfo.name,
+                size: fileInfo.size,
+                url: fileInfo.url,
+                mime_type: fileInfo.mimeType || fileInfo.mime_type,
+                resource_id: fileInfo.resourceId || fileInfo.resource_id,
             } : undefined,
             reply_to: op.data.replyTo,
             is_recalled: op.data.isRecalled

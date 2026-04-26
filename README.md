@@ -166,7 +166,7 @@ cp backend/.env.server.example backend/.env
 
 ```env
 # .env
-AISCL_HTTP_PORT=80
+AISCL_HTTP_BIND=127.0.0.1:8080
 AISCL_IMAGE_TAG=latest
 PIP_INDEX_URL=https://pypi.org/simple
 MINIO_ROOT_USER=replace-minio-root-user
@@ -179,13 +179,15 @@ SECRET_KEY=replace-with-at-least-32-characters
 JWT_SECRET_KEY=replace-with-at-least-32-characters
 MINIO_ACCESS_KEY=replace-minio-root-user
 MINIO_SECRET_KEY=replace-minio-root-password
-MINIO_PUBLIC_ENDPOINT=your-domain-or-ip
-CORS_ORIGINS=["http://your-domain-or-ip","https://your-domain"]
+MINIO_PUBLIC_ENDPOINT=https://aiscl.site
+CORS_ORIGINS=["https://aiscl.site","https://www.aiscl.site"]
 ```
 
 `MINIO_ROOT_USER` 必须与 `backend/.env` 中的 `MINIO_ACCESS_KEY` 一致，`MINIO_ROOT_PASSWORD` 必须与 `MINIO_SECRET_KEY` 一致。
 
-`MINIO_PUBLIC_ENDPOINT` 用于生成浏览器可访问的文件上传/下载签名链接。通过 `nginx` 部署时填写公网域名或 IP 本身即可，例如 `62.234.69.204`；不要填写 `http://`、`https://`、`:9000` 或 `/aiscl-files`。如果使用非 80 端口访问系统，例如 `8888`，则填写 `62.234.69.204:8888`。
+`AISCL_HTTP_BIND` 只让 Docker 内部 AISCL-nginx 监听宿主机本地端口。正式 HTTPS 部署时，公网 `80/443` 应交给宿主机 Nginx 和 Let's Encrypt，宿主机 Nginx 再反代到 `127.0.0.1:8080`。
+
+`MINIO_PUBLIC_ENDPOINT` 用于生成浏览器可访问的文件上传/下载签名链接。通过 HTTPS 域名部署时填写 `https://aiscl.site` 这类公开入口；不要填写 `:9000` 或 `/aiscl-files`。如果临时使用公网 IP + 非 80 端口访问系统，例如 `62.234.69.204:8888`，则填写对应入口。
 
 如果服务器构建后端时出现 `No matching distribution found`、`Could not find a version` 等 Python 依赖解析问题，通常是 pip 源访问不稳定或镜像未同步。可以在根目录 `.env` 中改用国内镜像：
 
@@ -220,8 +222,8 @@ docker compose -f docker-compose.server.yml logs -f backend
 
 访问：
 
-- `http://服务器公网IP`
-- 或绑定域名后的 `http://your-domain`
+- Docker 内部入口：`http://127.0.0.1:8080`
+- 正式入口：通过宿主机 Nginx 反代后的 `https://aiscl.site`
 
 #### 5.4.2 低内存模式：服务器只拉取镜像
 
@@ -253,7 +255,27 @@ docker compose -f docker-compose.images.yml logs -f backend
 AISCL_IMAGE_TAG=sha-xxxxxxx
 ```
 
-### 5.5 初始化管理员账号
+### 5.5 配置 HTTPS 域名反代
+
+推荐让宿主机 Nginx 独占公网 `80/443`，Docker 内部 AISCL-nginx 只监听 `127.0.0.1:8080`。服务器上可使用示例配置：
+
+```bash
+sudo cp nginx/host.aiscl.site.conf.example /etc/nginx/sites-available/aiscl.site
+sudo ln -sf /etc/nginx/sites-available/aiscl.site /etc/nginx/sites-enabled/aiscl.site
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot --nginx -d aiscl.site -d www.aiscl.site
+```
+
+如果旧容器仍占用宿主机 80 端口，先更新 `.env` 为 `AISCL_HTTP_BIND=127.0.0.1:8080`，再重建 nginx 容器：
+
+```bash
+docker compose -f docker-compose.images.yml up -d nginx
+```
+
+本机构建模式则使用 `docker-compose.server.yml`。
+
+### 5.6 初始化管理员账号
 
 首次部署后，需要在服务器端创建至少一个管理员账号。推荐使用容器内初始化脚本，不建议长期依赖公开注册接口创建管理员。
 
@@ -277,7 +299,7 @@ docker compose -f docker-compose.server.yml run --rm --no-deps backend python sc
 
 如果采用低内存远程镜像模式，上面两条命令中的 `docker-compose.server.yml` 替换为 `docker-compose.images.yml`。
 
-### 5.6 更新部署
+### 5.7 更新部署
 
 普通模式：
 

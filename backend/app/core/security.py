@@ -104,12 +104,12 @@ def get_csp_header() -> str:
     """Get Content Security Policy header."""
     return (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "  # Keep for CSS frameworks
-        "img-src 'self' data: https: blob: *; "
-        "font-src 'self' data: https://fonts.gstatic.com; "
-        "connect-src 'self' ws: wss: http://localhost:9000 http://127.0.0.1:9000 http://minio:9000 *; "
-        "frame-src 'self' https:; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https: blob:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' ws: wss:; "
+        "frame-src 'self'; "
         "frame-ancestors 'none'; "
         "object-src 'none'; "
         "base-uri 'self'; "

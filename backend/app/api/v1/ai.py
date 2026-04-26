@@ -3,11 +3,12 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.v1.auth import get_current_user
+from app.core.security import limiter
 from app.core.permissions import can_manage_project_scope, check_project_member_permission
 from app.repositories.ai_conversation import AIConversation
 from app.repositories.ai_intervention_rule import AIInterventionRule
@@ -151,8 +152,10 @@ def _build_tutor_ai_meta(chat_data: AIChatRequest) -> dict:
 
 
 @router.post("/chat", response_model=AIChatResponse)
+@limiter.limit("30/minute")
 async def chat(
     chat_data: AIChatRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
 ) -> AIChatResponse:
     """Non-streaming AI chat."""
@@ -211,8 +214,10 @@ async def chat(
 
 
 @router.post("/action", response_model=AIChatResponse)
+@limiter.limit("20/minute")
 async def ai_action(
     action_data: AIContextActionRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
 ) -> AIChatResponse:
     """Specialized AI context-aware actions."""
@@ -268,8 +273,10 @@ async def ai_action(
 
 
 @router.post("/chat/stream")
+@limiter.limit("20/minute")
 async def chat_stream(
     chat_data: AIChatRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
 ):
     """Streaming AI chat (SSE)."""
@@ -922,12 +929,14 @@ async def delete_intervention_rule(
 
 
 @router.post("/interventions/check", response_model=List[InterventionCheckResult])
+@limiter.limit("60/minute")
 async def check_intervention_rules(
-    request: InterventionCheckRequest,
+    intervention_request: InterventionCheckRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
 ) -> List[InterventionCheckResult]:
     """Evaluate currently applicable intervention rules for a project."""
-    project = await Project.get(request.project_id)
+    project = await Project.get(intervention_request.project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -937,10 +946,10 @@ async def check_intervention_rules(
     await ensure_project_access(current_user, project)
 
     interventions = await intervention_service.check_interventions(
-        project_id=request.project_id,
-        user_id=request.user_id or str(current_user.id),
-        context=request.context.model_dump(),
-        enabled_rule_set=request.enabled_rule_set,
+        project_id=intervention_request.project_id,
+        user_id=intervention_request.user_id or str(current_user.id),
+        context=intervention_request.context.model_dump(),
+        enabled_rule_set=intervention_request.enabled_rule_set,
     )
 
     return [

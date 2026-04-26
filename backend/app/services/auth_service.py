@@ -180,6 +180,19 @@ async def revoke_refresh_token(token_hash: str) -> bool:
     return False
 
 
+async def revoke_all_refresh_tokens(user_id: str) -> int:
+    """Revoke all refresh tokens for one user."""
+    refresh_tokens = mongodb.get_database()["refresh_tokens"]
+    result = await asyncio.wait_for(
+        refresh_tokens.update_many(
+            {"user_id": user_id, "is_revoked": False},
+            {"$set": {"is_revoked": True}},
+        ),
+        timeout=5,
+    )
+    return result.modified_count
+
+
 def hash_token(token: str) -> str:
     """Create a deterministic hash for refresh-token lookup and revocation."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()

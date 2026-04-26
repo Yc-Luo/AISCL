@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -14,6 +14,7 @@ from fastapi.concurrency import run_in_threadpool
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
 from app.core.permissions import can_edit_project_content, check_project_member_permission
+from app.core.security import sanitize_filename
 from app.repositories.project import Project
 from app.repositories.resource import Resource
 from app.repositories.user import User
@@ -22,6 +23,72 @@ from app.services.rag_service import rag_service
 from app.services.text_extraction_service import text_extraction_service
 
 router = APIRouter(prefix="/storage", tags=["storage"])
+
+ALLOWED_UPLOAD_MIME_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/gif",
+    "image/webp",
+    "application/pdf",
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "application/json",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+
+INLINE_IMAGE_MIME_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/gif",
+    "image/webp",
+}
+
+
+def _normalize_mime_type(mime_type: str) -> str:
+    """Normalize client-provided MIME values before validation."""
+    return (mime_type or "").split(";", 1)[0].strip().lower()
+
+
+def _ensure_allowed_upload_mime(mime_type: str) -> str:
+    """Reject executable or browser-renderable active content uploads."""
+    normalized = _normalize_mime_type(mime_type)
+    if normalized not in ALLOWED_UPLOAD_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported file type",
+        )
+    return normalized
+
+
+def _ensure_project_file_key(project_id: str, file_key: str) -> None:
+    """Ensure a resource record can only bind files under its own project prefix."""
+    expected_prefix = f"projects/{project_id}/files/"
+    if not file_key.startswith(expected_prefix):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file key for this project",
+        )
+
+
+def _has_expected_inline_image_signature(mime_type: str, prefix: bytes) -> bool:
+    """Validate image previews by magic bytes, not by client-provided MIME only."""
+    if mime_type == "image/png":
+        return prefix.startswith(b"\x89PNG\r\n\x1a\n")
+    if mime_type in {"image/jpeg", "image/jpg"}:
+        return prefix.startswith(b"\xff\xd8\xff")
+    if mime_type == "image/gif":
+        return prefix.startswith((b"GIF87a", b"GIF89a"))
+    if mime_type == "image/webp":
+        return prefix.startswith(b"RIFF") and prefix[8:12] == b"WEBP"
+    return False
 
 
 async def ensure_project_access(current_user: User, project: Project, detail: str) -> None:
@@ -43,6 +110,8 @@ async def generate_presigned_url(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Generate presigned URL for file upload."""
+    _ensure_allowed_upload_mime(file_type)
+
     # Check project access
     project = await Project.get(project_id)
     if not project:
@@ -83,6 +152,10 @@ class CreateResourceRequest(BaseModel):
     size: int
     project_id: str
     mime_type: str
+    source_type: str = Field(
+        default="library",
+        pattern="^(library|document_embed|chat_attachment|inquiry_material)$",
+    )
 
 
 @router.post("/resources")
@@ -92,6 +165,8 @@ async def create_resource(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Create resource record after file upload."""
+    normalized_mime_type = _ensure_allowed_upload_mime(resource_data.mime_type)
+
     # Check project access
     project = await Project.get(resource_data.project_id)
     if not project:
@@ -104,6 +179,27 @@ async def create_resource(
         project,
         "You don't have permission to create resources in this project",
     )
+    _ensure_project_file_key(resource_data.project_id, resource_data.file_key)
+
+    actual_size = await run_in_threadpool(storage_service.get_file_size, resource_data.file_key)
+    if actual_size is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file not found in object storage",
+        )
+    if actual_size != resource_data.size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file size does not match the resource metadata",
+        )
+
+    if normalized_mime_type in INLINE_IMAGE_MIME_TYPES:
+        prefix = await run_in_threadpool(storage_service.get_file_prefix, resource_data.file_key, 16)
+        if not _has_expected_inline_image_signature(normalized_mime_type, prefix):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Image file signature does not match the declared MIME type",
+            )
 
     # Generate download URL
     download_url = storage_service.generate_presigned_get_url(resource_data.file_key)
@@ -115,7 +211,8 @@ async def create_resource(
         file_key=resource_data.file_key,
         url=download_url,
         size=resource_data.size,
-        mime_type=resource_data.mime_type,
+        mime_type=normalized_mime_type,
+        source_type=resource_data.source_type,
         uploaded_by=str(current_user.id),
     )
     await resource.insert()
@@ -129,23 +226,24 @@ async def create_resource(
         try:
             file_bytes = await run_in_threadpool(storage_service.get_file_bytes, file_key)
             text_content = ""
-            if text_extraction_service.can_extract(resource_data.mime_type, resource_data.filename):
+            if text_extraction_service.can_extract(normalized_mime_type, resource_data.filename):
                 text_content = text_extraction_service.extract_text(
                     file_bytes,
-                    resource_data.mime_type,
+                    normalized_mime_type,
                     resource_data.filename,
                 )
             if not text_content:
                 text_content = (
                     f"资源文件：{resource_data.filename}\n"
-                    f"类型：{resource_data.mime_type}\n"
+                    f"类型：{normalized_mime_type}\n"
                     "该文件暂未抽取正文，可作为资源库引用来源。"
                 )
             await rag_service.process_resource(resource_id, text_content)
         except Exception as exc:
             print(f"Resource RAG indexing skipped: {exc}")
 
-    background_tasks.add_task(process_resource_task, str(resource.id), resource.file_key)
+    if resource.source_type == "library":
+        background_tasks.add_task(process_resource_task, str(resource.id), resource.file_key)
 
     # Log activity
     from app.services.activity_service import activity_service
@@ -164,6 +262,7 @@ async def create_resource(
         "filename": resource.filename,
         "url": resource.url,
         "size": resource.size,
+        "source_type": resource.source_type,
         "uploaded_by": resource.uploaded_by,
         "uploaded_at": resource.uploaded_at.isoformat(),
     }
@@ -172,6 +271,7 @@ async def create_resource(
 @router.get("/resources/{project_id}")
 async def list_resources(
     project_id: str,
+    source_type: str = Query("library", pattern="^(library|document_embed|chat_attachment|inquiry_material|all)$"),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """List project resources."""
@@ -189,7 +289,24 @@ async def list_resources(
     )
 
     # Get resources
-    resources = await Resource.find(Resource.project_id == project_id).to_list()
+    if source_type == "all":
+        resources = await Resource.find(Resource.project_id == project_id).to_list()
+    elif source_type == "library":
+        resources = await Resource.find(
+            {
+                "project_id": project_id,
+                "$or": [
+                    {"source_type": "library"},
+                    {"source_type": {"$exists": False}},
+                    {"source_type": None},
+                ],
+            }
+        ).to_list()
+    else:
+        resources = await Resource.find(
+            Resource.project_id == project_id,
+            Resource.source_type == source_type,
+        ).to_list()
 
     # Generate fresh presigned URLs
     resource_list = []
@@ -204,6 +321,7 @@ async def list_resources(
                 "url": download_url,
                 "size": resource.size,
                 "mime_type": resource.mime_type,
+                "source_type": resource.source_type,
                 "uploaded_by": resource.uploaded_by,
                 "uploaded_at": resource.uploaded_at.isoformat(),
             }
@@ -277,7 +395,13 @@ async def delete_resource(
 async def view_resource(
     resource_id: str
 ):
-    """View resource by proxying from storage."""
+    """View image resources by proxying from storage.
+
+    This endpoint remains unauthenticated because editor image tags cannot attach
+    Bearer headers. To avoid exposing arbitrary active content, only validated
+    image resources are served here. Other resources must use the authenticated
+    download endpoint.
+    """
     resource = await Resource.get(resource_id)
     if not resource:
         raise HTTPException(
@@ -285,7 +409,21 @@ async def view_resource(
             detail="Resource not found",
         )
 
+    normalized_mime_type = _normalize_mime_type(resource.mime_type)
+    if normalized_mime_type not in INLINE_IMAGE_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Only image previews are available through this endpoint",
+        )
+
     try:
+        prefix = await run_in_threadpool(storage_service.get_file_prefix, resource.file_key, 16)
+        if not _has_expected_inline_image_signature(normalized_mime_type, prefix):
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Stored file does not match an allowed image signature",
+            )
+
         # Get object stream from storage
         response = storage_service.client.get_object(
             settings.MINIO_BUCKET_NAME,
@@ -302,8 +440,15 @@ async def view_resource(
 
         return StreamingResponse(
             iter_file(),
-            media_type=resource.mime_type
+            media_type=normalized_mime_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{sanitize_filename(resource.filename)}"',
+                "Cache-Control": "private, max-age=300",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error proxying resource: {e}")
         raise HTTPException(

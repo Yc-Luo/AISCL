@@ -16,6 +16,7 @@ class Resource(Document):
     url: str  # CDN URL
     size: int = Field(..., ge=0)  # File size in bytes
     mime_type: str
+    source_type: str = Field(default="library", index=True)
     uploaded_by: str = Field(..., index=True)
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -25,7 +26,7 @@ class Resource(Document):
         name = "resources"
         indexes = [
             [("project_id", 1)],
+            [("project_id", 1), ("source_type", 1)],
             [("uploaded_by", 1)],
             [("uploaded_at", 1)],
         ]
-

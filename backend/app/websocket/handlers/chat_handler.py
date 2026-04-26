@@ -81,6 +81,9 @@ AUTO_PROMPT_SENDER_IDS = {
 }
 
 THINK_BLOCK_PATTERN = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
+MAX_CHAT_MESSAGE_CHARS = 1000
+MAX_CHAT_MENTIONS = 20
+MAX_CHAT_FILENAME_CHARS = 255
 
 
 def _detect_preferred_subagent(content: str) -> str | None:
@@ -629,10 +632,28 @@ async def handle_chat_op(sio, sid, data, user_id):
         return
 
     if op_type == "message":
-        content = op_payload.get("content")
-        # Allow empty content? Usually no.
-        if not content:
+        content = str(op_payload.get("content") or "")
+        mentions = op_payload.get("mentions", [])
+        file_info = op_payload.get("fileInfo")
+        if not content.strip() and not file_info:
             return
+        if len(content) > MAX_CHAT_MESSAGE_CHARS:
+            logger.warning("Rejected oversized chat message from %s in %s", user_id, room_id)
+            return
+        if not isinstance(mentions, list):
+            mentions = []
+        mentions = mentions[:MAX_CHAT_MENTIONS]
+        if file_info is not None and not isinstance(file_info, dict):
+            logger.warning("Rejected invalid chat file payload from %s in %s", user_id, room_id)
+            return
+        if file_info:
+            file_info = {
+                "name": str(file_info.get("name") or "image").strip()[:MAX_CHAT_FILENAME_CHARS],
+                "size": int(file_info.get("size") or 0),
+                "url": str(file_info.get("url") or ""),
+                "mime_type": str(file_info.get("mimeType") or file_info.get("mime_type") or ""),
+                "resource_id": str(file_info.get("resourceId") or file_info.get("resource_id") or ""),
+            }
 
         try:
             # Resolve Project ID
@@ -645,21 +666,52 @@ async def handle_chat_op(sio, sid, data, user_id):
             
             # Dynamic import to avoid potential circular dependencies at module level
             from app.repositories.chat_log import ChatLog
+            from app.repositories.resource import Resource
             from app.repositories.user import User
             from app.services.research_event_service import research_event_service
+
+            if file_info:
+                resource_id = file_info.get("resource_id")
+                try:
+                    resource = await Resource.get(resource_id) if resource_id else None
+                except Exception:  # noqa: BLE001
+                    resource = None
+                if (
+                    not resource
+                    or resource.project_id != project_id
+                    or resource.source_type != "chat_attachment"
+                ):
+                    logger.warning("Rejected unbound chat file payload from %s in %s", user_id, room_id)
+                    return
+                file_info = {
+                    "name": resource.filename[:MAX_CHAT_FILENAME_CHARS],
+                    "size": int(resource.size or 0),
+                    "url": f"/api/v1/storage/resources/{str(resource.id)}/view",
+                    "mime_type": resource.mime_type,
+                    "resource_id": str(resource.id),
+                }
+                op_payload["fileInfo"] = {
+                    "name": file_info["name"],
+                    "size": file_info["size"],
+                    "url": file_info["url"],
+                    "mimeType": file_info["mime_type"],
+                    "resourceId": file_info["resource_id"],
+                }
             
             chat_log = ChatLog(
                 project_id=project_id,
                 user_id=user_id,
                 content=content,
-                message_type="text",
-                mentions=op_payload.get("mentions", [])
-                ,
-                metadata=(
-                    {"client_message_id": op_payload.get("messageId")}
-                    if op_payload.get("messageId")
-                    else None
-                ),
+                message_type="file" if file_info else "text",
+                mentions=mentions,
+                metadata={
+                    **(
+                        {"client_message_id": op_payload.get("messageId")}
+                        if op_payload.get("messageId")
+                        else {}
+                    ),
+                    **({"file_info": file_info} if file_info else {}),
+                } or None,
             )
             await chat_log.insert()
             
@@ -698,8 +750,14 @@ async def handle_chat_op(sio, sid, data, user_id):
             
             # Check for AI Mentions
             # 1. Structured mentions
-            mentions = op_payload.get("mentions", [])
-            is_ai_mentioned = any(m.get("id") == "ai_assistant" for m in mentions)
+            is_ai_mentioned = any(
+                (
+                    mention.get("id") == "ai_assistant"
+                    if isinstance(mention, dict)
+                    else str(mention) == "ai_assistant"
+                )
+                for mention in mentions
+            )
             
             # 2. Heuristic text check (for testing or direct typing)
             ai_keywords = list(ROLE_MENTION_MAP.keys()) + list(GENERAL_AI_MENTIONS)
@@ -720,7 +778,7 @@ async def handle_chat_op(sio, sid, data, user_id):
                         "stage_id": current_stage,
                         "payload": {
                             "message_length": len(content),
-                            "mention_count": len(op_payload.get("mentions", [])),
+                            "mention_count": len(mentions),
                             "contains_ai_mention": is_ai_mentioned,
                             "preferred_subagent": _detect_preferred_subagent(content),
                         },

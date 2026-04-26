@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     BarChart3,
@@ -20,6 +20,7 @@ import { projectService } from '../../../../services/api/project';
 import { analyticsService } from '../../../../services/api/analytics';
 import { chatService } from '../../../../services/api/chat';
 import { Project } from '../../../../types';
+import { trackingService } from '../../../../services/tracking/TrackingService';
 
 type GroupStatus = 'normal' | 'attention' | 'help' | 'inactive';
 
@@ -32,6 +33,9 @@ type HelpRequest = {
     createdAt: string;
     visibility: 'private' | 'group';
     status: 'pending' | 'replied' | 'resolved';
+    allowPublicReply: boolean;
+    stageId?: string | null;
+    pageSource?: string | null;
 };
 
 type SupportHistoryItem = {
@@ -41,6 +45,22 @@ type SupportHistoryItem = {
     content: string;
     createdAt: string;
 };
+
+function mapHelpRequest(request: any): HelpRequest {
+    return {
+        id: request.id,
+        projectId: request.project_id,
+        studentName: request.username,
+        type: request.help_type || '一般求助',
+        content: request.content,
+        createdAt: request.created_at,
+        visibility: request.allow_public_reply ? 'group' : 'private',
+        status: request.status,
+        allowPublicReply: request.allow_public_reply,
+        stageId: request.stage_id,
+        pageSource: request.page_source,
+    };
+}
 
 const UNASSIGNED_COURSE_ID = '__unassigned__';
 
@@ -172,6 +192,9 @@ export default function ProjectMonitor() {
     const [supportSending, setSupportSending] = useState(false);
     const [supportFeedback, setSupportFeedback] = useState<string | null>(null);
     const [supportHistory, setSupportHistory] = useState<Record<string, SupportHistoryItem[]>>({});
+    const [helpRequests, setHelpRequests] = useState<HelpRequest[]>(emptyHelpRequests);
+    const [supportPublicReply, setSupportPublicReply] = useState(false);
+    const dashboardViewTrackedRef = useRef(false);
 
     useEffect(() => {
         const fetchOverviewData = async () => {
@@ -188,6 +211,18 @@ export default function ProjectMonitor() {
                 if (!selectedProjectId && activeProjects.length > 0) {
                     setSelectedProjectId(activeProjects[0].id);
                 }
+                const helpRequestGroups = await Promise.all(
+                    activeProjects.map(async (project) => {
+                        try {
+                            const response = await chatService.getTeacherHelpRequests(project.id, 'pending');
+                            return response.requests.map(mapHelpRequest);
+                        } catch (error) {
+                            console.error('Failed to fetch help requests:', project.id, error);
+                            return [];
+                        }
+                    })
+                );
+                setHelpRequests(helpRequestGroups.flat());
             } catch (error) {
                 console.error('Failed to fetch monitor data:', error);
             } finally {
@@ -229,7 +264,6 @@ export default function ProjectMonitor() {
         return new Map(courses.map((course) => [course.id, course]));
     }, [courses]);
 
-    const helpRequests = emptyHelpRequests;
     const pendingHelpCountByProject = useMemo(() => {
         return helpRequests.reduce<Record<string, number>>((map, request) => {
             if (request.status === 'pending') {
@@ -328,6 +362,7 @@ export default function ProjectMonitor() {
         setSupportType(defaultTemplate.type);
         setSupportDraft(defaultTemplate.text);
         setSupportFeedback(null);
+        setSupportPublicReply(false);
     }, [selectedProjectId]);
 
     const selectedProject = filteredProjects.find((project) => project.id === selectedProjectId) || filteredProjects[0];
@@ -336,7 +371,49 @@ export default function ProjectMonitor() {
     const selectedHelpRequests = selectedProject
         ? helpRequests.filter((request) => request.projectId === selectedProject.id && request.status === 'pending')
         : [];
+    const primaryHelpRequest = selectedHelpRequests[0];
     const selectedSupportHistory = selectedProject ? supportHistory[selectedProject.id] || [] : [];
+
+    useEffect(() => {
+        if (!selectedProject) return;
+        trackingService.trackResearchEvent({
+            project_id: selectedProject.id,
+            actor_type: 'teacher',
+            event_domain: 'dialogue',
+            event_type: dashboardViewTrackedRef.current ? 'teacher_observation_open' : 'teacher_dashboard_view',
+            payload: {
+                course_id: selectedProject.course_id,
+                pending_help_count: selectedHelpRequests.length,
+            },
+        });
+        dashboardViewTrackedRef.current = true;
+    }, [selectedProject?.id]);
+
+    useEffect(() => {
+        if (!selectedProject?.id) return;
+
+        let cancelled = false;
+        const refreshSelectedHelpRequests = async () => {
+            try {
+                const response = await chatService.getTeacherHelpRequests(selectedProject.id, 'pending');
+                if (cancelled) return;
+                const nextRequests = response.requests.map(mapHelpRequest);
+                setHelpRequests((previous) => [
+                    ...previous.filter((request) => request.projectId !== selectedProject.id),
+                    ...nextRequests,
+                ]);
+            } catch (error) {
+                console.error('Failed to refresh selected help requests:', selectedProject.id, error);
+            }
+        };
+
+        void refreshSelectedHelpRequests();
+        const intervalId = window.setInterval(refreshSelectedHelpRequests, 15000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [selectedProject?.id]);
 
     const totalStudents = courses.reduce((acc, course) => acc + (course.students?.length || 0), 0);
     const attentionCount = projects.filter((project) => getProjectMetrics(project).status !== 'normal').length;
@@ -353,10 +430,16 @@ export default function ProjectMonitor() {
         try {
             setSupportSending(true);
             setSupportFeedback(null);
-            const message = await chatService.sendTeacherSupport(selectedProject.id, {
-                content: supportDraft.trim(),
-                support_type: supportType,
-            });
+            const message = primaryHelpRequest
+                ? await chatService.replyTeacherHelpRequest(primaryHelpRequest.id, {
+                    content: supportDraft.trim(),
+                    support_type: supportType,
+                    public_reply: supportPublicReply && primaryHelpRequest.allowPublicReply,
+                })
+                : await chatService.sendTeacherSupport(selectedProject.id, {
+                    content: supportDraft.trim(),
+                    support_type: supportType,
+                });
 
             setSupportHistory((previous) => {
                 const current = previous[selectedProject.id] || [];
@@ -374,12 +457,41 @@ export default function ProjectMonitor() {
                     ].slice(0, 5),
                 };
             });
-            setSupportFeedback('已发送到小组聊天，并记录为教师支持事件。');
+            if (primaryHelpRequest) {
+                setHelpRequests((previous) =>
+                    previous.map((request) =>
+                        request.id === primaryHelpRequest.id
+                            ? { ...request, status: 'replied' }
+                            : request
+                    )
+                );
+            }
+            setSupportFeedback(
+                primaryHelpRequest
+                    ? supportPublicReply && primaryHelpRequest.allowPublicReply
+                        ? '已公开回复到小组聊天，并记录为教师支持事件。'
+                        : '已私下回复学生，并记录为教师支持事件。'
+                    : '已发送到小组聊天，并记录为教师支持事件。'
+            );
         } catch (error) {
             console.error('Failed to send teacher support:', error);
             setSupportFeedback('发送失败，请检查权限或网络后重试。');
         } finally {
             setSupportSending(false);
+        }
+    };
+
+    const handleResolveHelpRequest = async (requestId: string) => {
+        try {
+            await chatService.updateTeacherHelpRequestStatus(requestId, 'resolved');
+            setHelpRequests((previous) =>
+                previous.map((request) =>
+                    request.id === requestId ? { ...request, status: 'resolved' } : request
+                )
+            );
+        } catch (error) {
+            console.error('Failed to resolve help request:', error);
+            setSupportFeedback('求助状态更新失败，请稍后重试。');
         }
     };
 
@@ -683,13 +795,33 @@ export default function ProjectMonitor() {
                                         <div key={request.id} className="rounded-xl border border-rose-100 bg-rose-50 p-3">
                                             <p className="text-xs font-bold text-rose-700">{request.studentName} · {request.type}</p>
                                             <p className="mt-1 text-sm text-slate-700">{request.content}</p>
-                                            <p className="mt-2 text-[11px] text-slate-400">{formatDateTime(request.createdAt)}</p>
+                                            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                                                <span className="rounded-full bg-white px-2 py-0.5 text-slate-500">
+                                                    {request.stageId || '未配置阶段'}
+                                                </span>
+                                                <span className="rounded-full bg-white px-2 py-0.5 text-slate-500">
+                                                    来源：{request.pageSource || '未知页面'}
+                                                </span>
+                                                <span className={`rounded-full px-2 py-0.5 ${request.allowPublicReply ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                    {request.allowPublicReply ? '允许公开回应' : '仅私下回复'}
+                                                </span>
+                                            </div>
+                                            <div className="mt-2 flex items-center justify-between gap-2">
+                                                <p className="text-[11px] text-slate-400">{formatDateTime(request.createdAt)}</p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleResolveHelpRequest(request.id)}
+                                                    className="rounded-full border border-rose-100 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100"
+                                                >
+                                                    标记已解决
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
                                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                                    当前小组暂无待回复求助。后续接入学生端“教师支持”入口后，会在这里显示具体求助线程。
+                                    当前小组暂无待回复求助。学生在“教师支持”页提交后，会在这里显示具体求助内容。
                                 </div>
                             )}
                         </section>
@@ -722,13 +854,33 @@ export default function ProjectMonitor() {
                                 className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                                 placeholder="编辑教师支持内容..."
                             />
+                            {primaryHelpRequest ? (
+                                <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                                    <p className="text-xs leading-5 text-indigo-700">
+                                        当前将回复：{primaryHelpRequest.studentName} 的“{primaryHelpRequest.type}”求助。
+                                    </p>
+                                    <label className={`mt-2 flex items-start gap-2 text-xs leading-5 ${primaryHelpRequest.allowPublicReply ? 'text-indigo-700' : 'text-slate-400'}`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={supportPublicReply && primaryHelpRequest.allowPublicReply}
+                                            disabled={!primaryHelpRequest.allowPublicReply}
+                                            onChange={(event) => setSupportPublicReply(event.target.checked)}
+                                            className="mt-1"
+                                        />
+                                        <span>
+                                            公开回应到小组聊天
+                                            {!primaryHelpRequest.allowPublicReply ? '（学生未授权公开回应）' : ''}
+                                        </span>
+                                    </label>
+                                </div>
+                            ) : null}
                             <Button
                                 className="mt-3 w-full gap-2"
                                 disabled={!selectedProject || supportSending || !supportDraft.trim()}
                                 onClick={handleSendTeacherSupport}
                             >
                                 <Send className="h-4 w-4" />
-                                {supportSending ? '发送中...' : '发送到小组聊天'}
+                                {supportSending ? '发送中...' : primaryHelpRequest ? '回复学生求助' : '发送到小组聊天'}
                             </Button>
                             {supportFeedback ? (
                                 <p className={`mt-2 text-xs leading-relaxed ${supportFeedback.includes('失败') ? 'text-rose-600' : 'text-emerald-600'}`}>
@@ -736,7 +888,9 @@ export default function ProjectMonitor() {
                                 </p>
                             ) : (
                                 <p className="mt-2 text-xs leading-relaxed text-slate-400">
-                                    消息会进入该小组群聊，不弹窗、不强制控制，并记录为教师低频支持事件。
+                                    {primaryHelpRequest
+                                        ? '未公开回应时，回复只在学生端“教师支持”页显示；公开回应时才进入小组聊天。'
+                                        : '无待回复求助时，消息会作为公开教师支持进入该小组群聊。'}
                                 </p>
                             )}
                         </section>
@@ -760,7 +914,7 @@ export default function ProjectMonitor() {
                                 </div>
                             ) : (
                                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                                    暂无本轮教师支持记录。发送后会在这里显示，并同步进入小组群聊。
+                                    暂无本轮教师支持记录。发送后会在这里显示。
                                 </div>
                             )}
                         </section>

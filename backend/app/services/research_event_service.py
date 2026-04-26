@@ -276,7 +276,11 @@ class ResearchEventService:
         stage_id: Optional[str] = None,
     ) -> tuple[List[ResearchEvent], int]:
         """Get research events by project with optional filters."""
-        query: Dict[str, Any] = {"project_id": project_id}
+        query: Dict[str, Any] = {
+            "project_id": project_id,
+            "metadata.teacher_help_request": {"$ne": True},
+            "metadata.teacher_private_reply": {"$ne": True},
+        }
         if event_domain:
             query["event_domain"] = event_domain
         if group_id:

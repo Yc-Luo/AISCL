@@ -304,7 +304,20 @@ export default function ProjectMonitor() {
         return groups.filter((group) => group.projects.length > 0);
     }, [courses, filteredProjects]);
 
-    const selectedProject = projects.find((project) => project.id === selectedProjectId) || filteredProjects[0] || projects[0];
+    useEffect(() => {
+        if (filteredProjects.length === 0) return;
+        if (!filteredProjects.some((project) => project.id === selectedProjectId)) {
+            setSelectedProjectId(filteredProjects[0].id);
+        }
+    }, [filteredProjects, selectedProjectId]);
+
+    useEffect(() => {
+        const defaultTemplate = SUPPORT_TEMPLATES[0];
+        setSupportType(defaultTemplate.type);
+        setSupportDraft(defaultTemplate.text);
+    }, [selectedProjectId]);
+
+    const selectedProject = filteredProjects.find((project) => project.id === selectedProjectId) || filteredProjects[0];
     const selectedMetrics = selectedProject ? getProjectMetrics(selectedProject) : null;
     const selectedCourse = selectedProject?.course_id ? courseById.get(selectedProject.course_id) : undefined;
     const selectedHelpRequests = selectedProject
@@ -329,7 +342,7 @@ export default function ProjectMonitor() {
     }
 
     return (
-        <div className="h-[calc(100vh-2rem)] min-h-[760px] animate-fadeIn overflow-hidden">
+        <div className="min-h-screen animate-fadeIn overflow-visible lg:h-[calc(100vh-2rem)] lg:min-h-[720px] lg:overflow-hidden">
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">小组监控</h1>
@@ -337,7 +350,7 @@ export default function ProjectMonitor() {
                         低干预观察台：聚焦小组过程状态、学生求助与教师同伴式支持。
                     </p>
                 </div>
-                <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
                     <MiniStat label="班级" value={courses.length} />
                     <MiniStat label="学生" value={totalStudents} />
                     <MiniStat label="小组" value={projects.length} />
@@ -345,12 +358,12 @@ export default function ProjectMonitor() {
                 </div>
             </div>
 
-            <div className="grid h-[calc(100%-5.5rem)] grid-cols-1 gap-4 xl:grid-cols-[310px_minmax(0,1fr)_360px]">
-                <aside className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="border-b border-slate-100 p-4">
+            <div className="grid min-h-0 grid-cols-1 gap-4 lg:h-[calc(100%-5.5rem)] lg:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[260px_minmax(0,1fr)_340px]">
+                <aside className="flex max-h-[420px] min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm lg:max-h-none lg:row-span-2 2xl:row-span-1">
+                    <div className="border-b border-slate-100 p-3">
                         <div className="flex items-center justify-between">
                             <div>
-                                <h2 className="text-sm font-bold text-slate-900">班级 / 小组列表</h2>
+                                <h2 className="text-sm font-bold text-slate-900">班级 / 小组</h2>
                                 <p className="mt-1 text-xs text-slate-500">点击小组切换观察对象</p>
                             </div>
                             <Badge className="border-indigo-100 bg-indigo-50 text-indigo-700">
@@ -367,11 +380,11 @@ export default function ProjectMonitor() {
                                     className="pl-9"
                                 />
                             </div>
-                            <div className="grid grid-cols-[1fr_auto] gap-2">
+                            <div className="space-y-2">
                                 <select
                                     value={selectedCourseId}
                                     onChange={(event) => setSelectedCourseId(event.target.value)}
-                                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                                 >
                                     <option value="all">全部班级</option>
                                     {courses.map((course) => (
@@ -382,7 +395,7 @@ export default function ProjectMonitor() {
                                 <button
                                     type="button"
                                     onClick={() => setOnlyNeedsAttention((value) => !value)}
-                                    className={`rounded-lg border px-3 text-xs font-semibold transition ${onlyNeedsAttention
+                                    className={`w-full rounded-lg border px-3 py-2 text-xs font-semibold transition ${onlyNeedsAttention
                                         ? 'border-amber-200 bg-amber-50 text-amber-700'
                                         : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
                                         }`}
@@ -450,7 +463,7 @@ export default function ProjectMonitor() {
                     </div>
                 </aside>
 
-                <main className="min-h-0 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                <main className="min-h-0 overflow-visible rounded-2xl border border-slate-200 bg-slate-50/60 p-3 sm:p-4 lg:overflow-y-auto">
                     {!selectedProject || !selectedMetrics ? (
                         <EmptyMonitorState />
                     ) : (
@@ -494,14 +507,14 @@ export default function ProjectMonitor() {
                                 </div>
                             </section>
 
-                            <section className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                                 <MetricCard icon={MessageSquare} label="聊天活跃" value={selectedMetrics.messageCount} hint="近 7 天群聊/消息事件" />
                                 <MetricCard icon={FileText} label="文档更新" value={selectedMetrics.documentUpdates} hint="共享记录与文档操作" />
                                 <MetricCard icon={Layers} label="探究操作" value={selectedMetrics.inquiryOperations} hint="节点、连线与探究事件" />
                                 <MetricCard icon={BookOpen} label="Wiki沉淀" value={selectedMetrics.wikiActions} hint="项目知识卡片操作" />
                             </section>
 
-                            <section className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_0.9fr]">
+                            <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_0.9fr]">
                                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                                     <div className="mb-4 flex items-center justify-between">
                                         <div>
@@ -592,12 +605,14 @@ export default function ProjectMonitor() {
                     )}
                 </main>
 
-                <aside className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <aside className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-start-2 2xl:col-start-auto">
                     <div className="border-b border-slate-100 p-4">
                         <div className="flex items-center justify-between">
                             <div>
                                 <h2 className="text-sm font-bold text-slate-900">教师支持面板</h2>
-                                <p className="mt-1 text-xs text-slate-500">处理求助，发送低频同伴式支持</p>
+                                <p className="mt-1 max-w-[220px] truncate text-xs text-slate-500">
+                                    当前对象：{selectedProject?.name || '未选择小组'}
+                                </p>
                             </div>
                             <Badge className={selectedHelpRequests.length > 0 ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'}>
                                 {selectedHelpRequests.length} 待回复
@@ -605,7 +620,7 @@ export default function ProjectMonitor() {
                         </div>
                     </div>
 
-                    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+                    <div className="min-h-0 flex-1 space-y-4 overflow-visible p-4 lg:overflow-y-auto">
                         <section>
                             <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-800">
                                 <Inbox className="h-4 w-4 text-indigo-500" />

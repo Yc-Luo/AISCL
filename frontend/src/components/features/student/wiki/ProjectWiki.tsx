@@ -172,7 +172,7 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <div className="flex min-w-[260px] flex-1 items-center rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+          <div className="flex min-w-0 flex-1 basis-full items-center rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:basis-auto sm:min-w-[260px]">
             <Search className="mr-2 h-4 w-4 text-slate-400" />
             <input
               value={query}
@@ -187,7 +187,7 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
           <select
             value={selectedType}
             onChange={(event) => setSelectedType(event.target.value as WikiItemType | '')}
-            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none"
+            className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none sm:flex-none"
           >
             <option value="">全部类型</option>
             {ITEM_TYPES.map((type) => (
@@ -204,8 +204,8 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-h-0 overflow-y-auto pr-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden">
+        <div className="min-h-0 overflow-visible pr-0 xl:overflow-y-auto xl:pr-1">
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">加载中...</div>
           ) : items.length === 0 ? (

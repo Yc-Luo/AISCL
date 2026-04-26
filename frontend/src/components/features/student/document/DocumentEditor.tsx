@@ -817,10 +817,10 @@ export default function DocumentEditor({
   if (isLoading || !document) return <div className="flex items-center justify-center h-full text-gray-400">Loading...</div>
 
   return (
-    <div className="flex h-full relative overflow-hidden">
+    <div className="flex h-full min-w-0 relative overflow-hidden">
       {/* History Sidebar */}
       {showDocumentList && (
-        <div className="w-64 border-r bg-gray-50/50 flex flex-col shrink-0 animate-in slide-in-from-left duration-300">
+        <div className="absolute inset-y-0 left-0 z-30 w-[min(17rem,84vw)] border-r bg-gray-50/95 backdrop-blur-sm flex flex-col shrink-0 shadow-xl animate-in slide-in-from-left duration-300 md:relative md:z-auto md:w-64 md:bg-gray-50/50 md:shadow-none">
           <div className="p-4 border-b bg-white flex items-center justify-between">
             <h3 className="font-semibold text-sm text-gray-700">小组文档</h3>
             <div className="flex items-center gap-1">
@@ -897,7 +897,7 @@ export default function DocumentEditor({
         </div>
       )}
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {editor && (
           <EditorToolbar
             editor={editor}
@@ -913,8 +913,8 @@ export default function DocumentEditor({
         <div className="flex-1 overflow-auto bg-white flex flex-col items-center">
           {/* Document Title Input - Ultra-Compact Styling */}
           <div className="w-full bg-slate-50/50 border-b border-slate-100/50 flex justify-center">
-            <div className="w-full max-w-[900px] px-8 py-2">
-              <div className="flex items-center gap-2">
+            <div className="w-full max-w-[900px] px-3 py-2 sm:px-8">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="p-1 bg-indigo-100 rounded">
                   <FileText className="w-4 h-4 text-indigo-600" />
                 </div>
@@ -942,7 +942,7 @@ export default function DocumentEditor({
             </div>
           </div>
 
-          <div className="w-full max-w-[900px] px-8 overflow-x-auto">
+          <div className="w-full max-w-[900px] px-3 overflow-x-auto sm:px-8">
             <EditorContent editor={editor} />
           </div>
         </div>

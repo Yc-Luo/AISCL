@@ -22,7 +22,7 @@ export default function Sidebar({ projectId }: SidebarProps) {
   }
 
   return (
-    <div className="w-64 bg-white border-r border-gray-200 h-full flex flex-col transition-all duration-300 relative">
+    <div className="h-full w-full bg-white border-r border-gray-200 flex flex-col transition-all duration-300 relative lg:w-64">
       <div className="border-b border-gray-200 flex">
         <button
           onClick={() => handleSectionChange('info')}

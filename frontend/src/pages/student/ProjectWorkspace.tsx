@@ -444,7 +444,7 @@ export default function Main() {
   const isOnRecommendedTool = showProcessGuidance && filteredRecommendedTabs.includes(activeTab)
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-gray-100">
       {/* Connection Status Banner */}
       <ConnectionStatusBanner
         yjsConnected={connectionStatus === 'connected'}
@@ -454,20 +454,20 @@ export default function Main() {
       />
 
       {/* Header */}
-      <header className="bg-white/90 backdrop-blur-xl border-b border-indigo-100/50 px-4 py-2.5 flex items-center justify-between shadow-sm sticky top-0 z-50">
-        <div className="flex items-center space-x-4">
+      <header className="bg-white/90 backdrop-blur-xl border-b border-indigo-100/50 px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 shadow-sm sticky top-0 z-50">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <button
             onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
             className="p-2 hover:bg-indigo-50 rounded-xl text-indigo-600 transition-colors"
           >
             ☰
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">AISCL</h1>
-            <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-xs font-semibold tracking-wide border border-indigo-100">协作学习系统</span>
+            <span className="hidden rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-xs font-semibold tracking-wide text-indigo-600 sm:inline-flex">协作学习系统</span>
           </div>
         </div>
-        <div className="flex items-center space-x-4">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
           <NotificationCenter />
           <button
             onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
@@ -490,16 +490,32 @@ export default function Main() {
       </header>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="relative flex-1 flex min-h-0 overflow-hidden">
+        {leftSidebarOpen && (
+          <button
+            type="button"
+            aria-label="关闭左侧栏"
+            onClick={() => setLeftSidebarOpen(false)}
+            className="absolute inset-0 z-30 bg-slate-900/20 backdrop-blur-[1px] lg:hidden"
+          />
+        )}
+        {rightSidebarOpen && (
+          <button
+            type="button"
+            aria-label="关闭右侧栏"
+            onClick={() => setRightSidebarOpen(false)}
+            className="absolute inset-0 z-30 bg-slate-900/20 backdrop-blur-[1px] lg:hidden"
+          />
+        )}
         {/* Left Sidebar */}
         {leftSidebarOpen && (
-          <div className="flex-shrink-0 transition-all duration-300">
+          <div className="absolute inset-y-0 left-0 z-40 w-[min(18rem,86vw)] flex-shrink-0 shadow-2xl transition-all duration-300 lg:relative lg:z-auto lg:w-auto lg:shadow-none">
             <Sidebar projectId={currentProjectId} />
           </div>
         )}
 
         {/* Center Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex min-w-0 flex-col overflow-hidden">
           {stageUpdateNotice && (
             <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
               <div className="flex items-center justify-between gap-4">
@@ -526,7 +542,7 @@ export default function Main() {
           )}
           {hasConfiguredStages && (
             <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-white to-violet-50/70 px-4 py-1.5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-indigo-500">任务阶段</span>
@@ -537,7 +553,7 @@ export default function Main() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {showProcessGuidance && filteredRecommendedTabs.length > 0 && (
                     <div className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${isOnRecommendedTool
                         ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
@@ -650,7 +666,7 @@ export default function Main() {
             disabledTabs={disabledTabs}
             hiddenTabs={hiddenTabs}
           />
-          <div className="flex-1 flex flex-col min-h-0 p-3 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 p-2 sm:p-3 overflow-hidden">
             {currentProjectId && (
               <div className="flex-1 flex flex-col min-h-0 min-w-0">
                 {activeTab === 'document' && (
@@ -709,7 +725,7 @@ export default function Main() {
 
         {/* Right Sidebar */}
         {rightSidebarOpen && (
-          <div className="w-[400px] flex-shrink-0">
+          <div className="absolute inset-y-0 right-0 z-40 w-[min(28rem,92vw)] flex-shrink-0 shadow-2xl lg:relative lg:z-auto lg:w-[340px] lg:shadow-none xl:w-[380px] 2xl:w-[400px]">
             <RightSidebar projectId={currentProjectId} />
           </div>
         )}

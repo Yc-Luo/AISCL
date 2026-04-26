@@ -769,7 +769,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
             </div>
 
             {/* History Sidebar */}
-            <div className={`absolute top-0 right-0 h-full w-64 bg-gray-50/95 backdrop-blur-md border-l border-indigo-100 shadow-2xl transition-transform duration-300 z-20 flex flex-col ${isHistoryOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+            <div className={`absolute top-0 right-0 h-full w-[min(18rem,86vw)] bg-gray-50/95 backdrop-blur-md border-l border-indigo-100 shadow-2xl transition-transform duration-300 z-20 flex flex-col ${isHistoryOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <div className="p-4 border-b border-indigo-100 flex items-center justify-between bg-white/50">
                     <h4 className="font-bold text-gray-700 text-sm">历史对话</h4>
                     <button

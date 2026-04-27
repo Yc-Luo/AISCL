@@ -6,7 +6,6 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sse_starlette.sse import EventSourceResponse
 
 from app.api.v1.auth import get_current_user
 from app.core.security import limiter
@@ -48,13 +47,18 @@ SUBAGENT_VIEW_LABELS: Dict[str, str] = {
 }
 
 
-def _sse_event(event: str, data: dict | str) -> dict:
-    """Build a structured SSE event while keeping non-ASCII status readable."""
+def _sse_event(event: str, data: dict | str) -> str:
+    """Build a standards-compliant SSE frame with explicit event names."""
     if isinstance(data, str):
         payload = data
     else:
         payload = json.dumps(data, ensure_ascii=False)
-    return {"event": event, "data": payload}
+
+    normalized_payload = payload.replace("\r\n", "\n").replace("\r", "\n")
+    data_lines = "".join(
+        f"data: {line}\n" for line in normalized_payload.split("\n")
+    )
+    return f"event: {event}\n{data_lines}\n"
 
 
 async def ensure_project_access(current_user: User, project: Project) -> None:
@@ -521,7 +525,15 @@ async def chat_stream(
             )
             yield _sse_event("delta", f"[System Error]: {str(e)}")
 
-    return EventSourceResponse(generate())
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/conversations/{project_id}", response_model=AIConversationListResponse)

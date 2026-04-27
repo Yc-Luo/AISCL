@@ -151,10 +151,36 @@ export const aiService = {
             }
         }
 
+        const handleStructuredControlPayload = (data: string) => {
+            const payload = parseJsonPayload<Record<string, unknown> | null>(data, null)
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                return false
+            }
+
+            if (
+                typeof payload.message === 'string'
+                && (typeof payload.step === 'string' || typeof payload.detail === 'string')
+            ) {
+                handlers?.onStatus?.(payload as unknown as AIStreamStatus)
+                return true
+            }
+
+            if ('ai_meta' in payload) {
+                handlers?.onMeta?.(payload as unknown as AIStreamMeta)
+                return true
+            }
+
+            if ('conversation_id' in payload || 'message_id' in payload || 'citation_count' in payload) {
+                handlers?.onDone?.(payload as unknown as AIStreamMeta)
+                return true
+            }
+
+            return false
+        }
+
         const flushEvent = (rawEvent: string) => {
             const lines = rawEvent
                 .split(/\r?\n/)
-                .map((line) => line.trimEnd())
                 .filter((line) => line.length > 0 && !line.startsWith(':'))
 
             const eventLine = lines.find((line) => line.startsWith('event:'))
@@ -193,6 +219,7 @@ export const aiService = {
 
             // Backward compatibility: older backend streams used default
             // message events with raw text chunks.
+            if (handleStructuredControlPayload(data)) return
             fullText += data
             handlers?.onChunk?.(data, fullText)
         }

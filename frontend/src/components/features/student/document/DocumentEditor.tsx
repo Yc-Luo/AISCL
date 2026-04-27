@@ -930,9 +930,9 @@ export default function DocumentEditor({
         <div className="flex-1 overflow-auto bg-white flex flex-col items-center">
           {/* Document Title Input - Ultra-Compact Styling */}
           <div className="w-full bg-slate-50/50 border-b border-slate-100/50 flex justify-center">
-            <div className="w-full max-w-[900px] px-3 py-2 sm:px-8">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="p-1 bg-indigo-100 rounded">
+            <div className="w-full max-w-[900px] px-3 py-1.5 sm:px-8">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="shrink-0 p-1 bg-indigo-100 rounded">
                   <FileText className="w-4 h-4 text-indigo-600" />
                 </div>
                 <input
@@ -940,7 +940,7 @@ export default function DocumentEditor({
                   value={document?.title || ''}
                   onChange={handleTitleChange}
                   placeholder="未命名文档"
-                  className="w-full text-lg font-bold border-none focus:outline-none focus:ring-0 placeholder:text-slate-300 text-indigo-950 bg-transparent tracking-tight leading-none"
+                  className="min-w-0 flex-1 truncate text-lg font-bold border-none focus:outline-none focus:ring-0 placeholder:text-slate-300 text-indigo-950 bg-transparent tracking-tight leading-none"
                 />
                 {document?.id === initialTaskDocumentId ? (
                   <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600 border border-indigo-100">
@@ -950,7 +950,7 @@ export default function DocumentEditor({
                 <button
                   type="button"
                   onClick={handleAddSelectionToWiki}
-                  className="shrink-0 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                  className="ml-auto shrink-0 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
                   title="将当前选中文字沉淀到项目 Wiki"
                 >
                   加入 Wiki

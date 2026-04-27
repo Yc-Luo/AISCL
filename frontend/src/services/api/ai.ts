@@ -48,6 +48,26 @@ export interface AIResearchContextPayload {
     preferred_subagent?: string
 }
 
+export interface AIStreamStatus {
+    step?: string
+    message: string
+    primary_view?: string
+    citation_count?: number
+    detail?: string
+}
+
+export interface AIStreamMeta {
+    ai_meta?: {
+        primary_view?: string
+        rationale_summary?: string
+        processing_summary?: string[]
+    }
+    citations?: Array<Record<string, unknown>>
+    conversation_id?: string
+    message_id?: string
+    citation_count?: number
+}
+
 export const aiService = {
     getPersonas: async (): Promise<AIPersona[]> => {
         const response = await api.get('/ai/personas')
@@ -91,6 +111,10 @@ export const aiService = {
         } & AIResearchContextPayload,
         handlers?: {
             onChunk?: (chunk: string, fullText: string) => void
+            onStatus?: (status: AIStreamStatus) => void
+            onMeta?: (meta: AIStreamMeta) => void
+            onDone?: (meta: AIStreamMeta) => void
+            onError?: (error: AIStreamStatus) => void
         }
     ) => {
         const token = localStorage.getItem('access_token')
@@ -117,18 +141,60 @@ export const aiService = {
         let buffer = ''
         let fullText = ''
 
+        const eventDelimiterPattern = /\r?\n\r?\n/
+
+        const parseJsonPayload = <T,>(payload: string, fallback: T): T => {
+            try {
+                return JSON.parse(payload) as T
+            } catch {
+                return fallback
+            }
+        }
+
         const flushEvent = (rawEvent: string) => {
             const lines = rawEvent
-                .split('\n')
+                .split(/\r?\n/)
                 .map((line) => line.trimEnd())
                 .filter((line) => line.length > 0 && !line.startsWith(':'))
 
+            const eventLine = lines.find((line) => line.startsWith('event:'))
+            const eventName = eventLine ? eventLine.slice(6).trim() : 'message'
             const dataLines = lines
                 .filter((line) => line.startsWith('data:'))
-                .map((line) => line.slice(5).trimStart())
+                .map((line) => line.slice(5).replace(/^ /, ''))
 
-            if (dataLines.length === 0) return ''
-            return dataLines.join('\n')
+            if (dataLines.length === 0) return null
+            return {
+                event: eventName,
+                data: dataLines.join('\n'),
+            }
+        }
+
+        const handleEvent = (parsed: { event: string; data: string } | null) => {
+            if (!parsed) return
+            const { event, data } = parsed
+
+            if (event === 'status') {
+                handlers?.onStatus?.(parseJsonPayload<AIStreamStatus>(data, { message: data }))
+                return
+            }
+            if (event === 'meta') {
+                handlers?.onMeta?.(parseJsonPayload<AIStreamMeta>(data, {}))
+                return
+            }
+            if (event === 'done') {
+                handlers?.onDone?.(parseJsonPayload<AIStreamMeta>(data, {}))
+                return
+            }
+            if (event === 'error') {
+                handlers?.onError?.(parseJsonPayload<AIStreamStatus>(data, { message: data }))
+                return
+            }
+
+            // Backward compatibility: older backend streams used default
+            // message events with raw text chunks.
+            fullText += data
+            handlers?.onChunk?.(data, fullText)
         }
 
         while (true) {
@@ -136,23 +202,18 @@ export const aiService = {
             if (done) break
 
             buffer += decoder.decode(value, { stream: true })
-            const events = buffer.split('\n\n')
-            buffer = events.pop() || ''
+            while (true) {
+                const delimiterMatch = buffer.match(eventDelimiterPattern)
+                if (!delimiterMatch || delimiterMatch.index === undefined) break
 
-            for (const rawEvent of events) {
-                const chunk = flushEvent(rawEvent)
-                if (!chunk) continue
-                fullText += chunk
-                handlers?.onChunk?.(chunk, fullText)
+                const rawEvent = buffer.slice(0, delimiterMatch.index)
+                buffer = buffer.slice(delimiterMatch.index + delimiterMatch[0].length)
+                handleEvent(flushEvent(rawEvent))
             }
         }
 
         if (buffer.trim()) {
-            const tailChunk = flushEvent(buffer)
-            if (tailChunk) {
-                fullText += tailChunk
-                handlers?.onChunk?.(tailChunk, fullText)
-            }
+            handleEvent(flushEvent(buffer))
         }
 
         return fullText

@@ -61,6 +61,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const consumeRecommendation = useScaffoldRecommendationStore((state) => state.consumeRecommendation)
     const rawStreamContentRef = useRef('')
+    const processingStepsRef = useRef<string[]>([])
 
     const [suggestions, setSuggestions] = useState<string[]>([
         "我们的小组目前进展如何？",
@@ -379,6 +380,8 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
             if (activeConvId) {
                 const inferredRole = inferTutorRole(content);
                 const assistantMsgId = (Date.now() + 1).toString();
+                const initialProcessingSummary = buildProcessingSummary(content)
+                processingStepsRef.current = initialProcessingSummary
                 const assistantMsg: Message = {
                     id: assistantMsgId,
                     role: 'assistant',
@@ -387,10 +390,43 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     aiMeta: {
                         primaryView: getTutorRoleLabel(inferredRole),
                         rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
-                        processingSummary: buildProcessingSummary(content),
+                        processingSummary: initialProcessingSummary,
                     }
                 }
                 setMessages(prev => [...prev, assistantMsg]);
+
+                const updateAssistantProcessing = (
+                    nextSteps: string[],
+                    meta?: {
+                        primaryView?: string
+                        rationaleSummary?: string
+                    }
+                ) => {
+                    processingStepsRef.current = nextSteps
+                    setProcessingSummary(nextSteps)
+                    setMessages(prev => prev.map(msg =>
+                        msg.id === assistantMsgId
+                            ? {
+                                ...msg,
+                                aiMeta: {
+                                    primaryView: meta?.primaryView || msg.aiMeta?.primaryView || getTutorRoleLabel(inferredRole),
+                                    rationaleSummary: meta?.rationaleSummary || msg.aiMeta?.rationaleSummary || buildTutorRationaleSummary(inferredRole, currentStage),
+                                    processingSummary: nextSteps,
+                                }
+                            }
+                            : msg
+                    ))
+                }
+
+                const appendProcessingStep = (message?: string) => {
+                    const normalized = (message || '').trim()
+                    if (!normalized) return
+                    const nextSteps = processingStepsRef.current.includes(normalized)
+                        ? processingStepsRef.current
+                        : [...processingStepsRef.current, normalized]
+                    updateAssistantProcessing(nextSteps)
+                }
+
                 const streamPayload = {
                     project_id: projectId,
                     conversation_id: activeConvId,
@@ -401,7 +437,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     enabled_scaffold_roles: experimentVersion?.enabled_scaffold_roles || [],
                     preferred_subagent: roleKeyToPreferredSubagent(inferredRole),
                 }
-                setProcessingSummary(buildProcessingSummary(content))
+                setProcessingSummary(initialProcessingSummary)
                 setShowProcessingSummary(true)
                 setProcessingCollapsed(false)
                 rawStreamContentRef.current = ''
@@ -420,12 +456,33 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                         aiMeta: {
                                             primaryView: getTutorRoleLabel(inferredRole),
                                             rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
-                                            processingSummary: buildProcessingSummary(content),
+                                            processingSummary: processingStepsRef.current,
                                         }
                                     }
                                     : msg
                             ))
-                        }
+                        },
+                        onStatus: (status) => {
+                            appendProcessingStep(status.message)
+                        },
+                        onMeta: (meta) => {
+                            if (!meta.ai_meta) return
+                            const mergedSteps = [
+                                ...processingStepsRef.current,
+                                ...(meta.ai_meta.processing_summary || []),
+                            ].filter((item, index, array) => item && array.indexOf(item) === index)
+
+                            updateAssistantProcessing(mergedSteps, {
+                                primaryView: meta.ai_meta.primary_view,
+                                rationaleSummary: meta.ai_meta.rationale_summary,
+                            })
+                        },
+                        onDone: () => {
+                            appendProcessingStep('回答生成完成')
+                        },
+                        onError: (error) => {
+                            appendProcessingStep(error.message || 'AI 服务处理失败')
+                        },
                     })
                     finalMessage = stripThinkBlocksForDisplay(rawStreamContentRef.current).trim()
                     const latestMessages = await aiService.getMessages(activeConvId)
@@ -466,6 +523,8 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                 }
                                 : msg
                         ))
+                        processingStepsRef.current = fallbackResponse.ai_meta.processing_summary || processingStepsRef.current
+                        setProcessingSummary(processingStepsRef.current)
                     }
                     if (fallbackResponse.citations?.length) {
                         setMessages(prev => prev.map(msg =>
@@ -515,9 +574,9 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             ...msg,
                             content: finalMessage,
                             aiMeta: {
-                                primaryView: getTutorRoleLabel(inferredRole),
-                                rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
-                                processingSummary: buildProcessingSummary(content),
+                                primaryView: msg.aiMeta?.primaryView || getTutorRoleLabel(inferredRole),
+                                rationaleSummary: msg.aiMeta?.rationaleSummary || buildTutorRationaleSummary(inferredRole, currentStage),
+                                processingSummary: processingStepsRef.current,
                             },
                             citations: msg.citations,
                         }

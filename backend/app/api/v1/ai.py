@@ -1,5 +1,6 @@
 """AI conversation and intervention API routes."""
 
+import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -45,6 +46,15 @@ SUBAGENT_VIEW_LABELS: Dict[str, str] = {
     "feedback_prompter": "反馈追问者",
     "problem_progressor": "问题推进者",
 }
+
+
+def _sse_event(event: str, data: dict | str) -> dict:
+    """Build a structured SSE event while keeping non-ASCII status readable."""
+    if isinstance(data, str):
+        payload = data
+    else:
+        payload = json.dumps(data, ensure_ascii=False)
+    return {"event": event, "data": payload}
 
 
 async def ensure_project_access(current_user: User, project: Project) -> None:
@@ -290,26 +300,6 @@ async def chat_stream(
 
     await ensure_project_access(current_user, project)
 
-    # Retrieve context using RAG if enabled
-    context = None
-    if chat_data.use_rag:
-        try:
-            context = await rag_service.retrieve_context(
-                chat_data.project_id,
-                chat_data.message,
-                user_id=str(current_user.id),
-                actor_type="ai_tutor" if chat_data.role_id == "default-tutor" else "system",
-                stage_id=chat_data.current_stage,
-                experiment_version_id=(
-                    (project.experiment_version or {}).get("version_name")
-                    if getattr(project, "experiment_version", None)
-                    else None
-                ),
-            )
-        except Exception as e:
-            print(f"RAG Error: {e}")
-            context = None
-
     conversation: Optional[AIConversation] = None
     if chat_data.conversation_id:
         conversation = await AIConversation.get(chat_data.conversation_id)
@@ -332,12 +322,71 @@ async def chat_stream(
         await conversation.insert()
 
     existing_message_count = await AIMessage.find({"conversation_id": str(conversation.id)}).count()
-    if existing_message_count == 0 and chat_data.message:
-        conversation.title = await ai_service.generate_conversation_title(chat_data.message)
-        conversation.updated_at = datetime.utcnow()
-        await conversation.save()
+    should_generate_title = existing_message_count == 0 and bool(chat_data.message)
 
     async def generate():
+        async def refresh_conversation_title_if_needed() -> None:
+            if not should_generate_title or not chat_data.message:
+                return
+            try:
+                conversation.title = await ai_service.generate_conversation_title(chat_data.message)
+            except Exception as exc:
+                print(f"Conversation title generation skipped: {exc}")
+
+        yield _sse_event(
+            "status",
+            {
+                "step": "received",
+                "message": "已收到问题，正在准备 AI 导师回应。",
+            },
+        )
+
+        tutor_meta = _build_tutor_ai_meta(chat_data)
+        yield _sse_event("meta", {"ai_meta": tutor_meta})
+
+        # Retrieve context inside the SSE generator so the client receives
+        # progress feedback during potentially slow RAG calls.
+        context = None
+        if chat_data.use_rag:
+            yield _sse_event(
+                "status",
+                {
+                    "step": "retrieval",
+                    "message": "正在检索项目 Wiki、资源库和近期协作记录。",
+                },
+            )
+            try:
+                context = await rag_service.retrieve_context(
+                    chat_data.project_id,
+                    chat_data.message,
+                    user_id=str(current_user.id),
+                    actor_type="ai_tutor" if chat_data.role_id == "default-tutor" else "system",
+                    stage_id=chat_data.current_stage,
+                    experiment_version_id=(
+                        (project.experiment_version or {}).get("version_name")
+                        if getattr(project, "experiment_version", None)
+                        else None
+                    ),
+                )
+                yield _sse_event(
+                    "status",
+                    {
+                        "step": "retrieval_done",
+                        "message": "检索完成，正在组织可引用的学习支持回应。",
+                        "citation_count": len(context.get("citations", [])) if context else 0,
+                    },
+                )
+            except Exception as e:
+                print(f"RAG Error: {e}")
+                context = None
+                yield _sse_event(
+                    "status",
+                    {
+                        "step": "retrieval_skipped",
+                        "message": "项目资料检索暂不可用，正在基于当前问题直接回应。",
+                    },
+                )
+
         # Construct context string if RAG is enabled
         final_message = chat_data.message
         if context:
@@ -351,6 +400,13 @@ async def chat_stream(
                 else {}
             )
             if experiment_version.get("ai_scaffold_mode") == "single_agent":
+                yield _sse_event(
+                    "status",
+                    {
+                        "step": "generating",
+                        "message": "已进入单 AI 回答模式，正在生成最终回答。",
+                    },
+                )
                 async for chunk in ai_service.chat_stream(
                     project_id=chat_data.project_id,
                     user_id=str(current_user.id),
@@ -360,20 +416,37 @@ async def chat_stream(
                     context=context,
                     category="chat",
                     message_metadata=(
-                        {"ai_meta": _build_tutor_ai_meta(chat_data)}
+                        {"ai_meta": tutor_meta}
                         if chat_data.role_id == "default-tutor"
                         else None
                     ),
                 ):
                     full_response += chunk
-                    yield chunk
+                    yield _sse_event("delta", chunk)
 
                 conversation.updated_at = datetime.utcnow()
+                await refresh_conversation_title_if_needed()
                 await conversation.save()
+                yield _sse_event(
+                    "done",
+                    {
+                        "conversation_id": str(conversation.id),
+                        "citation_count": len(context.get("citations", [])) if context else 0,
+                    },
+                )
                 return
 
             # Multi-agent mode uses graph routing. The Supervisor handles intent
             # and delegates to the constrained research sub-agent when needed.
+            primary_view = tutor_meta.get("primary_view") or "AI 导师"
+            yield _sse_event(
+                "status",
+                {
+                    "step": "routing",
+                    "message": f"正在进行多智能体编排，本轮主要视角：{primary_view}。",
+                    "primary_view": primary_view,
+                },
+            )
             graph_context = {
                 "project_id": chat_data.project_id,
                 "experiment_version_id": (
@@ -396,6 +469,13 @@ async def chat_stream(
             )
             await user_message.insert()
 
+            yield _sse_event(
+                "status",
+                {
+                    "step": "generating",
+                    "message": "已完成角色选择，正在生成最终回答。",
+                },
+            )
             async for chunk in agent_service.chat_stream(
                 persona_key=chat_data.role_id, # Passed but currently ignored by Supervisor logic
                 message=final_message,
@@ -404,7 +484,7 @@ async def chat_stream(
                 context=graph_context,
             ):
                 full_response += chunk
-                yield chunk
+                yield _sse_event("delta", chunk)
 
             ai_message = AIMessage(
                 conversation_id=str(conversation.id),
@@ -412,18 +492,34 @@ async def chat_stream(
                 content=ai_service.sanitize_model_output(full_response.strip()),
                 citations=context.get("citations", []) if context else [],
                 metadata=(
-                    {"ai_meta": _build_tutor_ai_meta(chat_data)}
+                    {"ai_meta": tutor_meta}
                     if chat_data.role_id == "default-tutor"
                     else None
                 ),
             )
             await ai_message.insert()
             conversation.updated_at = datetime.utcnow()
+            await refresh_conversation_title_if_needed()
             await conversation.save()
+            yield _sse_event(
+                "done",
+                {
+                    "conversation_id": str(conversation.id),
+                    "message_id": str(ai_message.id),
+                    "citation_count": len(context.get("citations", [])) if context else 0,
+                },
+            )
         except Exception as e:
             # Fallback for debugging, yield nothing or error
             print(f"Agent Service Error: {e}")
-            yield f"[System Error]: {str(e)}"
+            yield _sse_event(
+                "error",
+                {
+                    "message": "AI 服务处理失败，请稍后重试。",
+                    "detail": str(e),
+                },
+            )
+            yield _sse_event("delta", f"[System Error]: {str(e)}")
 
     return EventSourceResponse(generate())
 

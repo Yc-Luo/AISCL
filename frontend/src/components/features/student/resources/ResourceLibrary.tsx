@@ -37,7 +37,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
   useEffect(() => {
     const fetchResources = async () => {
       try {
-        const data = await storageService.getResources(projectId)
+        const data = await storageService.getResources(projectId, { includeCourseResources: true })
         setResources(data.resources)
       } catch (error) {
         console.error('Failed to fetch resources:', error)
@@ -85,7 +85,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
           })
 
           // Refresh resource list
-          const data = await storageService.getResources(projectId)
+          const data = await storageService.getResources(projectId, { includeCourseResources: true })
           setResources(data.resources)
 
           trackingService.track({
@@ -269,9 +269,18 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
                 <div className="flex items-start space-x-3">
                   <div className="text-3xl">{getFileIcon(resource.mime_type)}</div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-medium text-sm truncate" title={resource.filename}>
-                      {resource.filename}
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-medium text-sm truncate" title={resource.filename}>
+                        {resource.filename}
+                      </h4>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        resource.scope === 'course'
+                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+                          : 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
+                      }`}>
+                        {resource.scope === 'course' ? '教师资源' : '小组资源'}
+                      </span>
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">
                       {formatFileSize(resource.size)}
                     </p>
@@ -312,7 +321,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
                   >
                     <Download size={16} />
                   </button>
-                  {user?.id === resource.uploaded_by && (
+                  {resource.scope !== 'course' && user?.id === resource.uploaded_by && (
                     <button
                       onClick={() => {
                         setDeleteId(resource.id)

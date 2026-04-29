@@ -67,6 +67,9 @@ export interface Resource {
   url: string
   size: number
   mime_type: string
+  project_id?: string | null
+  course_id?: string | null
+  scope?: 'project' | 'course'
   source_type?: string
   uploaded_by: string
   uploaded_at: string

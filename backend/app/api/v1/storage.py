@@ -15,11 +15,13 @@ from app.api.v1.auth import get_current_user
 from app.core.config import settings
 from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.core.security import sanitize_filename
+from app.repositories.course import Course
 from app.repositories.project import Project
 from app.repositories.resource import Resource
 from app.repositories.user import User
 from app.services.storage_service import storage_service
 from app.services.rag_service import rag_service
+from app.services.vector_store_service import vector_store_service
 from app.services.text_extraction_service import text_extraction_service
 
 router = APIRouter(prefix="/storage", tags=["storage"])
@@ -78,6 +80,16 @@ def _ensure_project_file_key(project_id: str, file_key: str) -> None:
         )
 
 
+def _ensure_course_file_key(course_id: str, file_key: str) -> None:
+    """Ensure a resource record can only bind files under its own course prefix."""
+    expected_prefix = f"courses/{course_id}/files/"
+    if not file_key.startswith(expected_prefix):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file key for this course",
+        )
+
+
 def _has_expected_inline_image_signature(mime_type: str, prefix: bytes) -> bool:
     """Validate image previews by magic bytes, not by client-provided MIME only."""
     if mime_type == "image/png":
@@ -100,39 +112,78 @@ async def ensure_project_access(current_user: User, project: Project, detail: st
         )
 
 
+async def ensure_course_access(current_user: User, course: Course, detail: str) -> None:
+    """Ensure current user can view course-scoped resources."""
+    if current_user.role == "admin":
+        return
+    if current_user.role == "teacher" and course.teacher_id == str(current_user.id):
+        return
+    if str(current_user.id) in course.students:
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+async def ensure_course_manage_access(current_user: User, course: Course, detail: str) -> None:
+    """Ensure current user can manage course-scoped resources."""
+    if current_user.role == "admin":
+        return
+    if current_user.role == "teacher" and course.teacher_id == str(current_user.id):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
 @router.post("/presigned-url")
 async def generate_presigned_url(
     filename: str = Query(...),
     file_type: str = Query(...),
     size: int = Query(..., ge=1, le=settings.MAX_FILE_SIZE),
-    project_id: str = Query(...),
+    project_id: Optional[str] = Query(None),
+    course_id: Optional[str] = Query(None),
     md5: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Generate presigned URL for file upload."""
     _ensure_allowed_upload_mime(file_type)
 
-    # Check project access
-    project = await Project.get(project_id)
-    if not project:
+    if bool(project_id) == bool(course_id):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Exactly one of project_id or course_id is required",
         )
 
-    await ensure_project_access(
-        current_user,
-        project,
-        "You don't have permission to upload files to this project",
-    )
+    if course_id:
+        course = await Course.get(course_id)
+        if not course:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Course not found",
+            )
+        await ensure_course_manage_access(
+            current_user,
+            course,
+            "You don't have permission to upload files to this course",
+        )
+        file_id = str(uuid.uuid4())
+        file_key = f"courses/{course_id}/files/{file_id}"
+    else:
+        # Check project access
+        project = await Project.get(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found",
+            )
+
+        await ensure_project_access(
+            current_user,
+            project,
+            "You don't have permission to upload files to this project",
+        )
+        file_id = str(uuid.uuid4())
+        file_key = f"projects/{project_id}/files/{file_id}"
 
     # Check storage quota
-    # TODO: Calculate current project storage usage
-    # For now, we'll skip this check
-
-    # Generate file key
-    file_id = str(uuid.uuid4())
-    file_key = f"projects/{project_id}/files/{file_id}"
+    # TODO: Calculate current project/course storage usage
 
     # Generate presigned URL
     upload_url = storage_service.generate_presigned_put_url(
@@ -150,7 +201,9 @@ class CreateResourceRequest(BaseModel):
     file_key: str
     filename: str
     size: int
-    project_id: str
+    project_id: Optional[str] = None
+    course_id: Optional[str] = None
+    scope: str = Field(default="project", pattern="^(project|course)$")
     mime_type: str
     source_type: str = Field(
         default="library",
@@ -167,19 +220,43 @@ async def create_resource(
     """Create resource record after file upload."""
     normalized_mime_type = _ensure_allowed_upload_mime(resource_data.mime_type)
 
-    # Check project access
-    project = await Project.get(resource_data.project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
+    if resource_data.scope == "course":
+        if not resource_data.course_id or resource_data.project_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Course-scoped resources require course_id only",
+            )
+        course = await Course.get(resource_data.course_id)
+        if not course:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Course not found",
+            )
+        await ensure_course_manage_access(
+            current_user,
+            course,
+            "You don't have permission to create resources in this course",
         )
-    await ensure_project_access(
-        current_user,
-        project,
-        "You don't have permission to create resources in this project",
-    )
-    _ensure_project_file_key(resource_data.project_id, resource_data.file_key)
+        _ensure_course_file_key(resource_data.course_id, resource_data.file_key)
+    else:
+        if not resource_data.project_id or resource_data.course_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Project-scoped resources require project_id only",
+            )
+        # Check project access
+        project = await Project.get(resource_data.project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found",
+            )
+        await ensure_project_access(
+            current_user,
+            project,
+            "You don't have permission to create resources in this project",
+        )
+        _ensure_project_file_key(resource_data.project_id, resource_data.file_key)
 
     actual_size = await run_in_threadpool(storage_service.get_file_size, resource_data.file_key)
     if actual_size is None:
@@ -207,6 +284,8 @@ async def create_resource(
     # Create resource record
     resource = Resource(
         project_id=resource_data.project_id,
+        course_id=resource_data.course_id,
+        scope=resource_data.scope,
         filename=resource_data.filename,
         file_key=resource_data.file_key,
         url=download_url,
@@ -245,16 +324,17 @@ async def create_resource(
     if resource.source_type == "library":
         background_tasks.add_task(process_resource_task, str(resource.id), resource.file_key)
 
-    # Log activity
-    from app.services.activity_service import activity_service
-    await activity_service.log_activity(
-        project_id=resource_data.project_id,
-        user_id=str(current_user.id),
-        module="resources",
-        action="upload",
-        target_id=str(resource.id),
-        metadata={"filename": resource_data.filename}
-    )
+    if resource_data.project_id:
+        # Log project-scoped activity
+        from app.services.activity_service import activity_service
+        await activity_service.log_activity(
+            project_id=resource_data.project_id,
+            user_id=str(current_user.id),
+            module="resources",
+            action="upload",
+            target_id=str(resource.id),
+            metadata={"filename": resource_data.filename}
+        )
 
 
     return {
@@ -262,6 +342,10 @@ async def create_resource(
         "filename": resource.filename,
         "url": resource.url,
         "size": resource.size,
+        "mime_type": resource.mime_type,
+        "project_id": resource.project_id,
+        "course_id": resource.course_id,
+        "scope": resource.scope,
         "source_type": resource.source_type,
         "uploaded_by": resource.uploaded_by,
         "uploaded_at": resource.uploaded_at.isoformat(),
@@ -272,6 +356,7 @@ async def create_resource(
 async def list_resources(
     project_id: str,
     source_type: str = Query("library", pattern="^(library|document_embed|chat_attachment|inquiry_material|all)$"),
+    include_course_resources: bool = Query(False),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """List project resources."""
@@ -288,25 +373,54 @@ async def list_resources(
         "You don't have permission to access this project",
     )
 
-    # Get resources
+    # Get project resources
     if source_type == "all":
-        resources = await Resource.find(Resource.project_id == project_id).to_list()
-    elif source_type == "library":
         resources = await Resource.find(
             {
                 "project_id": project_id,
                 "$or": [
-                    {"source_type": "library"},
-                    {"source_type": {"$exists": False}},
-                    {"source_type": None},
+                    {"scope": "project"},
+                    {"scope": {"$exists": False}},
+                    {"scope": None},
+                ],
+            }
+        ).to_list()
+    elif source_type == "library":
+        resources = await Resource.find(
+            {
+                "project_id": project_id,
+                "$and": [
+                    {
+                        "$or": [
+                            {"scope": "project"},
+                            {"scope": {"$exists": False}},
+                            {"scope": None},
+                        ],
+                    },
+                    {
+                        "$or": [
+                            {"source_type": "library"},
+                            {"source_type": {"$exists": False}},
+                            {"source_type": None},
+                        ],
+                    },
                 ],
             }
         ).to_list()
     else:
         resources = await Resource.find(
             Resource.project_id == project_id,
+            Resource.scope == "project",
             Resource.source_type == source_type,
         ).to_list()
+
+    if include_course_resources and project.course_id and source_type in {"library", "all"}:
+        course_resources = await Resource.find(
+            Resource.course_id == project.course_id,
+            Resource.scope == "course",
+            Resource.source_type == "library",
+        ).to_list()
+        resources.extend(course_resources)
 
     # Generate fresh presigned URLs
     resource_list = []
@@ -321,6 +435,54 @@ async def list_resources(
                 "url": download_url,
                 "size": resource.size,
                 "mime_type": resource.mime_type,
+                "project_id": resource.project_id,
+                "course_id": resource.course_id,
+                "scope": resource.scope,
+                "source_type": resource.source_type,
+                "uploaded_by": resource.uploaded_by,
+                "uploaded_at": resource.uploaded_at.isoformat(),
+            }
+        )
+
+    return {"resources": resource_list}
+
+
+@router.get("/course-resources/{course_id}")
+async def list_course_resources(
+    course_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """List teacher-provided course resources."""
+    course = await Course.get(course_id)
+    if not course:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Course not found",
+        )
+    await ensure_course_access(
+        current_user,
+        course,
+        "You don't have permission to access this course",
+    )
+
+    resources = await Resource.find(
+        Resource.course_id == course_id,
+        Resource.scope == "course",
+        Resource.source_type == "library",
+    ).to_list()
+
+    resource_list = []
+    for resource in resources:
+        resource_list.append(
+            {
+                "id": str(resource.id),
+                "filename": resource.filename,
+                "url": storage_service.generate_presigned_get_url(resource.file_key),
+                "size": resource.size,
+                "mime_type": resource.mime_type,
+                "project_id": resource.project_id,
+                "course_id": resource.course_id,
+                "scope": resource.scope,
                 "source_type": resource.source_type,
                 "uploaded_by": resource.uploaded_by,
                 "uploaded_at": resource.uploaded_at.isoformat(),
@@ -343,21 +505,40 @@ async def delete_resource(
             detail="Resource not found",
         )
 
-    # Check permission (Editor/Owner only)
-    project = await Project.get(resource.project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
     is_uploader = resource.uploaded_by == str(current_user.id)
 
-    if not (is_uploader or await can_edit_project_content(current_user, project)):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to delete this resource",
-        )
+    if resource.scope == "course":
+        if not resource.course_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Course not found",
+            )
+        course = await Course.get(resource.course_id)
+        if not course:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Course not found",
+            )
+        if not is_uploader:
+            await ensure_course_manage_access(
+                current_user,
+                course,
+                "You don't have permission to delete this course resource",
+            )
+    else:
+        # Check permission (Editor/Owner only)
+        project = await Project.get(resource.project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found",
+            )
+
+        if not (is_uploader or await can_edit_project_content(current_user, project)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to delete this resource",
+            )
 
     # Capture info for logging before deletion
     filename = resource.filename
@@ -374,21 +555,62 @@ async def delete_resource(
     # Delete from database
     await resource.delete()
 
-    # Log activity using captured data
-    try:
-        from app.services.activity_service import activity_service
-        await activity_service.log_activity(
-            project_id=project_id,
-            user_id=str(current_user.id),
-            module="resources",
-            action="delete",
-            target_id=resource_id_str,
-            metadata={"filename": filename}
+    index_project_id = None
+    if resource.scope == "course" and resource.course_id:
+        index_project_id = rag_service.course_resource_namespace(resource.course_id)
+    elif resource.project_id:
+        index_project_id = resource.project_id
+    if index_project_id:
+        await vector_store_service.delete_source_points(
+            project_id=index_project_id,
+            source_type="resource",
+            source_id=resource_id_str,
         )
-    except Exception as e:
-        print(f"Warning: Failed to log activity for deletion: {e}")
+
+    # Log activity using captured data
+    if project_id:
+        try:
+            from app.services.activity_service import activity_service
+            await activity_service.log_activity(
+                project_id=project_id,
+                user_id=str(current_user.id),
+                module="resources",
+                action="delete",
+                target_id=resource_id_str,
+                metadata={"filename": filename}
+            )
+        except Exception as e:
+            print(f"Warning: Failed to log activity for deletion: {e}")
 
     return {"message": "Resource deleted successfully"}
+
+
+async def _ensure_resource_download_access(current_user: User, resource: Resource) -> None:
+    """Ensure current user can download a resource."""
+    if resource.scope == "course":
+        if not resource.course_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
+        course = await Course.get(resource.course_id)
+        if not course:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
+        await ensure_course_access(
+            current_user,
+            course,
+            "You don't have permission to download this course resource",
+        )
+        return
+
+    project = await Project.get(resource.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    await ensure_project_access(
+        current_user,
+        project,
+        "You don't have permission to download this resource",
+    )
 
 
 @router.get("/resources/{resource_id}/view")
@@ -469,17 +691,7 @@ async def download_resource(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Resource not found",
         )
-    project = await Project.get(resource.project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-    await ensure_project_access(
-        current_user,
-        project,
-        "You don't have permission to download this resource",
-    )
+    await _ensure_resource_download_access(current_user, resource)
     
     # Generate fresh presigned URL
     download_url = storage_service.generate_presigned_get_url(resource.file_key)

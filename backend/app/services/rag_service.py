@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from app.core.config import settings
 from app.repositories.chat_log import ChatLog
 from app.repositories.document import Document
+from app.repositories.project import Project
 from app.repositories.resource import Resource
 from app.services.embedding_service import embedding_service
 from app.services.research_event_service import research_event_service
@@ -39,8 +40,14 @@ class RAGService:
         if not resource:
             return False
 
+        index_project_id = resource.project_id
+        if resource.scope == "course" and resource.course_id:
+            index_project_id = RAGService.course_resource_namespace(resource.course_id)
+        if not index_project_id:
+            return False
+
         return await RAGService.index_text(
-            project_id=resource.project_id,
+            project_id=index_project_id,
             source_type="resource",
             source_id=str(resource.id),
             title=resource.filename,
@@ -50,10 +57,18 @@ class RAGService:
                 "filename": resource.filename,
                 "mime_type": resource.mime_type,
                 "uploaded_by": resource.uploaded_by,
+                "scope": resource.scope,
+                "course_id": resource.course_id,
+                "resource_project_id": resource.project_id,
             },
             chunk_size=chunk_size,
             overlap=overlap,
         )
+
+    @staticmethod
+    def course_resource_namespace(course_id: str) -> str:
+        """Return the vector namespace used by course-scoped resources."""
+        return f"course:{course_id}"
 
     @staticmethod
     async def index_wiki_item(wiki_item: Any) -> bool:
@@ -233,6 +248,8 @@ class RAGService:
                     "score": r.get("score", 0),
                     "title": r.get("title"),
                     "source_type": r.get("source_type"),
+                    "scope": r.get("scope"),
+                    "course_id": r.get("course_id"),
                 }
                 for r in final_results
             ],
@@ -350,6 +367,22 @@ class RAGService:
             limit=limit,
         )
 
+        project = await Project.get(project_id)
+        course_matches = []
+        if project and project.course_id:
+            course_matches = await vector_store_service.search(
+                query_vector,
+                project_id=RAGService.course_resource_namespace(project.course_id),
+                source_types=source_types,
+                item_types=wiki_item_types,
+                limit=limit,
+            )
+        matches = sorted(
+            [*matches, *course_matches],
+            key=lambda item: item.get("score", 0),
+            reverse=True,
+        )[:limit]
+
         results = []
         for match in matches:
             payload = match.get("payload") or {}
@@ -363,6 +396,8 @@ class RAGService:
                 "content": payload.get("content") or "",
                 "score": match.get("score", 0),
                 "chunk_index": payload.get("chunk_index"),
+                "scope": payload.get("scope"),
+                "course_id": payload.get("course_id"),
                 "citation_source": "qdrant",
             })
         return results

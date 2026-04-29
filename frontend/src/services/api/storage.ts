@@ -20,9 +20,24 @@ export const storageService = {
     return `${apiBase}${API_ENDPOINTS.RESOURCES}/resources/${resourceId}/view`
   },
 
-  async getResources(projectId: string): Promise<ResourceListResponse> {
+  async getResources(
+    projectId: string,
+    options?: { includeCourseResources?: boolean }
+  ): Promise<ResourceListResponse> {
     const response = await api.get<ResourceListResponse>(
-      `${API_ENDPOINTS.RESOURCES}/resources/${projectId}`
+      `${API_ENDPOINTS.RESOURCES}/resources/${projectId}`,
+      {
+        params: {
+          include_course_resources: options?.includeCourseResources || undefined,
+        },
+      }
+    )
+    return response.data
+  },
+
+  async getCourseResources(courseId: string): Promise<ResourceListResponse> {
+    const response = await api.get<ResourceListResponse>(
+      `${API_ENDPOINTS.RESOURCES}/course-resources/${courseId}`
     )
     return response.data
   },
@@ -42,6 +57,27 @@ export const storageService = {
           file_type: mimeType,
           size,
           project_id: projectId,
+        },
+      }
+    )
+    return response.data
+  },
+
+  async getCoursePresignedUploadUrl(
+    courseId: string,
+    filename: string,
+    mimeType: string,
+    size: number
+  ): Promise<PresignedUploadUrlResponse> {
+    const response = await api.post<PresignedUploadUrlResponse>(
+      `${API_ENDPOINTS.RESOURCES}/presigned-url`,
+      null,
+      {
+        params: {
+          filename,
+          file_type: mimeType,
+          size,
+          course_id: courseId,
         },
       }
     )
@@ -92,6 +128,24 @@ export const storageService = {
     const response = await api.post<Resource>(
       `${API_ENDPOINTS.RESOURCES}/resources`,
       data
+    )
+    return response.data
+  },
+
+  async createCourseResource(data: {
+    file_key: string
+    filename: string
+    size: number
+    course_id: string
+    mime_type: string
+    source_type?: 'library'
+  }): Promise<Resource> {
+    const response = await api.post<Resource>(
+      `${API_ENDPOINTS.RESOURCES}/resources`,
+      {
+        ...data,
+        scope: 'course',
+      }
     )
     return response.data
   },

@@ -126,6 +126,12 @@ const getStageToolGuidance = (stageId: string | null) => {
   }
 }
 
+const getVisiblePrimaryTabForStage = (stageId: string | null, version: ExperimentVersion | null) => {
+  const primaryTab = getStageToolGuidance(stageId).primaryTab
+  if (primaryTab === 'ai' && !isTutorTabEnabled(version)) return 'document'
+  return primaryTab
+}
+
 export default function Main() {
   const { projectId } = useParams<{ projectId?: string }>()
   const [currentProjectId, setCurrentProjectId] = useState<string | undefined>(projectId)
@@ -136,6 +142,11 @@ export default function Main() {
   const [_project, setProject] = useState<Project | null>(null)
   const [experimentVersion, setExperimentVersion] = useState<ExperimentVersion | null>(null)
   const [currentDocumentId, setCurrentDocumentId] = useState<string | undefined>(undefined)
+  const [workspaceLoading, setWorkspaceLoading] = useState(true)
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [workspaceReloadToken, setWorkspaceReloadToken] = useState(0)
+  const [documentResolving, setDocumentResolving] = useState(false)
+  const [documentResolveError, setDocumentResolveError] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [showStageDetails, setShowStageDetails] = useState(false)
   const [stageChanging, setStageChanging] = useState(false)
@@ -235,8 +246,7 @@ export default function Main() {
     if (!experimentVersion) return
 
     if (!isTutorTabEnabled(experimentVersion) && activeTab === 'ai') {
-      const fallbackTab = getStageToolGuidance(currentStage).primaryTab
-      setActiveTab(fallbackTab === 'ai' ? 'document' : fallbackTab)
+      setActiveTab(getVisiblePrimaryTabForStage(currentStage, experimentVersion))
     }
   }, [activeTab, currentStage, experimentVersion])
 
@@ -245,11 +255,12 @@ export default function Main() {
     if (!isProcessScaffoldActive(experimentVersion)) return
 
     const guidance = getStageToolGuidance(currentStage)
+    const primaryTab = getVisiblePrimaryTabForStage(currentStage, experimentVersion)
     if (previousGuidedStageRef.current === currentStage) return
 
     previousGuidedStageRef.current = currentStage
 
-    if (activeTab !== guidance.primaryTab) {
+    if (activeTab !== primaryTab) {
       trackingService.trackResearchEvent({
         project_id: currentProjectId,
         experiment_version_id: experimentVersion?.version_name,
@@ -259,18 +270,25 @@ export default function Main() {
         stage_id: currentStage,
         payload: {
           from_tab: activeTab,
-          to_tab: guidance.primaryTab,
+          to_tab: primaryTab,
           recommended_tabs: guidance.recommendedTabs,
           guidance_mode: 'soft_default_switch',
         }
       })
-      setActiveTab(guidance.primaryTab)
+      setActiveTab(primaryTab)
     }
   }, [activeTab, currentProjectId, currentStage, experimentVersion])
 
   useEffect(() => {
     setContextDocumentId(currentDocumentId || null)
   }, [currentDocumentId, setContextDocumentId])
+
+  useEffect(() => {
+    setCurrentDocumentId(undefined)
+    setDocumentResolving(false)
+    setDocumentResolveError(null)
+    previousGuidedStageRef.current = null
+  }, [currentProjectId])
 
   // Track behavior and activity
   useBehaviorTracking(currentProjectId || null, activeTab)
@@ -390,58 +408,106 @@ export default function Main() {
   // Get document ID when switching to document tab
   useEffect(() => {
     const getDocumentId = async () => {
-      if (activeTab === 'document' && currentProjectId && !currentDocumentId) {
-        try {
-          if (_project?.initial_task_document_id) {
-            setCurrentDocumentId(_project.initial_task_document_id)
-            return
-          }
-          const docsResponse = await documentService.getDocuments(currentProjectId, 0, 1)
-          if (docsResponse.documents && docsResponse.documents.length > 0) {
-            setCurrentDocumentId(docsResponse.documents[0].id)
-          } else {
-            // Create a new default document
-            const defaultDoc = await documentService.createDocument(
-              currentProjectId,
-              '小组文档',
-              ''
-            )
-            setCurrentDocumentId(defaultDoc.id)
-          }
-        } catch (error) {
-          console.error('Failed to get/create document:', error)
+      if (activeTab !== 'document' || !currentProjectId || currentDocumentId || workspaceLoading || workspaceError) {
+        return
+      }
+
+      setDocumentResolving(true)
+      setDocumentResolveError(null)
+      try {
+        if (_project?.initial_task_document_id) {
+          setCurrentDocumentId(_project.initial_task_document_id)
+          return
         }
+        const docsResponse = await documentService.getDocuments(currentProjectId, 0, 1)
+        if (docsResponse.documents && docsResponse.documents.length > 0) {
+          setCurrentDocumentId(docsResponse.documents[0].id)
+        } else {
+          // Create a default document only after project metadata has finished loading.
+          const defaultDoc = await documentService.createDocument(
+            currentProjectId,
+            '小组文档',
+            ''
+          )
+          setCurrentDocumentId(defaultDoc.id)
+        }
+      } catch (error) {
+        console.error('Failed to get/create document:', error)
+        setDocumentResolveError('小组文档加载失败，请稍后重试或刷新页面。')
+      } finally {
+        setDocumentResolving(false)
       }
     }
 
     getDocumentId()
-  }, [activeTab, currentProjectId, currentDocumentId, _project])
+  }, [activeTab, currentProjectId, currentDocumentId, _project, workspaceError, workspaceLoading])
 
   useEffect(() => {
-    // If no projectId in URL, try to get first project
-    if (!currentProjectId) {
-      projectService.getProjects(false).then((data) => {
-        if (data.projects.length > 0) {
-          setCurrentProjectId(data.projects[0].id)
-          setProject(data.projects[0])
-        } else {
-          // If no active project, try to get archived one
-          projectService.getProjects(true).then((archivedData) => {
-            if (archivedData.projects.length > 0) {
-              setCurrentProjectId(archivedData.projects[0].id)
-              setProject(archivedData.projects[0])
-            }
-          })
+    let cancelled = false
+
+    const loadWorkspace = async () => {
+      setWorkspaceLoading(true)
+      setWorkspaceError(null)
+
+      try {
+        let targetProjectId = currentProjectId
+        let targetProject: Project | null = null
+
+        if (!targetProjectId) {
+          const activeProjects = await projectService.getProjects(false)
+          targetProject = activeProjects.projects[0] || null
+
+          if (!targetProject) {
+            const archivedProjects = await projectService.getProjects(true)
+            targetProject = archivedProjects.projects[0] || null
+          }
+
+          if (!targetProject) {
+            throw new Error('当前账号暂无可进入的小组项目。')
+          }
+
+          targetProjectId = targetProject.id
         }
-      })
-    } else {
-      projectService.getProject(currentProjectId).then(setProject)
-      projectService.getExperimentVersion(currentProjectId).then(setExperimentVersion).catch((error) => {
-        console.error('Failed to get experiment version:', error)
+
+        const [projectResult, versionResult] = await Promise.allSettled([
+          targetProject ? Promise.resolve(targetProject) : projectService.getProject(targetProjectId),
+          projectService.getExperimentVersion(targetProjectId),
+        ])
+
+        if (cancelled) return
+
+        if (projectResult.status === 'rejected') {
+          throw projectResult.reason
+        }
+
+        setCurrentProjectId(targetProjectId)
+        setProject(projectResult.value)
+
+        if (versionResult.status === 'fulfilled') {
+          setExperimentVersion(versionResult.value)
+        } else {
+          console.error('Failed to get experiment version:', versionResult.reason)
+          setExperimentVersion(null)
+        }
+      } catch (error) {
+        if (cancelled) return
+        console.error('Failed to load student workspace:', error)
+        setProject(null)
         setExperimentVersion(null)
-      })
+        setWorkspaceError(error instanceof Error ? error.message : '学生工作台加载失败，请刷新后重试。')
+      } finally {
+        if (!cancelled) {
+          setWorkspaceLoading(false)
+        }
+      }
     }
-  }, [currentProjectId])
+
+    loadWorkspace()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentProjectId, workspaceReloadToken])
 
   const stageToolGuidance = getStageToolGuidance(currentStage)
   const stageControlMode = experimentVersion?.stage_control_mode || 'soft_guidance'
@@ -457,6 +523,9 @@ export default function Main() {
     ? ALL_NAV_TABS.filter((tabId) => tabId !== 'dashboard' && !filteredRecommendedTabs.includes(tabId) && !hiddenTabs.includes(tabId))
     : []
   const isOnRecommendedTool = showProcessGuidance && filteredRecommendedTabs.includes(activeTab)
+  // Some adjacent stages share the same primary tool. Include stage in keys so panes
+  // reload stage-scoped state without requiring a full page refresh.
+  const stageRenderKey = `${currentProjectId || 'no-project'}:${currentStage || 'no-stage'}`
 
   const handleStageSelect = async (stageId: string) => {
     if (!currentProjectId || !experimentVersion || stageId === currentStage) return
@@ -483,8 +552,16 @@ export default function Main() {
       const nextVersion = await projectService.updateExperimentVersion(currentProjectId, {
         current_stage: stageId,
       })
+      const nextStage = nextVersion.current_stage || stageId
       setExperimentVersion(nextVersion)
-      setCurrentStage(nextVersion.current_stage || stageId)
+      setCurrentStage(nextStage)
+
+      if (isProcessScaffoldActive(nextVersion)) {
+        const nextPrimaryTab = getVisiblePrimaryTabForStage(nextStage, nextVersion)
+        if (activeTab !== nextPrimaryTab) {
+          setActiveTab(nextPrimaryTab)
+        }
+      }
 
       trackingService.trackResearchEvent({
         project_id: currentProjectId,
@@ -492,10 +569,10 @@ export default function Main() {
         actor_type: 'student',
         event_domain: 'stage_transition',
         event_type: 'group_leader_stage_change',
-        stage_id: nextVersion.current_stage || stageId,
+        stage_id: nextStage,
         payload: {
           from: currentStage,
-          to: nextVersion.current_stage || stageId,
+          to: nextStage,
           controller_role: 'group_leader',
         }
       })
@@ -718,19 +795,59 @@ export default function Main() {
             hiddenTabs={hiddenTabs}
           />
           <div className="flex-1 flex flex-col min-h-0 p-2 sm:p-3 overflow-hidden">
-            {currentProjectId && (
+            {workspaceLoading ? (
+              <div className="flex-1 rounded-2xl border border-indigo-100 bg-white shadow-sm flex items-center justify-center p-8 text-center">
+                <div>
+                  <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+                  <div className="text-sm font-semibold text-slate-700">正在加载小组学习空间...</div>
+                  <div className="mt-1 text-xs text-slate-400">正在同步项目、任务阶段与共享文档</div>
+                </div>
+              </div>
+            ) : workspaceError ? (
+              <div className="flex-1 rounded-2xl border border-red-100 bg-white shadow-sm flex items-center justify-center p-8 text-center">
+                <div className="max-w-md">
+                  <div className="text-base font-semibold text-red-600">学生工作台加载失败</div>
+                  <div className="mt-2 text-sm text-slate-500">{workspaceError}</div>
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceReloadToken((prev) => prev + 1)}
+                    className="mt-4 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                  >
+                    重新加载
+                  </button>
+                </div>
+              </div>
+            ) : currentProjectId ? (
               <div className="flex-1 flex flex-col min-h-0 min-w-0">
                 {activeTab === 'document' && (
                   <div className="flex-1 flex flex-col bg-white rounded-lg shadow overflow-hidden">
                     {currentDocumentId ? (
                       <DocumentEditor
-                        key={currentDocumentId}
+                        key={`${currentDocumentId}:${stageRenderKey}`}
                         documentId={currentDocumentId}
                         projectId={currentProjectId}
                         experimentVersion={experimentVersion}
                         initialTaskDocumentId={_project?.initial_task_document_id}
                         onDocumentChange={setCurrentDocumentId}
                       />
+                    ) : documentResolving ? (
+                      <div className="flex-1 flex items-center justify-center text-gray-400">
+                        正在加载小组文档...
+                      </div>
+                    ) : documentResolveError ? (
+                      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
+                        <div className="text-sm text-red-500">{documentResolveError}</div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDocumentResolveError(null)
+                            setWorkspaceReloadToken((prev) => prev + 1)
+                          }}
+                          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                        >
+                          重新加载文档
+                        </button>
+                      </div>
                     ) : (
                       <div className="flex-1 flex items-center justify-center text-gray-400">
                         请选择或创建一个文档
@@ -741,30 +858,34 @@ export default function Main() {
 
                 {activeTab === 'inquiry' && (
                   <div className="flex-1 flex flex-col bg-white rounded-lg shadow overflow-hidden">
-                    <InquirySpace projectId={currentProjectId} experimentVersion={experimentVersion} />
+                    <InquirySpace key={`inquiry:${stageRenderKey}`} projectId={currentProjectId} experimentVersion={experimentVersion} />
                   </div>
                 )}
 
                 {activeTab === 'resources' && (
                   <div className="flex-1 flex flex-col bg-white rounded-lg shadow overflow-hidden">
-                    <ResourceLibrary projectId={currentProjectId} />
+                    <ResourceLibrary key={`resources:${stageRenderKey}`} projectId={currentProjectId} />
                   </div>
                 )}
 
                 {activeTab === 'wiki' && (
                   <div className="flex-1 flex flex-col bg-white rounded-lg shadow overflow-hidden">
-                    <ProjectWiki projectId={currentProjectId} />
+                    <ProjectWiki key={`wiki:${stageRenderKey}`} projectId={currentProjectId} />
                   </div>
                 )}
 
                 {activeTab === 'ai' && tutorTabEnabled && (
                   <div className="flex-1 flex flex-col overflow-hidden">
-                    <AITutor projectId={currentProjectId} experimentVersion={experimentVersion} />
+                    <AITutor key={`ai:${stageRenderKey}`} projectId={currentProjectId} experimentVersion={experimentVersion} />
                   </div>
                 )}
               </div>
+            ) : (
+              <div className="flex-1 rounded-2xl border border-slate-100 bg-white shadow-sm flex items-center justify-center p-8 text-center text-sm text-slate-400">
+                当前账号暂无可进入的小组项目。
+              </div>
             )}
-            {activeTab === 'dashboard' && <LearningDashboard />}
+            {!workspaceLoading && !workspaceError && activeTab === 'dashboard' && <LearningDashboard />}
           </div>
         </div>
 

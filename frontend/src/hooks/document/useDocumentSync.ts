@@ -58,7 +58,12 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
         // 2. 加载数据
         const initData = async () => {
             // 优先从 IndexedDB 加载离线数据
-            let loadedFromLocal = await DocumentPersistence.loadSnapshot(roomId, ydoc);
+            let loadedFromLocal = false;
+            try {
+                loadedFromLocal = await DocumentPersistence.loadSnapshot(roomId, ydoc);
+            } catch (error) {
+                console.warn('[useDocumentSync] Failed to load local snapshot, falling back to server:', error);
+            }
 
             // 如果没有本地数据，尝试从服务器拉取
             if (!loadedFromLocal) {
@@ -88,7 +93,9 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
             }
 
             // 加入房间以启动实时同步
-            syncService.joinRoom(roomId, 'document').catch(console.error);
+            syncService.joinRoom(roomId, 'document').catch((error) => {
+                console.warn('[useDocumentSync] Failed to join document room, editor will stay in local mode:', error);
+            });
 
             // 连接 Provider
             newProvider.connect();

@@ -79,6 +79,8 @@ export default function DocumentEditor({
   const currentStage = useContextStore((state) => state.currentStage)
   const [document, setDocument] = useState<Document | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
   const [remoteUsers] = useState<any[]>([])
   const [showAnnotationInput, setShowAnnotationInput] = useState(false)
   const [showAnnotationPopup, setShowAnnotationPopup] = useState(false)
@@ -231,11 +233,15 @@ export default function DocumentEditor({
   useEffect(() => {
     const loadDocument = async () => {
       if (documentId) {
+        setIsLoading(true)
+        setLoadError(null)
         try {
           const doc = await documentService.getDocument(documentId)
           setDocument(doc)
         } catch (error) {
           console.error('Failed to load document:', error)
+          setDocument(null)
+          setLoadError('文档内容加载失败，请检查网络后重试。')
         } finally {
           setIsLoading(false)
           trackingService.track({
@@ -258,12 +264,14 @@ export default function DocumentEditor({
           }
         }
       } else {
+        setDocument(null)
+        setLoadError(null)
         setIsLoading(false)
       }
     }
 
     loadDocument()
-  }, [documentId, projectId])
+  }, [documentId, projectId, reloadToken])
 
   const { provider, ydoc, isSynced } = useDocumentSync({
     documentId: documentId || document?.id || '',
@@ -806,6 +814,15 @@ export default function DocumentEditor({
 
   useEffect(() => {
     if (!editor) return
+    let editorDom: HTMLElement | null = null
+    try {
+      editorDom = editor.isDestroyed ? null : editor.view.dom
+    } catch (error) {
+      console.warn('Document editor view is not ready for annotation binding:', error)
+      return
+    }
+    if (!editorDom) return
+
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement
       const annotationMark = target.closest('.annotation-mark')
@@ -827,11 +844,26 @@ export default function DocumentEditor({
         }
       }
     }
-    editor.view.dom.addEventListener('click', handleClick)
-    return () => editor.view.dom.removeEventListener('click', handleClick)
+    editorDom.addEventListener('click', handleClick)
+    return () => editorDom?.removeEventListener('click', handleClick)
   }, [editor])
 
-  if (isLoading || !document) return <div className="flex items-center justify-center h-full text-gray-400">Loading...</div>
+  if (isLoading) return <div className="flex items-center justify-center h-full text-gray-400">Loading...</div>
+
+  if (loadError || !document) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+        <div className="text-sm text-red-500">{loadError || '文档内容暂不可用。'}</div>
+        <button
+          type="button"
+          onClick={() => setReloadToken((prev) => prev + 1)}
+          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
+        >
+          重新加载文档
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full min-w-0 relative overflow-hidden">

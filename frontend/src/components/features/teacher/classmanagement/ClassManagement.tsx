@@ -25,11 +25,20 @@ import {
 } from '../../../ui';
 import { courseService, Course } from '../../../../services/api/course';
 
-const EXPERIMENT_TEMPLATE_OPTIONS = [
+type TemplateSelectOption = {
+    value: string;
+    label: string;
+    source?: string;
+};
+
+const EMPTY_TEMPLATE_OPTION: TemplateSelectOption = { value: '', label: '不预设模板（仅建班）' };
+
+const FALLBACK_EXPERIMENT_TEMPLATE_OPTIONS: TemplateSelectOption[] = [
     { value: '', label: '不预设模板（仅建班）' },
     { value: 'exp-single-process-v1', label: '单AI + 过程支架' },
     { value: 'exp-multi-process-v1', label: '多智能体 + 过程支架' },
     { value: 'exp-single-process-off-v1', label: '单AI + 无过程支架' },
+    { value: 'exp-multi-process-off-v1', label: '多智能体 + 无过程支架' },
 ];
 
 const DEFAULT_TASK_TITLE = '项目说明';
@@ -103,6 +112,7 @@ export default function ClassManagement() {
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
     const [copiedId, setCopiedId] = useState<string | null>(null);
+    const [experimentTemplateOptions, setExperimentTemplateOptions] = useState<TemplateSelectOption[]>(FALLBACK_EXPERIMENT_TEMPLATE_OPTIONS);
 
     // Form states
     const [name, setName] = useState('');
@@ -127,6 +137,41 @@ export default function ClassManagement() {
 
     useEffect(() => {
         fetchCourses();
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        const fetchExperimentTemplates = async () => {
+            try {
+                const templates = await courseService.getExperimentTemplates();
+                if (cancelled) return;
+
+                if (templates.length === 0) {
+                    setExperimentTemplateOptions(FALLBACK_EXPERIMENT_TEMPLATE_OPTIONS);
+                    return;
+                }
+
+                const dynamicOptions = templates.map((template) => ({
+                    value: template.key,
+                    label: template.label || template.key,
+                    source: template.source,
+                }));
+                setExperimentTemplateOptions([
+                    EMPTY_TEMPLATE_OPTION,
+                    ...dynamicOptions,
+                ]);
+            } catch (error) {
+                console.error('Failed to fetch experiment templates:', error);
+                if (!cancelled) {
+                    setExperimentTemplateOptions(FALLBACK_EXPERIMENT_TEMPLATE_OPTIONS);
+                }
+            }
+        };
+
+        void fetchExperimentTemplates();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     const handleCopyCode = (code: string, id: string) => {
@@ -222,6 +267,14 @@ export default function ClassManagement() {
         course.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         course.semester.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    const selectableTemplateOptions = experimentTemplateKey
+        && !experimentTemplateOptions.some((option) => option.value === experimentTemplateKey)
+        ? [
+            ...experimentTemplateOptions,
+            { value: experimentTemplateKey, label: `${experimentTemplateKey}（当前已绑定）` },
+        ]
+        : experimentTemplateOptions;
 
     if (loading && courses.length === 0) {
         return <div className="flex items-center justify-center h-64">
@@ -452,7 +505,7 @@ export default function ClassManagement() {
                                 onChange={e => setExperimentTemplateKey(e.target.value)}
                                 className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                             >
-                                {EXPERIMENT_TEMPLATE_OPTIONS.map((option) => (
+                                {selectableTemplateOptions.map((option) => (
                                     <option key={option.value} value={option.value}>{option.label}</option>
                                 ))}
                             </select>
@@ -569,7 +622,7 @@ export default function ClassManagement() {
                                 onChange={e => setExperimentTemplateKey(e.target.value)}
                                 className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                             >
-                                {EXPERIMENT_TEMPLATE_OPTIONS.map((option) => (
+                                {selectableTemplateOptions.map((option) => (
                                     <option key={option.value} value={option.value}>{option.label}</option>
                                 ))}
                             </select>

@@ -23,6 +23,7 @@ class ProjectResponse(BaseModel):
     description: Optional[str] = None
     course_id: Optional[str] = None
     owner_id: str
+    leader_id: Optional[str] = None
     members: List[ProjectMemberResponse] = Field(default_factory=list)
     progress: int = Field(ge=0, le=100)
     is_template: bool = False
@@ -59,6 +60,7 @@ class ProjectUpdateRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=500)
     progress: Optional[int] = Field(None, ge=0, le=100)
     is_archived: Optional[bool] = None
+    leader_id: Optional[str] = Field(None, max_length=100)
 
 
 class ProjectMemberAddRequest(BaseModel):

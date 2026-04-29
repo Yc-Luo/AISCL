@@ -138,6 +138,7 @@ export default function Main() {
   const [currentDocumentId, setCurrentDocumentId] = useState<string | undefined>(undefined)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [showStageDetails, setShowStageDetails] = useState(false)
+  const [stageChanging, setStageChanging] = useState(false)
   const [stageUpdateNotice, setStageUpdateNotice] = useState<{
     stageId: string
     versionName?: string | null
@@ -153,6 +154,21 @@ export default function Main() {
   const setContextCurrentStage = useContextStore(state => state.setCurrentStage)
   const setContextExperimentVersionId = useContextStore(state => state.setExperimentVersionId)
   const setContextDocumentId = useContextStore(state => state.setDocumentId)
+
+  const explicitLeaderId = _project?.members.find(
+    (member) => member.role === 'owner' && member.user_id !== _project.owner_id
+  )?.user_id
+  const fallbackStudentLeaderId = _project?.members.find(
+    (member) => member.user_id && member.user_id !== _project.owner_id
+  )?.user_id
+  const isGroupLeader = Boolean(
+    user?.id && (
+      user.id === _project?.owner_id
+      || user.id === _project?.leader_id
+      || user.id === explicitLeaderId
+      || (!_project?.leader_id && !explicitLeaderId && user.id === fallbackStudentLeaderId)
+    )
+  )
 
   // Update Context Store
   useEffect(() => {
@@ -442,6 +458,55 @@ export default function Main() {
     : []
   const isOnRecommendedTool = showProcessGuidance && filteredRecommendedTabs.includes(activeTab)
 
+  const handleStageSelect = async (stageId: string) => {
+    if (!currentProjectId || !experimentVersion || stageId === currentStage) return
+
+    if (!isGroupLeader) {
+      trackingService.trackResearchEvent({
+        project_id: currentProjectId,
+        experiment_version_id: experimentVersion.version_name,
+        actor_type: 'student',
+        event_domain: 'stage_transition',
+        event_type: 'stage_manual_change_blocked',
+        stage_id: currentStage || undefined,
+        payload: {
+          requested_stage: stageId,
+          current_stage: currentStage,
+          block_reason: 'not_group_leader',
+        }
+      })
+      return
+    }
+
+    try {
+      setStageChanging(true)
+      const nextVersion = await projectService.updateExperimentVersion(currentProjectId, {
+        current_stage: stageId,
+      })
+      setExperimentVersion(nextVersion)
+      setCurrentStage(nextVersion.current_stage || stageId)
+
+      trackingService.trackResearchEvent({
+        project_id: currentProjectId,
+        experiment_version_id: nextVersion.version_name,
+        actor_type: 'student',
+        event_domain: 'stage_transition',
+        event_type: 'group_leader_stage_change',
+        stage_id: nextVersion.current_stage || stageId,
+        payload: {
+          from: currentStage,
+          to: nextVersion.current_stage || stageId,
+          controller_role: 'group_leader',
+        }
+      })
+    } catch (error) {
+      console.error('Failed to update current stage:', error)
+      alert('阶段切换失败。请刷新页面后重试，或联系教师确认小组组长权限。')
+    } finally {
+      setStageChanging(false)
+    }
+  }
+
   return (
     <div className="h-[100dvh] min-h-0 flex flex-col bg-gray-100">
       {/* Connection Status Banner */}
@@ -561,6 +626,12 @@ export default function Main() {
                       {isOnRecommendedTool ? '当前工具与阶段建议一致' : '当前工具偏离阶段建议'}
                     </div>
                   )}
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${isGroupLeader
+                      ? 'bg-indigo-50 text-indigo-700 ring-indigo-100'
+                      : 'bg-slate-50 text-slate-500 ring-slate-200'
+                    }`}>
+                    {isGroupLeader ? '组长可推进阶段' : '仅组长推进阶段'}
+                  </span>
                   {showProcessGuidance ? (
                     <button
                       type="button"
@@ -580,37 +651,20 @@ export default function Main() {
               <div className="mt-1.5 flex items-center gap-2 overflow-x-auto pb-0.5">
                 {(experimentVersion?.stage_sequence || []).map((stageId, index) => {
                   const isActive = currentStage === stageId
+                  const isStageButtonDisabled = stageChanging || isActive || !isGroupLeader
                   return (
                     <button
                       key={stageId}
                       type="button"
-                      onClick={() => {
-                        if (stageControlMode === 'hard_constraint') {
-                          trackingService.trackResearchEvent({
-                            project_id: currentProjectId,
-                            experiment_version_id: experimentVersion?.version_name,
-                            actor_type: 'student',
-                            event_domain: 'stage_transition',
-                            event_type: 'stage_manual_change_blocked',
-                            stage_id: currentStage || undefined,
-                            payload: {
-                              requested_stage: stageId,
-                              current_stage: currentStage,
-                              stage_control_mode: stageControlMode,
-                            }
-                          })
-                          return
-                        }
-                        setCurrentStage(stageId)
-                      }}
-                      disabled={stageControlMode === 'hard_constraint'}
+                      onClick={() => void handleStageSelect(stageId)}
+                      disabled={isStageButtonDisabled}
                       className={`whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-all ${isActive
                           ? 'border-indigo-500 bg-indigo-600 text-white shadow-sm'
-                          : stageControlMode === 'hard_constraint'
+                          : isStageButtonDisabled
                             ? 'border-slate-200 bg-slate-50 text-slate-400'
                             : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50'
                         }`}
-                      title={stageControlMode === 'hard_constraint' ? '当前任务阶段采用硬约束控制，阶段切换由教师端统一控制。' : undefined}
+                      title={!isGroupLeader ? '当前任务阶段由小组组长推进。' : undefined}
                     >
                       {index + 1}. {formatStageLabel(stageId)}
                     </button>

@@ -26,6 +26,7 @@ import { userService } from '../../../../services/api/user'
 import { Project, User, Resource } from '../../../../types'
 import { cn } from '../../../../lib/utils'
 import { courseService, Course } from '../../../../services/api/course'
+import { trackingService } from '../../../../services/tracking/TrackingService'
 
 interface ProjectEditModalProps {
     isOpen: boolean
@@ -55,6 +56,7 @@ export default function ProjectEditModal({
     const [members, setMembers] = useState<User[]>([])
     const [courseStudents, setCourseStudents] = useState<User[]>([])
     const [loadingCourseStudents, setLoadingCourseStudents] = useState(false)
+    const [leaderId, setLeaderId] = useState('')
     const [searchTerm, setSearchTerm] = useState('')
     const [searchResults, setSearchResults] = useState<User[]>([])
     const [searching, setSearching] = useState(false)
@@ -89,6 +91,7 @@ export default function ProjectEditModal({
             fetchResources(project.id)
             // Fetch full member details
             fetchMembers(project.members.map((m) => m.user_id))
+            setLeaderId(project.leader_id || '')
         } else {
             setFormData({
                 name: '',
@@ -98,9 +101,21 @@ export default function ProjectEditModal({
                 inherit_course_template: true,
             })
             setMembers([])
+            setLeaderId('')
             setResources([])
         }
     }, [project, isOpen])
+
+    useEffect(() => {
+        if (members.length === 0) {
+            if (leaderId) setLeaderId('')
+            return
+        }
+
+        if (!leaderId || !members.some((member) => member.id === leaderId)) {
+            setLeaderId(members[0].id)
+        }
+    }, [leaderId, members])
 
     useEffect(() => {
         if (!isOpen || !formData.course_id) {
@@ -140,10 +155,13 @@ export default function ProjectEditModal({
     }
 
     const fetchMembers = async (ids: string[]) => {
-        if (ids.length === 0) return
+        if (ids.length === 0) {
+            setMembers([])
+            return
+        }
         try {
             const users = await userService.getUsers(ids)
-            setMembers(users)
+            setMembers(users.filter((user) => user.role === 'student'))
         } catch (error) {
             console.error('Failed to fetch members:', error)
         }
@@ -236,6 +254,11 @@ export default function ProjectEditModal({
 
     const handleSubmit = async () => {
         if (!formData.name.trim()) return
+        const resolvedLeaderId = leaderId || members[0]?.id || ''
+        if (members.length > 0 && !resolvedLeaderId) {
+            alert('请先指定小组组长')
+            return
+        }
         setLoading(true)
         try {
             if (isEdit && project) {
@@ -262,6 +285,23 @@ export default function ProjectEditModal({
                         await projectService.removeMember(project.id, id)
                     }
                 }
+                if (resolvedLeaderId) {
+                    await projectService.updateProject(project.id, {
+                        leader_id: resolvedLeaderId,
+                    })
+                    if (project.leader_id !== resolvedLeaderId) {
+                        trackingService.trackResearchEvent({
+                            project_id: project.id,
+                            actor_type: 'teacher',
+                            event_domain: 'stage_transition',
+                            event_type: project.leader_id ? 'group_leader_change' : 'group_leader_assign',
+                            payload: {
+                                previous_leader_id: project.leader_id || null,
+                                next_leader_id: resolvedLeaderId,
+                            },
+                        })
+                    }
+                }
 
             } else {
                 const newProj = await projectService.createProject({
@@ -273,6 +313,21 @@ export default function ProjectEditModal({
                 // Add members if any
                 for (const m of members) {
                     await projectService.addMember(newProj.id, { userId: m.id, role: 'editor' })
+                }
+                if (resolvedLeaderId) {
+                    await projectService.updateProject(newProj.id, {
+                        leader_id: resolvedLeaderId,
+                    })
+                    trackingService.trackResearchEvent({
+                        project_id: newProj.id,
+                        actor_type: 'teacher',
+                        event_domain: 'stage_transition',
+                        event_type: 'group_leader_assign',
+                        payload: {
+                            previous_leader_id: null,
+                            next_leader_id: resolvedLeaderId,
+                        },
+                    })
                 }
             }
             onSuccess()
@@ -464,6 +519,11 @@ export default function ProjectEditModal({
                                         {member.username[0].toUpperCase()}
                                     </div>
                                     <span className="max-w-[100px] truncate">{member.username}</span>
+                                    {leaderId === member.id && (
+                                        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                                            组长
+                                        </span>
+                                    )}
                                     <button
                                         onClick={() => removeMember(member.id)}
                                         className="hover:bg-indigo-200 rounded-full p-0.5 transition-colors"
@@ -473,6 +533,26 @@ export default function ProjectEditModal({
                                 </Badge>
                             ))}
                         </div>
+
+                        {members.length > 0 && (
+                            <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-3">
+                                <label className="text-xs font-semibold text-amber-800">指定小组组长</label>
+                                <select
+                                    value={leaderId}
+                                    onChange={(event) => setLeaderId(event.target.value)}
+                                    className="mt-2 w-full rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+                                >
+                                    {members.map((member) => (
+                                        <option key={member.id} value={member.id}>
+                                            {member.username}（{member.email}）
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="mt-2 text-xs leading-5 text-amber-700">
+                                    组长负责推进任务阶段，后续可扩展为最终成果归档与提交负责人；成员管理和实验配置仍由教师端控制。
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Resource Management */}

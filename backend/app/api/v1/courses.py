@@ -85,6 +85,22 @@ async def get_courses(
     )
 
 
+@router.get("/experiment-templates")
+async def get_experiment_templates(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Get admin-published experiment templates available for class binding."""
+    if current_user.role not in ["teacher", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only teachers and admins can view experiment templates",
+        )
+
+    return {
+        "templates": await research_config_service.list_available_template_options()
+    }
+
+
 @router.post("", response_model=CourseResponse, status_code=status.HTTP_201_CREATED)
 async def create_course(
     course_data: CourseCreateRequest,

@@ -5,6 +5,7 @@ export interface Project {
     description?: string
     course_id?: string
     owner_id: string
+    leader_id?: string | null
     members: ProjectMember[]
     progress: number
     is_template: boolean
@@ -41,6 +42,7 @@ export interface UpdateProjectData {
     description?: string
     progress?: number
     is_archived?: boolean
+    leader_id?: string | null
 }
 
 export interface ExperimentVersion {

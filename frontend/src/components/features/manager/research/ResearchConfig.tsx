@@ -138,6 +138,17 @@ const DEFAULT_TEMPLATES: ExperimentTemplateConfig[] = [
         teacherSummary: '用于较弱支架条件对照，不启用过程支架。',
         published: false,
     },
+    {
+        id: 'exp-multi-process-off-v1',
+        label: '模板D：多智能体 + 无过程支架',
+        groupCondition: 'multi_agent_process_off',
+        aiMode: 'multi_agent',
+        processMode: 'off',
+        ruleSet: 'research-default',
+        stageSequence: ['orientation', 'planning', 'inquiry', 'argumentation', 'revision'],
+        teacherSummary: '用于检验多智能体本身的作用，关闭过程支架以形成完整 2×2 条件。',
+        published: false,
+    },
 ]
 
 const DEFAULT_ROLES: AgentRoleConfig[] = [

@@ -23,6 +23,7 @@ class Project(Document):
     description: Optional[str] = Field(None, max_length=500)
     course_id: Optional[str] = Field(default=None)
     owner_id: str
+    leader_id: Optional[str] = Field(default=None)
     members: List[dict] = Field(default_factory=list)  # List of ProjectMember-like dicts
     progress: int = Field(default=0, ge=0, le=100)
     is_template: bool = False
@@ -42,6 +43,7 @@ class Project(Document):
         name = "projects"
         indexes = [
             [("owner_id", 1)],
+            [("leader_id", 1)],
             [("course_id", 1)],
             [("members.user_id", 1)],
             [("is_archived", 1)],

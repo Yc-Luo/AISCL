@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from app.repositories.course import Course
 from app.repositories.system_config import SystemConfig
@@ -50,7 +50,93 @@ class ResearchConfigService:
             "ruleSet": "evidence-focus",
             "stageSequence": ["orientation", "planning", "inquiry", "argumentation", "revision"],
         },
+        "exp-multi-process-off-v1": {
+            "label": "多智能体 + 无过程支架",
+            "groupCondition": "multi_agent_process_off",
+            "aiMode": "multi_agent",
+            "processMode": "off",
+            "ruleSet": "research-default",
+            "stageSequence": ["orientation", "planning", "inquiry", "argumentation", "revision"],
+        },
     }
+
+    @classmethod
+    async def list_available_template_options(cls) -> List[Dict[str, Any]]:
+        """Return experiment templates that teachers can bind to classes.
+
+        Admin release snapshots take precedence. Published working-copy templates
+        are also exposed so teachers can use a newly saved template before a
+        formal release snapshot is generated.
+        """
+        options: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add_template(
+            template: Dict[str, Any],
+            *,
+            source: str,
+            release_id: Optional[str] = None,
+            release_note: Optional[str] = None,
+        ) -> None:
+            template_key = str(template.get("id") or template.get("version_name") or "").strip()
+            if not template_key or template_key in seen:
+                return
+
+            snapshot = template.get("resolvedExperimentVersion") or template.get("experimentVersion")
+            if isinstance(snapshot, dict):
+                ai_mode = snapshot.get("ai_scaffold_mode")
+                process_mode = snapshot.get("process_scaffold_mode")
+                group_condition = snapshot.get("group_condition")
+                rule_set = snapshot.get("enabled_rule_set")
+                stage_sequence = snapshot.get("stage_sequence") or []
+            else:
+                ai_mode = template.get("aiMode") or template.get("ai_scaffold_mode")
+                process_mode = template.get("processMode") or template.get("process_scaffold_mode")
+                group_condition = template.get("groupCondition") or template.get("group_condition")
+                rule_set = template.get("ruleSet") or template.get("enabled_rule_set")
+                stage_sequence = template.get("stageSequence") or template.get("stage_sequence") or []
+
+            label = template.get("label")
+            if not label and isinstance(snapshot, dict):
+                label = snapshot.get("template_label")
+            label = label or template_key
+
+            options.append(
+                {
+                    "key": template_key,
+                    "label": label,
+                    "source": source,
+                    "release_id": release_id,
+                    "release_note": release_note,
+                    "group_condition": group_condition,
+                    "ai_mode": ai_mode,
+                    "process_mode": process_mode,
+                    "rule_set": rule_set,
+                    "stage_sequence": list(stage_sequence),
+                    "teacher_summary": template.get("teacherSummary") or template.get("teacher_summary"),
+                }
+            )
+            seen.add(template_key)
+
+        release_history = await cls._load_json_config(cls.RELEASE_HISTORY_KEY, [])
+        for release in release_history:
+            for template in release.get("templates", []) or []:
+                add_template(
+                    template,
+                    source="admin_release",
+                    release_id=release.get("id"),
+                    release_note=release.get("note"),
+                )
+
+        working_templates = await cls._load_json_config(cls.TEMPLATE_CONFIG_KEY, [])
+        for template in working_templates:
+            if template.get("published"):
+                add_template(template, source="admin_working_copy")
+
+        for template_key, template in cls.LEGACY_PRESETS.items():
+            add_template({"id": template_key, **template}, source="legacy_builtin")
+
+        return options
 
     @classmethod
     async def resolve_template_binding(cls, template_key: Optional[str]) -> Optional[Dict[str, Any]]:

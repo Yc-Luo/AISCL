@@ -46,6 +46,65 @@ async def ensure_project_staff_access(current_user: User, project: Project, deta
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
+async def has_project_stage_control_access(current_user: User, project: Project) -> bool:
+    """Return whether the user can advance the learning stage for a group.
+
+    In teacher-created groups, project ownership stays with the teacher. The
+    first student member is treated as the temporary group leader until an
+    explicit leader-selection UI is added.
+    """
+    if (
+        current_user.role == "admin"
+        or str(current_user.id) == project.owner_id
+        or await is_teacher_project_scope(current_user, project)
+    ):
+        return True
+
+    current_user_id = str(current_user.id)
+    if project.leader_id:
+        return project.leader_id == current_user_id
+
+    if any(
+        member.get("user_id") == current_user_id and member.get("role") == "owner"
+        for member in project.members
+    ):
+        return True
+
+    student_members = [
+        member
+        for member in project.members
+        if member.get("user_id") and member.get("user_id") != project.owner_id
+    ]
+    return bool(student_members and student_members[0].get("user_id") == current_user_id)
+
+
+def _resolve_next_group_leader(project: Project) -> Optional[str]:
+    """Return a safe fallback student leader for legacy or changed groups."""
+    for member in project.members:
+        user_id = member.get("user_id")
+        if user_id and user_id != project.owner_id:
+            return user_id
+    return None
+
+
+async def validate_project_leader(project: Project, leader_id: Optional[str]) -> Optional[str]:
+    """Validate that a leader is a student who belongs to the project."""
+    if not leader_id:
+        return None
+    if not any(member.get("user_id") == leader_id for member in project.members):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Group leader must be a current project member",
+        )
+    leader = await User.get(leader_id)
+    if not leader or leader.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Group leader must be a student account",
+        )
+    return leader_id
+
+
 @router.get("", response_model=ProjectListResponse)
 async def get_projects(
     skip: int = Query(0, ge=0),
@@ -89,6 +148,7 @@ async def get_projects(
                 description=p.description,
                 course_id=p.course_id,
                 owner_id=p.owner_id,
+                leader_id=p.leader_id,
                 members=[
                     {
                         "user_id": m.get("user_id"),
@@ -168,6 +228,7 @@ async def create_project(
         description=project_data.description,
         course_id=project_data.course_id,
         owner_id=str(current_user.id),
+        leader_id=str(current_user.id) if current_user.role == "student" else None,
         members=[
             {
                 "user_id": str(current_user.id),
@@ -199,6 +260,7 @@ async def create_project(
         description=new_project.description,
         course_id=new_project.course_id,
         owner_id=new_project.owner_id,
+        leader_id=new_project.leader_id,
         members=[
             {
                 "user_id": m.get("user_id"),
@@ -243,6 +305,7 @@ async def get_project(
         description=project.description,
         course_id=project.course_id,
         owner_id=project.owner_id,
+        leader_id=project.leader_id,
         members=[
             {
                 "user_id": m.get("user_id"),
@@ -296,6 +359,8 @@ async def update_project(
         project.progress = project_data.progress
     if project_data.is_archived is not None:
         project.is_archived = project_data.is_archived
+    if "leader_id" in project_data.model_fields_set:
+        project.leader_id = await validate_project_leader(project, project_data.leader_id)
     project.updated_at = datetime.utcnow()
 
     await project.save()
@@ -307,6 +372,7 @@ async def update_project(
         description=project.description,
         course_id=project.course_id,
         owner_id=project.owner_id,
+        leader_id=project.leader_id,
         members=[
             {
                 "user_id": m.get("user_id"),
@@ -382,14 +448,33 @@ async def update_experiment_version(
             detail="Project not found",
         )
 
-    await ensure_project_staff_access(
-        current_user,
-        project,
-        "Only project owner or scoped teacher can update experiment version",
-    )
+    update_payload = version_data.model_dump(exclude_unset=True)
+    requested_keys = set(update_payload.keys())
+    is_stage_only_update = requested_keys and requested_keys <= {"current_stage"}
+
+    if is_stage_only_update:
+        if not await has_project_stage_control_access(current_user, project):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the group leader, project owner, or scoped teacher can update current stage",
+            )
+
+        current_stage = update_payload.get("current_stage")
+        stage_sequence = (project.experiment_version or {}).get("stage_sequence") or []
+        if current_stage and stage_sequence and current_stage not in stage_sequence:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current stage must be one of the configured stage sequence values",
+            )
+    else:
+        await ensure_project_staff_access(
+            current_user,
+            project,
+            "Only project owner or scoped teacher can update experiment version",
+        )
 
     payload = await project_service.update_experiment_version(
-        project, version_data.model_dump()
+        project, update_payload
     )
     return ExperimentVersionResponse(**payload)
 
@@ -520,6 +605,8 @@ async def remove_project_member(
 
     # Remove member
     project.members = [m for m in project.members if m.get("user_id") != user_id]
+    if project.leader_id == user_id:
+        project.leader_id = _resolve_next_group_leader(project)
     await project.save()
 
 
@@ -555,6 +642,7 @@ async def archive_project(
         description=project.description,
         course_id=project.course_id,
         owner_id=project.owner_id,
+        leader_id=project.leader_id,
         members=[
             {
                 "user_id": m.get("user_id"),
@@ -608,6 +696,7 @@ async def unarchive_project(
         description=project.description,
         course_id=project.course_id,
         owner_id=project.owner_id,
+        leader_id=project.leader_id,
         members=[
             {
                 "user_id": m.get("user_id"),
@@ -723,6 +812,7 @@ async def transfer_ownership(
         description=project.description,
         course_id=project.course_id,
         owner_id=project.owner_id,
+        leader_id=project.leader_id,
         members=[
             {
                 "user_id": m.get("user_id"),

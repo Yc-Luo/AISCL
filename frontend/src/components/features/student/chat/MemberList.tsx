@@ -98,6 +98,7 @@ export default function MemberList({ projectId }: MemberListProps) {
           const memberUser = getMemberUser(member.user_id)
           const role = getMemberRole(member.user_id)
           const online = isOnline(member.user_id)
+          const isLeader = project.leader_id === member.user_id
 
           return (
             <div
@@ -126,8 +127,13 @@ export default function MemberList({ projectId }: MemberListProps) {
                 <div className="text-sm font-medium truncate">
                   {memberUser?.username || member.user_id}
                 </div>
-                <div className="text-xs text-gray-500">
-                  {role === 'owner' ? '所有者' : role === 'editor' ? '编辑者' : '查看者'}
+                <div className="flex flex-wrap items-center gap-1 text-xs text-gray-500">
+                  <span>{role === 'owner' ? '所有者' : role === 'editor' ? '编辑者' : '查看者'}</span>
+                  {isLeader && (
+                    <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-100">
+                      组长
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

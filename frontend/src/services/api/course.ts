@@ -19,6 +19,20 @@ export interface Course {
     created_at: string
 }
 
+export interface ExperimentTemplateOption {
+    key: string
+    label: string
+    source?: string
+    release_id?: string
+    release_note?: string
+    group_condition?: string
+    ai_mode?: 'single_agent' | 'multi_agent'
+    process_mode?: 'on' | 'off'
+    rule_set?: string
+    stage_sequence?: string[]
+    teacher_summary?: string
+}
+
 export interface Student {
     id: string
     username: string
@@ -53,6 +67,11 @@ export const courseService = {
     getCourses: async (): Promise<Course[]> => {
         const response = await api.get('/courses')
         return response.data.courses // Backend returns { courses: [...] }
+    },
+
+    getExperimentTemplates: async (): Promise<ExperimentTemplateOption[]> => {
+        const response = await api.get('/courses/experiment-templates')
+        return response.data.templates || []
     },
 
     createCourse: async (data: { name: string; semester: string; description?: string; experiment_template_key?: string; initial_task_document_title?: string; initial_task_document_content?: string }) => {

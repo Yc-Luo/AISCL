@@ -72,6 +72,7 @@ export const useInquirySync = (projectId: string) => {
     const isSyncingRef = useRef(false);
     const lastSyncTimeRef = useRef(0);
     const pendingBroadcastRef = useRef(false);
+    const hasLocalMutationRef = useRef(false);
     const syncUnlockTimerRef = useRef<number | null>(null);
 
     // 唯一的 session ID，用于识别自己发送的操作
@@ -85,11 +86,6 @@ export const useInquirySync = (projectId: string) => {
         if (!ignoreSyncLock && isSyncingRef.current) return;
 
         const currentState = useInquiryStore.getState();
-        // 如果没有内容，不广播
-        if (currentState.nodes.length === 0 && currentState.edges.length === 0 && currentState.scrapbook.length === 0) {
-            return;
-        }
-
         const stateData = serializeState(currentState.nodes, currentState.edges, currentState.scrapbook);
         const opId = `state-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         console.log('[InquirySync] Broadcasting local state:', {
@@ -164,6 +160,32 @@ export const useInquirySync = (projectId: string) => {
             }
         }, 100);
     }, [broadcastState]);
+
+    const persistStateToBackend = useCallback(async (
+        nodes: Node<InquiryNodeData>[],
+        edges: Edge<InquiryEdgeData>[],
+        scrapbook: InquiryCard[],
+        reason: string
+    ) => {
+        if (!projectId || !isHydratedRef.current) return;
+
+        const isEmpty = nodes.length === 0 && edges.length === 0 && scrapbook.length === 0;
+        if (isEmpty && !hasLocalMutationRef.current) {
+            console.log('[InquirySync] Skip empty snapshot without local mutation:', reason);
+            return;
+        }
+
+        const stateData = serializeState(nodes, edges, scrapbook);
+        const base64Data = encodeBase64(stateData);
+        await inquiryService.saveSnapshot(projectId, base64Data);
+        hasLocalMutationRef.current = false;
+        console.log('[InquirySync] Snapshot persisted:', {
+            reason,
+            nodes: nodes.length,
+            edges: edges.length,
+            scrapbook: scrapbook.length,
+        });
+    }, [projectId]);
 
     // 处理远程状态更新
     const handleRemoteState = useCallback((operation: any) => {
@@ -302,6 +324,7 @@ export const useInquirySync = (projectId: string) => {
 
         // 只有用户主动拖拽或添加/删除时才广播
         if ((hasUserChange || hasAddRemove) && isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             // 节流：最多每 200ms 广播一次
             const now = Date.now();
             if (now - lastSyncTimeRef.current > 200) {
@@ -315,25 +338,28 @@ export const useInquirySync = (projectId: string) => {
             // 使用 saveToBackendRef 来避免依赖循环
             setTimeout(() => {
                 const { nodes, edges, scrapbook } = useInquiryStore.getState();
-                if (nodes.length > 0 || edges.length > 0 || scrapbook.length > 0) {
-                    inquiryService.saveSnapshot(projectId, encodeBase64(serializeState(nodes, edges, scrapbook)))
-                        .then(() => console.log('[InquirySync] Saved after drag end'))
-                        .catch(e => console.error('[InquirySync] Save after drag end failed:', e));
-                }
+                persistStateToBackend(nodes, edges, scrapbook, hasAddRemove ? 'node_add_remove' : 'node_drag_end')
+                    .catch(e => console.error('[InquirySync] Save after node change failed:', e));
             }, 100);
         }
-    }, [store, requestBroadcast, projectId]);
+    }, [store, requestBroadcast, persistStateToBackend]);
 
     // 边变化处理
     const onEdgesChange = useCallback((changes: EdgeChange[]) => {
         const currentEdges = useInquiryStore.getState().edges;
         const newEdges = applyEdgeChanges(changes, currentEdges);
-        store.setFullState(useInquiryStore.getState().nodes, newEdges, useInquiryStore.getState().scrapbook);
+        const { nodes, scrapbook } = useInquiryStore.getState();
+        store.setFullState(nodes, newEdges, scrapbook);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             forceBroadcastState();
+            if (changes.some(c => c.type === 'remove' || c.type === 'add')) {
+                persistStateToBackend(nodes, newEdges, scrapbook, 'edge_add_remove')
+                    .catch(e => console.error('[InquirySync] Save after edge change failed:', e));
+            }
         }
-    }, [store, forceBroadcastState]);
+    }, [store, forceBroadcastState, persistStateToBackend]);
 
     // 连接处理
     const onConnect = useCallback((params: Connection) => {
@@ -348,12 +374,17 @@ export const useInquirySync = (projectId: string) => {
                 targetId: params.target,
             }
         }, currentEdges);
-        store.setFullState(useInquiryStore.getState().nodes, newEdges, useInquiryStore.getState().scrapbook);
+        const nodes = useInquiryStore.getState().nodes;
+        const scrapbook = useInquiryStore.getState().scrapbook;
+        store.setFullState(nodes, newEdges, scrapbook);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             requestBroadcast();
+            persistStateToBackend(nodes, newEdges, scrapbook, 'edge_connect')
+                .catch(e => console.error('[InquirySync] Save after edge connect failed:', e));
         }
-    }, [store, requestBroadcast]);
+    }, [store, requestBroadcast, persistStateToBackend]);
 
     // 添加卡片
     const addCard = useCallback((
@@ -379,19 +410,26 @@ export const useInquirySync = (projectId: string) => {
         store.setFullState(nodes, edges, [...scrapbook, card]);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             forceBroadcastState();
+            persistStateToBackend(nodes, edges, [...scrapbook, card], 'card_add')
+                .catch(e => console.error('[InquirySync] Save after card add failed:', e));
         }
-    }, [user, store, forceBroadcastState]);
+    }, [user, store, forceBroadcastState, persistStateToBackend]);
 
     // 删除卡片
     const deleteCard = useCallback((cardId: string) => {
         const { nodes, edges, scrapbook } = useInquiryStore.getState();
-        store.setFullState(nodes, edges, scrapbook.filter(c => c.id !== cardId));
+        const nextScrapbook = scrapbook.filter(c => c.id !== cardId);
+        store.setFullState(nodes, edges, nextScrapbook);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             forceBroadcastState();
+            persistStateToBackend(nodes, edges, nextScrapbook, 'card_delete')
+                .catch(e => console.error('[InquirySync] Save after card delete failed:', e));
         }
-    }, [store, forceBroadcastState]);
+    }, [store, forceBroadcastState, persistStateToBackend]);
 
     // 转换卡片为节点
     const convertCardToNode = useCallback((
@@ -420,9 +458,12 @@ export const useInquirySync = (projectId: string) => {
         store.setFullState([...nodes, newNode], edges, scrapbook);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             forceBroadcastState();
+            persistStateToBackend([...nodes, newNode], edges, scrapbook, 'card_to_node')
+                .catch(e => console.error('[InquirySync] Save after card to node failed:', e));
         }
-    }, [store, forceBroadcastState]);
+    }, [store, forceBroadcastState, persistStateToBackend]);
 
     // 更新节点
     const updateNode = useCallback((nodeId: string, updates: Partial<Node<InquiryNodeData>>) => {
@@ -431,6 +472,7 @@ export const useInquirySync = (projectId: string) => {
         store.setFullState(newNodes, edges, scrapbook);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             forceBroadcastState();
         }
     }, [store, forceBroadcastState]);
@@ -443,9 +485,12 @@ export const useInquirySync = (projectId: string) => {
         store.setFullState(newNodes, newEdges, scrapbook);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             forceBroadcastState();
+            persistStateToBackend(newNodes, newEdges, scrapbook, 'node_delete')
+                .catch(e => console.error('[InquirySync] Save after node delete failed:', e));
         }
-    }, [store, forceBroadcastState]);
+    }, [store, forceBroadcastState, persistStateToBackend]);
 
     // 更新边
     const updateEdge = useCallback((edgeId: string, updates: Partial<Edge<InquiryEdgeData>>) => {
@@ -454,9 +499,12 @@ export const useInquirySync = (projectId: string) => {
         store.setFullState(nodes, newEdges, scrapbook);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             forceBroadcastState();
+            persistStateToBackend(nodes, newEdges, scrapbook, 'edge_update')
+                .catch(e => console.error('[InquirySync] Save after edge update failed:', e));
         }
-    }, [store, forceBroadcastState]);
+    }, [store, forceBroadcastState, persistStateToBackend]);
 
     // 删除边
     const deleteEdge = useCallback((edgeId: string) => {
@@ -465,9 +513,12 @@ export const useInquirySync = (projectId: string) => {
         store.setFullState(nodes, newEdges, scrapbook);
 
         if (isHydratedRef.current) {
+            hasLocalMutationRef.current = true;
             forceBroadcastState();
+            persistStateToBackend(nodes, newEdges, scrapbook, 'edge_delete')
+                .catch(e => console.error('[InquirySync] Save after edge delete failed:', e));
         }
-    }, [store, forceBroadcastState]);
+    }, [store, forceBroadcastState, persistStateToBackend]);
 
     // 保存到后端
     const saveToBackend = useCallback(async () => {
@@ -476,20 +527,11 @@ export const useInquirySync = (projectId: string) => {
         try {
             const { nodes, edges, scrapbook } = useInquiryStore.getState();
 
-            // 只有在有内容时才保存，避免覆盖有效数据
-            if (nodes.length === 0 && edges.length === 0 && scrapbook.length === 0) {
-                console.log('[InquirySync] Skip save: no content');
-                return;
-            }
-
-            const stateData = serializeState(nodes, edges, scrapbook);
-            const base64Data = encodeBase64(stateData);
-            await inquiryService.saveSnapshot(projectId, base64Data);
-            console.log('[InquirySync] Saved to backend:', { nodes: nodes.length, edges: edges.length });
+            await persistStateToBackend(nodes, edges, scrapbook, 'manual_or_auto_save');
         } catch (error) {
             console.error('[InquirySync] Save failed:', error);
         }
-    }, [projectId]);
+    }, [projectId, persistStateToBackend]);
 
     // 自动保存
     useEffect(() => {

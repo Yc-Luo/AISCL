@@ -64,6 +64,7 @@ export default function ProjectEditModal({
     // Resources state
     const [resources, setResources] = useState<Resource[]>([])
     const [uploading, setUploading] = useState(false)
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
     // Initialize data
     useEffect(() => {
@@ -79,6 +80,7 @@ export default function ProjectEditModal({
     }, [])
 
     useEffect(() => {
+        if (isOpen) setNotice(null)
         if (project) {
             setFormData({
                 name: project.name,
@@ -226,9 +228,10 @@ export default function ProjectEditModal({
             })
 
             setResources([...resources, newRes])
+            setNotice({ type: 'success', message: '初始资源已上传。' })
         } catch (error) {
             console.error('Upload failed:', error)
-            alert('上传失败')
+            setNotice({ type: 'error', message: '上传失败，请检查网络连接、文件类型或小组权限。' })
         } finally {
             setUploading(false)
         }
@@ -256,7 +259,7 @@ export default function ProjectEditModal({
         if (!formData.name.trim()) return
         const resolvedLeaderId = leaderId || members[0]?.id || ''
         if (members.length > 0 && !resolvedLeaderId) {
-            alert('请先指定小组组长')
+            setNotice({ type: 'error', message: '请先指定小组组长。' })
             return
         }
         setLoading(true)
@@ -334,7 +337,7 @@ export default function ProjectEditModal({
             onClose()
         } catch (error) {
             console.error('Submit failed:', error)
-            alert('操作失败，请检查输入')
+            setNotice({ type: 'error', message: '操作失败，请检查输入、成员权限或班级绑定状态。' })
         } finally {
             setLoading(false)
         }
@@ -349,6 +352,15 @@ export default function ProjectEditModal({
                         {isEdit ? '编辑小组基本信息、成员配置以及初始学习资源。' : '建立一个新的小组空间，配置基础信息并添加初始成员。'}
                     </DialogDescription>
                 </DialogHeader>
+
+                {notice && (
+                    <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${notice.type === 'success'
+                        ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                        : 'border-rose-100 bg-rose-50 text-rose-700'
+                        }`}>
+                        {notice.message}
+                    </div>
+                )}
 
                 <div className="space-y-6 py-4">
                     {/* Basic Info */}

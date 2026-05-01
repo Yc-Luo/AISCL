@@ -22,7 +22,8 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
-    DialogDescription
+    DialogDescription,
+    ConfirmDialog
 } from '../../../ui';
 import { courseService, Course, Student, StudentImportItem } from '../../../../services/api/course';
 import { projectService } from '../../../../services/api/project';
@@ -103,6 +104,9 @@ export default function StudentList() {
     const [bulkStatus, setBulkStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
     const [bulkProgress, setBulkProgress] = useState({ total: 0, current: 0 });
     const [bulkLogs, setBulkLogs] = useState<string[]>([]);
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [pendingRemoveStudent, setPendingRemoveStudent] = useState<Student | null>(null);
+    const [removingStudent, setRemovingStudent] = useState(false);
     const selectedCourse = courses.find(c => c.id === selectedCourseId) || null;
 
     const fetchInitialData = async () => {
@@ -164,17 +168,20 @@ export default function StudentList() {
         }
     };
 
-    const handleRemoveStudent = async (studentId: string, username: string) => {
-        if (!selectedCourseId) return;
-        if (window.confirm(`确定要将学生 "${username}" 从本班级移除吗？`)) {
-            try {
-                await courseService.removeStudent(selectedCourseId, studentId);
-                setStudents(students.filter(s => s.id !== studentId));
-                if (selectedStudent?.id === studentId) setSelectedStudent(null);
-            } catch (error) {
-                console.error('Remove student failed:', error);
-                alert('移除失败，请稍后重试');
-            }
+    const confirmRemoveStudent = async () => {
+        if (!selectedCourseId || !pendingRemoveStudent) return;
+        try {
+            setRemovingStudent(true);
+            await courseService.removeStudent(selectedCourseId, pendingRemoveStudent.id);
+            setStudents(students.filter(s => s.id !== pendingRemoveStudent.id));
+            if (selectedStudent?.id === pendingRemoveStudent.id) setSelectedStudent(null);
+            setNotice({ type: 'success', message: `学生“${pendingRemoveStudent.username}”已从当前班级移除。` });
+            setPendingRemoveStudent(null);
+        } catch (error) {
+            console.error('Remove student failed:', error);
+            setNotice({ type: 'error', message: '移除失败，请稍后重试。' });
+        } finally {
+            setRemovingStudent(false);
         }
     };
 
@@ -202,9 +209,10 @@ export default function StudentList() {
             setImportingId(studentId);
             await courseService.addStudentToCourse(selectedCourseId, studentId);
             await fetchStudents();
+            setNotice({ type: 'success', message: '学生已导入当前班级。' });
         } catch (error) {
             console.error('Import failed:', error);
-            alert('导入失败，可能学生已在班级中');
+            setNotice({ type: 'error', message: '导入失败，可能学生已在班级中。' });
         } finally {
             setImportingId(null);
         }
@@ -314,6 +322,15 @@ export default function StudentList() {
                         </Button>
                     </div>
                 </div>
+
+                {notice && (
+                    <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${notice.type === 'success'
+                        ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                        : 'border-rose-100 bg-rose-50 text-rose-700'
+                        }`}>
+                        {notice.message}
+                    </div>
+                )}
 
                 {/* Stats Row */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -425,7 +442,7 @@ export default function StudentList() {
                                                     variant="ghost"
                                                     size="sm"
                                                     className="opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white hover:text-red-600"
-                                                    onClick={(e) => { e.stopPropagation(); handleRemoveStudent(student.id, student.username); }}
+                                                    onClick={(e) => { e.stopPropagation(); setPendingRemoveStudent(student); }}
                                                 >
                                                     <Trash2 className="w-4 h-4" />
                                                 </Button>
@@ -660,13 +677,24 @@ export default function StudentList() {
                         <Button
                             variant="outline"
                             className="w-full text-red-600 border-red-50 hover:bg-red-50 rounded-xl"
-                            onClick={() => handleRemoveStudent(selectedStudent.id, selectedStudent.username)}
+                            onClick={() => setPendingRemoveStudent(selectedStudent)}
                         >
                             移除学生
                         </Button>
                     </div>
                 </div>
             )}
+
+            <ConfirmDialog
+                open={!!pendingRemoveStudent}
+                onOpenChange={(open) => !open && setPendingRemoveStudent(null)}
+                title="移出班级"
+                description={`确定要将学生“${pendingRemoveStudent?.username || ''}”从当前班级移除吗？该操作不会删除学生账号，但会影响后续分班、小组创建和班级资源可见范围。`}
+                confirmLabel="确认移除"
+                tone="danger"
+                loading={removingStudent}
+                onConfirm={confirmRemoveStudent}
+            />
         </div>
     );
 }

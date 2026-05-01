@@ -7,6 +7,7 @@ import { useAuthStore } from '../../../../stores/authStore'
 import { userService } from '../../../../services/api/user'
 import { projectService } from '../../../../services/api/project'
 import { Project, User } from '../../../../types'
+import { ConfirmDialog } from '../../../ui'
 
 interface ProjectInfoProps {
   projectId: string
@@ -38,6 +39,9 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const [showInviteDialog, setShowInviteDialog] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
+  const [unarchiveConfirmOpen, setUnarchiveConfirmOpen] = useState(false)
 
   useEffect(() => {
     let isMounted = true;
@@ -165,7 +169,7 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
         email: inviteEmail,
         role: 'editor'
       })
-      alert(`邀请已发送至: ${inviteEmail}`)
+      setNotice({ type: 'success', message: `邀请已发送至：${inviteEmail}` })
       setInviteEmail('')
       setShowInviteDialog(false)
       // Refresh project to show new member
@@ -173,22 +177,38 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
       setProject(updated)
     } catch (error: any) {
       console.error('Failed to invite member:', error)
-      alert(error.response?.data?.detail || '邀请失败,请重试')
+      setNotice({ type: 'error', message: error.response?.data?.detail || '邀请失败，请重试。' })
     }
   }
 
   const handleArchiveProject = async () => {
-    if (!projectId || !window.confirm('确定要提交整个小组空间吗？提交后内容将被归档，不可继续编辑。')) return
+    if (!projectId) return
     try {
       setIsUpdating(true)
       await projectService.archiveProject(projectId)
-      alert('小组提交成功，已进入归档状态。')
+      setNotice({ type: 'success', message: '小组提交成功，已进入归档状态。' })
       window.location.reload() // Refresh to reflect archived status
     } catch (error) {
       console.error('Failed to archive project:', error)
-      alert('提交失败，请重试')
+      setNotice({ type: 'error', message: '提交失败，请重试。' })
     } finally {
       setIsUpdating(false)
+      setArchiveConfirmOpen(false)
+    }
+  }
+
+  const handleUnarchiveProject = async () => {
+    if (!projectId) return
+    try {
+      setIsUpdating(true)
+      await projectService.unarchiveProject(projectId)
+      window.location.reload()
+    } catch (error) {
+      console.error('Failed to unarchive project:', error)
+      setNotice({ type: 'error', message: '撤回失败，请重试。' })
+    } finally {
+      setIsUpdating(false)
+      setUnarchiveConfirmOpen(false)
     }
   }
 
@@ -374,8 +394,17 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
               title="邀请成员"
             >
               <UserPlus className="w-4 h-4" />
-            </button>
-          </div>
+        </button>
+      </div>
+
+      {notice && (
+        <div className={`mx-4 mt-3 rounded-2xl border px-3 py-2 text-xs font-medium ${notice.type === 'success'
+          ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+          : 'border-rose-100 bg-rose-50 text-rose-700'
+          }`}>
+          {notice.message}
+        </div>
+      )}
           <div className="flex items-center pl-1">
             <div className="flex -space-x-3 overflow-hidden">
               {project.members.map((member: any) => {
@@ -454,7 +483,7 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
       {isOwner && !project.is_archived && (
         <div className="p-4 border-t border-gray-50 bg-white">
           <button
-            onClick={handleArchiveProject}
+            onClick={() => setArchiveConfirmOpen(true)}
             disabled={isUpdating}
             className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-100 transition-all flex items-center justify-center gap-2 group disabled:opacity-50"
           >
@@ -475,16 +504,7 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
           </div>
           {isOwner && (
             <button
-              onClick={async () => {
-                if (window.confirm('确定要撤回提交并恢复编辑吗？')) {
-                  try {
-                    await projectService.unarchiveProject(projectId)
-                    window.location.reload()
-                  } catch (err) {
-                    alert('撤回失败')
-                  }
-                }
-              }}
+              onClick={() => setUnarchiveConfirmOpen(true)}
               className="w-full mt-2 py-1 text-[10px] text-indigo-500 hover:text-indigo-700 font-medium"
             >
               撤回提交
@@ -533,6 +553,26 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        onOpenChange={setArchiveConfirmOpen}
+        title="提交并归档小组空间"
+        description="确定要提交整个小组空间吗？提交后内容将进入只读归档状态，建议仅由组长在最终成果确认后执行。"
+        confirmLabel="确认提交"
+        loading={isUpdating}
+        onConfirm={handleArchiveProject}
+      />
+
+      <ConfirmDialog
+        open={unarchiveConfirmOpen}
+        onOpenChange={setUnarchiveConfirmOpen}
+        title="撤回小组提交"
+        description="确定要撤回提交并恢复编辑吗？撤回后小组成员可以继续修改协作内容。"
+        confirmLabel="确认撤回"
+        loading={isUpdating}
+        onConfirm={handleUnarchiveProject}
+      />
     </div>
   )
 }

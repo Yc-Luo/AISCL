@@ -248,6 +248,8 @@ async def get_research_events(
     event_domain: Optional[str] = None,
     group_id: Optional[str] = None,
     stage_id: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
     current_user: User = Depends(get_current_user),
 ) -> ResearchEventListResponse:
     """Get research events for a project."""
@@ -266,6 +268,8 @@ async def get_research_events(
         event_domain=event_domain,
         group_id=group_id,
         stage_id=stage_id,
+        start_date=start_date,
+        end_date=end_date,
     )
     return ResearchEventListResponse(
         events=[

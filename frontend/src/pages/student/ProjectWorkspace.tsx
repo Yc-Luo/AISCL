@@ -155,6 +155,7 @@ export default function Main() {
     versionName?: string | null
     refreshReason: 'focus' | 'interval'
   } | null>(null)
+  const [stageActionNotice, setStageActionNotice] = useState<string | null>(null)
   const previousStageRef = useRef<string | null>(null)
   const previousGuidedStageRef = useRef<string | null>(null)
 
@@ -531,6 +532,7 @@ export default function Main() {
     if (!currentProjectId || !experimentVersion || stageId === currentStage) return
 
     if (!isGroupLeader) {
+      setStageActionNotice('当前任务阶段由小组组长推进。请先在小组内协商后，由组长统一切换阶段。')
       trackingService.trackResearchEvent({
         project_id: currentProjectId,
         experiment_version_id: experimentVersion.version_name,
@@ -549,6 +551,7 @@ export default function Main() {
 
     try {
       setStageChanging(true)
+      setStageActionNotice(null)
       const nextVersion = await projectService.updateExperimentVersion(currentProjectId, {
         current_stage: stageId,
       })
@@ -578,7 +581,7 @@ export default function Main() {
       })
     } catch (error) {
       console.error('Failed to update current stage:', error)
-      alert('阶段切换失败。请刷新页面后重试，或联系教师确认小组组长权限。')
+      setStageActionNotice('阶段切换失败。请刷新页面后重试，或联系教师确认小组组长权限。')
     } finally {
       setStageChanging(false)
     }
@@ -748,6 +751,12 @@ export default function Main() {
                   )
                 })}
               </div>
+
+              {stageActionNotice && (
+                <div className="mt-2 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                  {stageActionNotice}
+                </div>
+              )}
 
               {showStageDetails && showProcessGuidance && (
                 <div className="mt-2 rounded-2xl border border-indigo-100 bg-white/85 px-4 py-3">

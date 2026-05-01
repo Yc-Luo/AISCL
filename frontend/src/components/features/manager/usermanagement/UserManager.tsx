@@ -12,7 +12,9 @@ import {
     School,
     Trash2,
     X,
-    Loader2
+    Loader2,
+    ChevronLeft,
+    ChevronRight
 } from 'lucide-react'
 import { Button, Input, Badge } from '../../../ui'
 import {
@@ -31,7 +33,12 @@ export default function UserManager() {
     const [isLoading, setIsLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
     const [filterRole, setFilterRole] = useState<string>('all')
+    const [currentPage, setCurrentPage] = useState(1)
+    const [pageSize, setPageSize] = useState(20)
+    const [totalUsers, setTotalUsers] = useState(0)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+    const [editingUser, setEditingUser] = useState<User | null>(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const [formData, setFormData] = useState({
@@ -40,6 +47,15 @@ export default function UserManager() {
         password: '',
         role: 'student' as 'student' | 'teacher' | 'admin',
         class_id: ''
+    })
+
+    const [editFormData, setEditFormData] = useState({
+        username: '',
+        email: '',
+        role: 'student' as 'student' | 'teacher' | 'admin',
+        class_id: '',
+        is_active: true,
+        is_banned: false
     })
 
     // Notice dialog state
@@ -59,19 +75,31 @@ export default function UserManager() {
     })
 
     useEffect(() => {
-        fetchUsers()
         fetchCourses()
     }, [])
 
     useEffect(() => {
-        fetchUsers()
-    }, [filterRole])
+        const timer = window.setTimeout(() => {
+            void fetchUsers()
+        }, 250)
+        return () => window.clearTimeout(timer)
+    }, [filterRole, currentPage, pageSize, searchQuery])
 
-    const fetchUsers = async () => {
+    const fetchUsers = async (page = currentPage) => {
         try {
             setIsLoading(true)
-            const data = await adminService.getUsers(1, 100, filterRole === 'all' ? undefined : filterRole)
+            const data = await adminService.getUsers(
+                page,
+                pageSize,
+                filterRole === 'all' ? undefined : filterRole,
+                searchQuery.trim() || undefined
+            )
+            if (data.items.length === 0 && data.total > 0 && page > 1) {
+                setCurrentPage(page - 1)
+                return
+            }
             setUsers(data.items)
+            setTotalUsers(data.total)
         } catch (error) {
             console.error('Failed to fetch users:', error)
         } finally {
@@ -104,7 +132,8 @@ export default function UserManager() {
             await adminService.createUser(payload)
             setIsCreateModalOpen(false)
             setFormData({ username: '', email: '', password: '', role: 'student', class_id: '' })
-            fetchUsers()
+            setCurrentPage(1)
+            await fetchUsers(1)
             setNotice({
                 isOpen: true,
                 title: '账号创建成功',
@@ -125,14 +154,69 @@ export default function UserManager() {
         }
     }
 
+    const openEditModal = (user: User) => {
+        setEditingUser(user)
+        setEditFormData({
+            username: user.username || '',
+            email: user.email || '',
+            role: user.role,
+            class_id: user.role === 'student' ? user.class_id || '' : '',
+            is_active: user.is_active,
+            is_banned: Boolean(user.is_banned)
+        })
+        setIsEditModalOpen(true)
+    }
+
+    const closeEditModal = () => {
+        setIsEditModalOpen(false)
+        setEditingUser(null)
+    }
+
+    const handleUpdateUser = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!editingUser) return
+        try {
+            setIsSubmitting(true)
+            await adminService.updateUser(editingUser.id, {
+                username: editFormData.username.trim(),
+                email: editFormData.email.trim(),
+                role: editFormData.role,
+                class_id: editFormData.role === 'student' && editFormData.class_id.trim()
+                    ? editFormData.class_id.trim()
+                    : '',
+                is_active: editFormData.is_active,
+                is_banned: editFormData.is_banned
+            })
+            closeEditModal()
+            await fetchUsers()
+            setNotice({
+                isOpen: true,
+                title: '账号修改成功',
+                message: `已更新 ${editFormData.username || editFormData.email} 的账号信息。`,
+                type: 'success'
+            })
+        } catch (error: any) {
+            console.error('Failed to update user:', error)
+            const errorMessage = error.response?.data?.detail || '账号修改失败，请检查邮箱是否重复或稍后再试。'
+            setNotice({
+                isOpen: true,
+                title: '账号修改失败',
+                message: typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage),
+                type: 'error'
+            })
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
     const handleStatusToggle = async (user: User) => {
         try {
-            const nextStatus = user.status === 'active' ? 'suspended' : 'active'
+            const shouldBan = !user.is_banned
             await adminService.updateUser(user.id, {
-                is_banned: nextStatus === 'suspended' ? true : false,
-                is_active: nextStatus === 'active' ? true : false
+                is_banned: shouldBan,
+                is_active: !shouldBan
             })
-            fetchUsers()
+            void fetchUsers()
         } catch (error) {
             console.error('Failed to toggle status:', error)
         }
@@ -149,7 +233,7 @@ export default function UserManager() {
             onConfirm: async () => {
                 try {
                     await adminService.deleteUser(userId)
-                    fetchUsers()
+                    void fetchUsers()
                     setNotice(prev => ({ ...prev, isOpen: false }))
                 } catch (error) {
                     console.error('Failed to delete user:', error)
@@ -164,11 +248,9 @@ export default function UserManager() {
         })
     }
 
-    const filteredUsers = users.filter(user => {
-        const matchesSearch = user.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            user.email.toLowerCase().includes(searchQuery.toLowerCase())
-        return matchesSearch
-    })
+    const totalPages = Math.max(1, Math.ceil(totalUsers / pageSize))
+    const pageStart = totalUsers === 0 ? 0 : (currentPage - 1) * pageSize + 1
+    const pageEnd = Math.min(currentPage * pageSize, totalUsers)
 
     return (
         <div className="space-y-6 animate-fadeIn relative">
@@ -198,21 +280,27 @@ export default function UserManager() {
                         placeholder="搜索姓名、邮箱或账号..."
                         className="pl-10"
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onChange={(e) => {
+                            setSearchQuery(e.target.value)
+                            setCurrentPage(1)
+                        }}
                     />
                 </div>
                 <div className="flex gap-2">
                     <select
                         className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
                         value={filterRole}
-                        onChange={(e) => setFilterRole(e.target.value)}
+                        onChange={(e) => {
+                            setFilterRole(e.target.value)
+                            setCurrentPage(1)
+                        }}
                     >
                         <option value="all">所有角色</option>
                         <option value="student">学生 (Student)</option>
                         <option value="teacher">教师 (Teacher)</option>
                         <option value="admin">管理员 (Admin)</option>
                     </select>
-                    <Button variant="outline" className="gap-2" onClick={fetchUsers}>
+                    <Button variant="outline" className="gap-2" onClick={() => void fetchUsers()}>
                         <Filter className="w-4 h-4" />
                         刷新
                     </Button>
@@ -243,11 +331,11 @@ export default function UserManager() {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : filteredUsers.length === 0 ? (
+                            ) : users.length === 0 ? (
                                 <tr>
                                     <td colSpan={6} className="px-6 py-12 text-center text-slate-400">未找到符合条件的用户</td>
                                 </tr>
-                            ) : filteredUsers.map((user) => (
+                            ) : users.map((user) => (
                                 <tr key={user.id} className="hover:bg-slate-50/50 transition-colors group">
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
@@ -297,7 +385,7 @@ export default function UserManager() {
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="修改">
+                                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="修改" onClick={() => openEditModal(user)}>
                                                 <Edit className="w-4 h-4 text-slate-400 hover:text-indigo-600 transition-colors" />
                                             </Button>
                                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="删除" onClick={() => handleDelete(user.id)}>
@@ -310,11 +398,62 @@ export default function UserManager() {
                         </tbody>
                     </table>
                 </div>
+                <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm text-slate-500">
+                        共 <span className="font-semibold text-slate-700">{totalUsers}</span> 位用户，
+                        当前显示 <span className="font-semibold text-slate-700">{pageStart}</span>
+                        -<span className="font-semibold text-slate-700">{pageEnd}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-2 text-sm text-slate-500">
+                            每页
+                            <select
+                                value={pageSize}
+                                onChange={(e) => {
+                                    setPageSize(Number(e.target.value))
+                                    setCurrentPage(1)
+                                }}
+                                className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                            >
+                                <option value={10}>10</option>
+                                <option value={20}>20</option>
+                                <option value={50}>50</option>
+                                <option value={100}>100</option>
+                            </select>
+                            条
+                        </label>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 gap-1"
+                                disabled={currentPage <= 1 || isLoading}
+                                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                                上一页
+                            </Button>
+                            <span className="min-w-[86px] text-center text-sm font-semibold text-slate-600">
+                                {currentPage} / {totalPages}
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 gap-1"
+                                disabled={currentPage >= totalPages || isLoading}
+                                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                            >
+                                下一页
+                                <ChevronRight className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Create User Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-6 backdrop-blur-sm animate-fadeIn">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-900/30 p-6 backdrop-blur-sm animate-fadeIn">
                     <form onSubmit={handleCreateUser} className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
                         <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-white">
                             <div>
@@ -433,6 +572,131 @@ export default function UserManager() {
                                 className="h-11 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-100 sm:w-48"
                             >
                                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : '确认创建账号'}
+                            </Button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            {/* Edit User Modal */}
+            {isEditModalOpen && editingUser && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-900/30 p-6 backdrop-blur-sm animate-fadeIn">
+                    <form onSubmit={handleUpdateUser} className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+                        <div className="flex items-center justify-between border-b border-gray-100 bg-white px-8 py-6">
+                            <div>
+                                <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+                                    <Edit className="h-5 w-5 text-indigo-600" />
+                                    修改用户账号
+                                </h3>
+                                <p className="mt-0.5 text-xs text-slate-400">调整用户基础信息、角色、班级归属和账号状态</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeEditModal}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50"
+                            >
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-8 py-7">
+                            <div className="grid gap-5 sm:grid-cols-2">
+                                <div className="space-y-1.5">
+                                    <label className="ml-1 text-xs font-bold text-slate-600">用户姓名</label>
+                                    <Input
+                                        required
+                                        value={editFormData.username}
+                                        onChange={e => setEditFormData({ ...editFormData, username: e.target.value })}
+                                        placeholder="例如：张三"
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="ml-1 text-xs font-bold text-slate-600">登录邮箱 / 账号</label>
+                                    <Input
+                                        required
+                                        type="email"
+                                        value={editFormData.email}
+                                        onChange={e => setEditFormData({ ...editFormData, email: e.target.value })}
+                                        placeholder="zhangsan@example.com"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mt-6 space-y-4">
+                                <div className="space-y-1.5">
+                                    <label className="ml-1 text-xs font-bold text-slate-600">系统角色</label>
+                                    <div className="grid gap-3 sm:grid-cols-3">
+                                        {(['student', 'teacher', 'admin'] as const).map((role) => (
+                                            <button
+                                                key={role}
+                                                type="button"
+                                                onClick={() => setEditFormData({
+                                                    ...editFormData,
+                                                    role,
+                                                    class_id: role === 'student' ? editFormData.class_id : ''
+                                                })}
+                                                className={`rounded-xl border-2 px-4 py-3 text-left transition-all ${editFormData.role === role ? 'border-indigo-600 bg-indigo-50/50 text-indigo-700 shadow-sm shadow-indigo-100' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}
+                                            >
+                                                <span className="block text-xs font-black uppercase tracking-wider">{role}</span>
+                                                <span className="mt-1 block text-[11px] font-medium text-slate-400">
+                                                    {role === 'student' && '学生账号'}
+                                                    {role === 'teacher' && '教师账号'}
+                                                    {role === 'admin' && '管理员账号'}
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {editFormData.role === 'student' && (
+                                    <div className="space-y-1.5 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                                        <label className="ml-1 text-xs font-bold text-slate-600">所属班级</label>
+                                        <select
+                                            value={editFormData.class_id}
+                                            onChange={e => setEditFormData({ ...editFormData, class_id: e.target.value })}
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                                        >
+                                            <option value="">暂不分配班级</option>
+                                            {courses.map(course => (
+                                                <option key={course.id} value={course.id}>
+                                                    {course.name} {course.semester ? `(${course.semester})` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                <div className="grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 sm:grid-cols-2">
+                                    <label className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+                                        账号启用
+                                        <input
+                                            type="checkbox"
+                                            checked={editFormData.is_active}
+                                            onChange={e => setEditFormData({ ...editFormData, is_active: e.target.checked })}
+                                            className="h-4 w-4 accent-indigo-600"
+                                        />
+                                    </label>
+                                    <label className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+                                        封禁账号
+                                        <input
+                                            type="checkbox"
+                                            checked={editFormData.is_banned}
+                                            onChange={e => setEditFormData({ ...editFormData, is_banned: e.target.checked })}
+                                            className="h-4 w-4 accent-red-600"
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col-reverse gap-3 border-t border-gray-100 bg-slate-50/80 px-8 py-5 sm:flex-row sm:justify-end">
+                            <Button type="button" variant="outline" className="h-11 w-full font-bold text-xs sm:w-40" onClick={closeEditModal}>取消返回</Button>
+                            <Button
+                                type="submit"
+                                disabled={isSubmitting}
+                                className="h-11 w-full bg-indigo-600 text-xs font-bold text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700 sm:w-48"
+                            >
+                                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : '保存修改'}
                             </Button>
                         </div>
                     </form>

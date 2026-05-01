@@ -21,7 +21,8 @@ import {
     DialogHeader,
     DialogTitle,
     DialogDescription,
-    DialogFooter
+    DialogFooter,
+    ConfirmDialog
 } from '../../../ui';
 import { courseService, Course } from '../../../../services/api/course';
 
@@ -122,6 +123,9 @@ export default function ClassManagement() {
     const [initialTaskTitle, setInitialTaskTitle] = useState(DEFAULT_TASK_TITLE);
     const [taskTemplate, setTaskTemplate] = useState<TaskTemplateSections>({ ...DEFAULT_TASK_TEMPLATE_SECTIONS });
     const [submitting, setSubmitting] = useState(false);
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [pendingDeleteCourse, setPendingDeleteCourse] = useState<Course | null>(null);
+    const [deletingCourse, setDeletingCourse] = useState(false);
 
     const fetchCourses = async () => {
         try {
@@ -195,9 +199,10 @@ export default function ClassManagement() {
             setIsCreateOpen(false);
             resetForm();
             fetchCourses();
+            setNotice({ type: 'success', message: '班级已创建，邀请码和项目说明已生成。' });
         } catch (error) {
             console.error('Create course failed:', error);
-            alert('创建失败，请稍后重试');
+            setNotice({ type: 'error', message: '创建失败，请稍后重试。' });
         } finally {
             setSubmitting(false);
         }
@@ -218,23 +223,28 @@ export default function ClassManagement() {
             setIsEditOpen(false);
             resetForm();
             fetchCourses();
+            setNotice({ type: 'success', message: '班级设置已更新。若已创建小组，学生端项目说明同步仍取决于后端同步策略。' });
         } catch (error) {
             console.error('Update course failed:', error);
-            alert('更新失败，请稍后重试');
+            setNotice({ type: 'error', message: '更新失败，请稍后重试。' });
         } finally {
             setSubmitting(false);
         }
     };
 
-    const handleDelete = async (id: string, name: string) => {
-        if (window.confirm(`确定要删除班级 "${name}" 吗？此操作不可撤销。`)) {
-            try {
-                await courseService.deleteCourse(id);
-                fetchCourses();
-            } catch (error) {
-                console.error('Delete course failed:', error);
-                alert('删除失败，该班级可能仍有关联数据');
-            }
+    const confirmDeleteCourse = async () => {
+        if (!pendingDeleteCourse) return;
+        try {
+            setDeletingCourse(true);
+            await courseService.deleteCourse(pendingDeleteCourse.id);
+            setPendingDeleteCourse(null);
+            await fetchCourses();
+            setNotice({ type: 'success', message: `班级“${pendingDeleteCourse.name}”已删除。` });
+        } catch (error) {
+            console.error('Delete course failed:', error);
+            setNotice({ type: 'error', message: '删除失败，该班级可能仍有关联学生、小组或研究数据。' });
+        } finally {
+            setDeletingCourse(false);
         }
     };
 
@@ -299,6 +309,15 @@ export default function ClassManagement() {
                     创建新班级
                 </Button>
             </div>
+
+            {notice && (
+                <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${notice.type === 'success'
+                    ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                    : 'border-rose-100 bg-rose-50 text-rose-700'
+                    }`}>
+                    {notice.message}
+                </div>
+            )}
 
             {/* Stats Row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -427,7 +446,7 @@ export default function ClassManagement() {
                                                 className="text-slate-400 hover:text-red-600"
                                                 title="删除班级"
                                                 aria-label={`删除班级 ${course.name}`}
-                                                onClick={() => handleDelete(course.id, course.name)}
+                                                onClick={() => setPendingDeleteCourse(course)}
                                             >
                                                 <Trash2 className="w-5 h-5" />
                                             </Button>
@@ -696,6 +715,17 @@ export default function ClassManagement() {
                     </form>
                 </DialogContent>
             </Dialog>
+
+            <ConfirmDialog
+                open={!!pendingDeleteCourse}
+                onOpenChange={(open) => !open && setPendingDeleteCourse(null)}
+                title="删除班级"
+                description={`确定要删除班级“${pendingDeleteCourse?.name || ''}”吗？此操作会影响该班级下学生、小组与实验数据的组织关系，建议仅在测试数据清理时执行。`}
+                confirmLabel="确认删除"
+                tone="danger"
+                loading={deletingCourse}
+                onConfirm={confirmDeleteCourse}
+            />
         </div>
     );
 }

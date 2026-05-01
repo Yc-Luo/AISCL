@@ -25,6 +25,7 @@ export default function BehaviorLogs() {
     const [usersMap, setUsersMap] = useState<Record<string, User>>({})
     const [isLoading, setIsLoading] = useState(true)
     const [isExporting, setIsExporting] = useState(false)
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
     // Modal state
     const [selectedUser, setSelectedUser] = useState<{ id: string, username: string } | null>(null)
@@ -103,9 +104,10 @@ export default function BehaviorLogs() {
             await adminService.exportBehaviorLogs({
                 format: 'csv'
             })
+            setNotice({ type: 'success', message: '行为日志 CSV 已开始下载。' })
         } catch (error) {
             console.error('Export failed:', error)
-            alert('导出失败')
+            setNotice({ type: 'error', message: '导出失败，请确认管理员权限或稍后重试。' })
         } finally {
             setIsExporting(false)
         }
@@ -160,6 +162,15 @@ export default function BehaviorLogs() {
                     </Button>
                 </div>
             </div>
+
+            {notice && (
+                <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${notice.type === 'success'
+                    ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                    : 'border-rose-100 bg-rose-50 text-rose-700'
+                    }`}>
+                    {notice.message}
+                </div>
+            )}
 
             {isLoading ? (
                 <div className="h-[400px] flex flex-col items-center justify-center gap-4 bg-white rounded-3xl border border-dashed border-slate-200 text-slate-400">

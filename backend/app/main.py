@@ -21,7 +21,6 @@ from app.api.v1 import (
     chat,
     analytics,
     ai,
-    web_annotations,
     admin,
     inquiry,
     wiki,
@@ -180,7 +179,6 @@ app.include_router(collaboration.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
-app.include_router(web_annotations.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(inquiry.router, prefix="/api/v1")
 app.include_router(wiki.router, prefix="/api/v1")

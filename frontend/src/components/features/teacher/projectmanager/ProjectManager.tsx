@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FolderPlus, Search, Eye, BarChart2, MoreVertical, Users, Clock } from 'lucide-react';
-import { Button, Input, Badge } from '../../../ui';
+import { Button, Input, Badge, ConfirmDialog } from '../../../ui';
 import { useNavigate } from 'react-router-dom';
 import { projectService } from '../../../../services/api/project';
 import { Project } from '../../../../types';
@@ -14,6 +14,9 @@ export default function ProjectManager() {
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProject, setEditingProject] = useState<Project | null>(null);
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
+    const [deletingProject, setDeletingProject] = useState(false);
 
     const fetchProjects = async () => {
         try {
@@ -41,14 +44,19 @@ export default function ProjectManager() {
         setIsModalOpen(true);
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm('确定要删除这个小组空间吗？所有数据都将被清除。')) return;
+    const confirmDeleteProject = async () => {
+        if (!pendingDeleteProject) return;
         try {
-            await projectService.deleteProject(id);
-            fetchProjects();
+            setDeletingProject(true);
+            await projectService.deleteProject(pendingDeleteProject.id);
+            setPendingDeleteProject(null);
+            await fetchProjects();
+            setNotice({ type: 'success', message: `小组“${pendingDeleteProject.name}”已删除。` });
         } catch (error) {
             console.error('Delete failed:', error);
-            alert('删除失败');
+            setNotice({ type: 'error', message: '删除失败。该小组可能仍有关联数据或当前账号没有权限。' });
+        } finally {
+            setDeletingProject(false);
         }
     };
 
@@ -86,6 +94,15 @@ export default function ProjectManager() {
                     创建小组
                 </Button>
             </div>
+
+            {notice && (
+                <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${notice.type === 'success'
+                    ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                    : 'border-rose-100 bg-rose-50 text-rose-700'
+                    }`}>
+                    {notice.message}
+                </div>
+            )}
 
             {/* Filters */}
             <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
@@ -192,7 +209,7 @@ export default function ProjectManager() {
                                             修改小组
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(project.id)}
+                                            onClick={() => setPendingDeleteProject(project)}
                                             className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
                                         >
                                             删除小组
@@ -217,6 +234,17 @@ export default function ProjectManager() {
                 onClose={() => setIsModalOpen(false)}
                 project={editingProject}
                 onSuccess={fetchProjects}
+            />
+
+            <ConfirmDialog
+                open={!!pendingDeleteProject}
+                onOpenChange={(open) => !open && setPendingDeleteProject(null)}
+                title="删除小组空间"
+                description={`确定要删除小组“${pendingDeleteProject?.name || ''}”吗？此操作会影响该小组的文档、聊天、资源、探究空间和研究数据组织关系，建议仅用于清理测试小组。`}
+                confirmLabel="确认删除"
+                tone="danger"
+                loading={deletingProject}
+                onConfirm={confirmDeleteProject}
             />
         </div>
     );

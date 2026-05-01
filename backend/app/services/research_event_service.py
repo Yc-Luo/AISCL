@@ -274,6 +274,8 @@ class ResearchEventService:
         event_domain: Optional[str] = None,
         group_id: Optional[str] = None,
         stage_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> tuple[List[ResearchEvent], int]:
         """Get research events by project with optional filters."""
         query: Dict[str, Any] = {
@@ -287,6 +289,12 @@ class ResearchEventService:
             query["group_id"] = group_id
         if stage_id:
             query["stage_id"] = stage_id
+        if start_date or end_date:
+            query["event_time"] = {}
+            if start_date:
+                query["event_time"]["$gte"] = start_date
+            if end_date:
+                query["event_time"]["$lte"] = end_date
 
         events = (
             await ResearchEvent.find(query)

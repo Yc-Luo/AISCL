@@ -21,6 +21,7 @@ import {
     DialogTitle,
     DialogDescription,
     DialogFooter,
+    ConfirmDialog,
 } from '../../../ui';
 
 const formatSize = (bytes: number) => {
@@ -41,6 +42,9 @@ export default function CourseResource() {
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [pendingDeleteResource, setPendingDeleteResource] = useState<Resource | null>(null);
+    const [deletingResource, setDeletingResource] = useState(false);
 
     const selectedCourse = useMemo(
         () => courses.find((course) => course.id === selectedCourseId) || null,
@@ -117,22 +121,28 @@ export default function CourseResource() {
             setIsUploadOpen(false);
             setSelectedFile(null);
             await fetchCourseResources(selectedCourseId);
+            setNotice({ type: 'success', message: '班级资源已上传，学生端资源库会按班级范围显示。' });
         } catch (error) {
             console.error('Upload failed:', error);
-            alert('上传失败，请检查网络连接、文件类型或班级权限。');
+            setNotice({ type: 'error', message: '上传失败，请检查网络连接、文件类型或班级权限。' });
         } finally {
             setUploading(false);
         }
     };
 
-    const handleDeleteResource = async (resourceId: string) => {
-        if (!confirm('确定要删除此班级资源吗？该班级下所有小组将不再看到该资源。')) return;
+    const confirmDeleteResource = async () => {
+        if (!pendingDeleteResource) return;
         try {
-            await storageService.deleteResource('', resourceId);
-            setResources((previous) => previous.filter((resource) => resource.id !== resourceId));
+            setDeletingResource(true);
+            await storageService.deleteResource('', pendingDeleteResource.id);
+            setResources((previous) => previous.filter((resource) => resource.id !== pendingDeleteResource.id));
+            setNotice({ type: 'success', message: `班级资源“${pendingDeleteResource.filename}”已删除。` });
+            setPendingDeleteResource(null);
         } catch (error) {
             console.error('Delete failed:', error);
-            alert('删除失败，请确认您是否有该班级资源的管理权限。');
+            setNotice({ type: 'error', message: '删除失败，请确认您是否有该班级资源的管理权限。' });
+        } finally {
+            setDeletingResource(false);
         }
     };
 
@@ -203,6 +213,15 @@ export default function CourseResource() {
                 </div>
             </div>
 
+            {notice && (
+                <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${notice.type === 'success'
+                    ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                    : 'border-rose-100 bg-rose-50 text-rose-700'
+                    }`}>
+                    {notice.message}
+                </div>
+            )}
+
             {selectedCourse && resourceLoading ? (
                 <div className="flex h-48 items-center justify-center rounded-3xl border border-gray-100 bg-white">
                     <Loader2 className="mr-2 h-5 w-5 animate-spin text-indigo-500" />
@@ -267,7 +286,7 @@ export default function CourseResource() {
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                onClick={() => handleDeleteResource(resource.id)}
+                                                onClick={() => setPendingDeleteResource(resource)}
                                                 className="h-9 w-9 p-0 text-red-500 hover:bg-red-50 hover:text-red-600"
                                                 title="删除资源"
                                             >
@@ -351,6 +370,17 @@ export default function CourseResource() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <ConfirmDialog
+                open={!!pendingDeleteResource}
+                onOpenChange={(open) => !open && setPendingDeleteResource(null)}
+                title="删除班级资源"
+                description={`确定要删除“${pendingDeleteResource?.filename || ''}”吗？删除后，该班级下所有小组将不再看到此资源，但既有研究事件记录不会被删除。`}
+                confirmLabel="确认删除"
+                tone="danger"
+                loading={deletingResource}
+                onConfirm={confirmDeleteResource}
+            />
         </div>
     );
 }

@@ -310,6 +310,8 @@ export const analyticsService = {
       event_domain?: string
       group_id?: string
       stage_id?: string
+      start_date?: string
+      end_date?: string
       skip?: number
       limit?: number
     }

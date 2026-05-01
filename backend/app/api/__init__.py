@@ -14,16 +14,14 @@ from .v1 import (
     collaboration,
     chat,
     analytics,
-    # ai,  # Temporarily disabled due to missing dependencies
-    web_annotations,
-    admin
+    ai,
+    admin,
+    inquiry,
+    wiki,
 )
 
 __all__ = [
     "auth", "users", "projects", "storage", "courses", "tasks",
     "calendar", "documents", "comments", "collaboration", "chat",
-    "analytics", 
-    # "ai",  # Temporarily disabled
-    "web_annotations", "admin"
+    "analytics", "ai", "admin", "inquiry", "wiki"
 ]
-

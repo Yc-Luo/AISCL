@@ -372,6 +372,7 @@ async def get_system_logs(
 @router.get("/users", response_model=UserListResponse)
 async def list_users(
     role: Optional[str] = None,
+    search: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -383,6 +384,11 @@ async def list_users(
     query = {}
     if role:
         query["role"] = role
+    if search:
+        query["$or"] = [
+            {"username": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+        ]
     
     users = await User.find(query).skip((page - 1) * limit).limit(limit).to_list()
     total = await User.find(query).count()
@@ -458,6 +464,10 @@ async def update_user(
     user = await User.get(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if user_data.email is not None and user_data.email != user.email:
+        existing_user = await User.find_one(User.email == user_data.email)
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
     
     # Update fields
     if user_data.username is not None:

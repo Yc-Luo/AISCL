@@ -6,6 +6,7 @@ export interface User {
     username: string
     email: string
     role: 'student' | 'teacher' | 'admin'
+    class_id?: string | null
     status: 'active' | 'suspended' | 'banned'
     is_active: boolean
     is_banned?: boolean
@@ -59,9 +60,9 @@ export interface ActivityLog {
 }
 
 export const adminService = {
-    getUsers: async (page = 1, limit = 10, role?: string): Promise<{ items: User[], total: number }> => {
+    getUsers: async (page = 1, limit = 10, role?: string, search?: string): Promise<{ items: User[], total: number }> => {
         const response = await api.get(API_ENDPOINTS.ADMIN.USERS, {
-            params: { page, limit, role }
+            params: { page, limit, role, search }
         })
         return response.data
     },

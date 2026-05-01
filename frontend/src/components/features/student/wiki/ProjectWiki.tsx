@@ -4,6 +4,7 @@ import { wikiService, WikiItem, WikiItemType } from '../../../../services/api/wi
 import { useAuthStore } from '../../../../stores/authStore'
 import { useContextStore } from '../../../../stores/contextStore'
 import { Toast } from '../../../ui/Toast'
+import { ConfirmDialog } from '../../../ui'
 
 interface ProjectWikiProps {
   projectId: string
@@ -38,6 +39,7 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
   const [selectedType, setSelectedType] = useState<WikiItemType | ''>('')
   const [isCreating, setIsCreating] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<WikiItem | null>(null)
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
   const [draftTitle, setDraftTitle] = useState('')
   const [draftContent, setDraftContent] = useState('')
@@ -123,14 +125,17 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
     })
   }
 
-  const handleDelete = async (item: WikiItem) => {
+  const requestDelete = (item: WikiItem) => {
     if (!canDeleteWikiItem(item)) {
       setToast({ message: '该 Wiki 条目不能由当前账号删除', visible: true })
       return
     }
+    setPendingDeleteItem(item)
+  }
 
-    const confirmed = window.confirm(`确认删除 Wiki 条目“${item.title}”吗？删除后 AI 将不再检索该条目。`)
-    if (!confirmed) return
+  const handleDelete = async () => {
+    const item = pendingDeleteItem
+    if (!item) return
 
     setDeletingId(item.id)
     try {
@@ -142,6 +147,7 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
         return next
       })
       setToast({ message: 'Wiki 条目已删除', visible: true })
+      setPendingDeleteItem(null)
     } catch (error) {
       console.error('Failed to delete wiki item:', error)
       setToast({ message: '删除 Wiki 条目失败', visible: true })
@@ -246,7 +252,7 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
                         {canDelete ? (
                           <button
                             type="button"
-                            onClick={() => handleDelete(item)}
+                            onClick={() => requestDelete(item)}
                             disabled={deletingId === item.id}
                             className="rounded-xl p-2 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
                             title="删除 Wiki 条目"
@@ -343,6 +349,17 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
           onClose={() => setToast((prev) => ({ ...prev, visible: false }))}
         />
       )}
+
+      <ConfirmDialog
+        open={!!pendingDeleteItem}
+        onOpenChange={(open) => !open && setPendingDeleteItem(null)}
+        title="删除 Wiki 条目"
+        description={`确认删除 Wiki 条目“${pendingDeleteItem?.title || ''}”吗？删除后 AI 将不再检索该条目，但历史研究事件不会被删除。`}
+        confirmLabel="确认删除"
+        tone="danger"
+        loading={!!deletingId}
+        onConfirm={handleDelete}
+      />
     </div>
   )
 }

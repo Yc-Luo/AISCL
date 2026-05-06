@@ -44,7 +44,10 @@ class WikiService:
         stage_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build a Mongo query with project-level and optional group-level visibility."""
-        query: Dict[str, Any] = {"project_id": project_id}
+        query: Dict[str, Any] = {
+            "project_id": project_id,
+            "$nor": [{"item_type": "stage_summary", "source_type": "system"}],
+        }
         if group_id:
             query["$or"] = [
                 {"visibility": "project"},

@@ -84,6 +84,9 @@ THINK_BLOCK_PATTERN = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTAL
 MAX_CHAT_MESSAGE_CHARS = 1000
 MAX_CHAT_MENTIONS = 20
 MAX_CHAT_FILENAME_CHARS = 255
+GROUP_AI_PEER_MEMORY_LIMIT = 12
+GROUP_AI_INTERACTION_MEMORY_LINE_LIMIT = 8
+GROUP_AI_MEMORY_MESSAGE_CHARS = 240
 
 
 def _detect_preferred_subagent(content: str) -> str | None:
@@ -169,6 +172,133 @@ def _sanitize_stream_display_content(raw_text: str) -> str:
     cleaned = cleaned.replace("<think>", "").replace("</think>", "")
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def _truncate_memory_text(text: str, max_chars: int = GROUP_AI_MEMORY_MESSAGE_CHARS) -> str:
+    """Keep group memory compact enough for every AI turn."""
+    normalized = re.sub(r"\s+", " ", text or "").strip()
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[:max_chars].rstrip() + "..."
+
+
+async def _build_recent_group_chat_context(
+    *,
+    project_id: str,
+    current_message_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build layered short-term group memory from persisted chat logs.
+
+    This is intentionally retrieved from ChatLog instead of LangGraph memory so
+    it survives page refreshes and works for both single-AI and multi-agent modes.
+    """
+    from app.repositories.chat_log import ChatLog
+    from app.repositories.user import User
+
+    query = {
+        "project_id": project_id,
+        "metadata.teacher_help_request": {"$ne": True},
+        "metadata.teacher_private_reply": {"$ne": True},
+    }
+    messages = (
+        await ChatLog.find(query)
+        .sort("-created_at")
+        .limit(GROUP_AI_PEER_MEMORY_LIMIT + GROUP_AI_INTERACTION_MEMORY_LINE_LIMIT + 12)
+        .to_list()
+    )
+
+    filtered_messages = [
+        message
+        for message in messages
+        if str(message.id) != str(current_message_id)
+    ]
+    if not filtered_messages:
+        return {
+            "content": "",
+            "peer_context": "",
+            "ai_context": "",
+            "peer_message_count": 0,
+            "ai_interaction_count": 0,
+            "message_count": 0,
+        }
+
+    user_ids = [
+        message.user_id
+        for message in filtered_messages
+        if message.user_id
+        and message.user_id not in {"system", "ai_assistant"}
+        and not message.user_id.startswith("auto_prompt:")
+    ]
+    users = {}
+    if user_ids:
+        import bson
+
+        object_ids = [bson.ObjectId(uid) for uid in set(user_ids) if bson.ObjectId.is_valid(uid)]
+        if object_ids:
+            user_list = await User.find({"_id": {"$in": object_ids}}).to_list()
+            users = {str(user.id): user for user in user_list}
+
+    peer_lines = []
+    ai_lines = []
+    for message in reversed(filtered_messages):
+        metadata = message.metadata or {}
+        is_ai_sender = message.user_id == "ai_assistant" or message.user_id.startswith("auto_prompt:")
+        user = users.get(message.user_id)
+        if user:
+            username = user.username or user.email
+        elif message.user_id == "ai_assistant":
+            ai_meta = metadata.get("ai_meta") if isinstance(metadata, dict) else None
+            username = (
+                ai_meta.get("primary_agent")
+                if isinstance(ai_meta, dict) and ai_meta.get("primary_agent")
+                else "AISCL智能助手"
+            )
+        elif message.user_id.startswith("auto_prompt:"):
+            username = SUBAGENT_LABELS.get(message.user_id.replace("auto_prompt:", ""), "支架提示")
+        else:
+            username = "System"
+
+        content = message.content or ""
+        file_info = metadata.get("file_info") if isinstance(metadata, dict) else None
+        if not content.strip() and isinstance(file_info, dict):
+            content = f"[文件/图片：{file_info.get('name') or file_info.get('filename') or '未命名附件'}]"
+        if not content.strip():
+            continue
+
+        time_label = message.created_at.strftime("%H:%M") if message.created_at else ""
+        line = f"- [{time_label}] {username}: {_truncate_memory_text(content)}"
+        contains_ai_mention = bool(_detect_preferred_subagent(content)) or any(
+            keyword in content
+            for keyword in GENERAL_AI_MENTIONS
+        )
+        if is_ai_sender or contains_ai_mention:
+            ai_lines.append(line)
+        elif message.user_id != "system":
+            peer_lines.append(line)
+
+    peer_lines = peer_lines[-GROUP_AI_PEER_MEMORY_LIMIT:]
+    ai_lines = ai_lines[-GROUP_AI_INTERACTION_MEMORY_LINE_LIMIT:]
+
+    peer_context = (
+        "小组最近讨论（由旧到新，不含当前提问）：\n" + "\n".join(peer_lines)
+        if peer_lines
+        else ""
+    )
+    ai_context = (
+        "小组 AI 互动历史（由旧到新，不含当前提问）：\n" + "\n".join(ai_lines)
+        if ai_lines
+        else ""
+    )
+    combined_context = "\n\n".join(section for section in [peer_context, ai_context] if section)
+
+    return {
+        "content": combined_context,
+        "peer_context": peer_context,
+        "ai_context": ai_context,
+        "peer_message_count": len(peer_lines),
+        "ai_interaction_count": len(ai_lines),
+        "message_count": len(peer_lines) + len(ai_lines),
+    }
 
 
 async def _count_online_learners(room_id: str) -> int:
@@ -360,7 +490,11 @@ async def _emit_auto_group_prompt(
         content=prompt_text,
         message_type="ai",
         mentions=[],
-        metadata={"ai_meta": ai_meta},
+        metadata={
+            "ai_meta": ai_meta,
+            "stage_id": prompt_data.get("stage_id"),
+            "experiment_version_id": prompt_data.get("experiment_version_id"),
+        },
     )
     await chat_log.insert()
 
@@ -427,7 +561,15 @@ async def _emit_auto_group_prompt(
     await sio.emit("operation", response_op, room=room_id)
 
 
-async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, routing_context=None):
+async def _process_ai_reply(
+    sio,
+    room_id,
+    project_id,
+    user_content,
+    session_id,
+    routing_context=None,
+    current_message_id: Optional[str] = None,
+):
     """Process AI response in background and broadcast."""
     typing_started = False
     try:
@@ -438,6 +580,7 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
         from app.repositories.project import Project
         from app.repositories.chat_log import ChatLog
         from app.services.activity_service import activity_service
+        from app.services.group_memory_service import group_memory_service
         
         # Emit typing event
         await sio.emit('typing', {
@@ -452,13 +595,34 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
         displayed_response = ""
         project = await Project.get(project_id)
         experiment_version = getattr(project, "experiment_version", None) or {}
+        current_stage = experiment_version.get("current_stage")
         ai_scaffold_mode = experiment_version.get("ai_scaffold_mode") or (routing_context or {}).get("ai_scaffold_mode")
+        group_memory = await _build_recent_group_chat_context(
+            project_id=project_id,
+            current_message_id=current_message_id,
+        )
+        stage_memory = await group_memory_service.get_stage_memory_context(
+            project_id=project_id,
+            group_id=room_id,
+            stage_id=current_stage,
+        )
         # Using project_id as session_id for continuity within the project
         graph_context = {
             **(routing_context or {}),
             "project_id": project_id,
             "room_id": room_id,
+            "group_id": room_id,
             "source_actor_type": "ai_assistant",
+            "stage_memory_context": stage_memory.get("content"),
+            "stage_memory_updated_at": stage_memory.get("updated_at"),
+            "stage_memory_id": stage_memory.get("memory_id"),
+            "stage_memory_version": stage_memory.get("version"),
+            "group_chat_context": group_memory.get("content"),
+            "group_peer_context": group_memory.get("peer_context"),
+            "group_ai_context": group_memory.get("ai_context"),
+            "group_memory_message_count": group_memory.get("message_count", 0),
+            "group_peer_message_count": group_memory.get("peer_message_count", 0),
+            "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
         }
         ai_user_id = "ai_assistant"
         message_id = str(uuid.uuid4())
@@ -471,6 +635,9 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
             "routing_summary": [
                 "AI模式：单AI直接回复",
                 "编排方式：不经过多智能体 graph 路由",
+                f"阶段滚动记忆：{'已读取' if stage_memory.get('content') else '暂无'}",
+                f"小组讨论记忆：最近{group_memory.get('peer_message_count', 0)}条",
+                f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",
             ],
         }
 
@@ -507,8 +674,45 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
                     stage_id=experiment_version.get("current_stage"),
                     actor_type="ai_assistant",
                 )
+                if group_memory.get("content"):
+                    context = {
+                        **(context or {"content": "", "citations": []}),
+                        "stage_memory_context": stage_memory.get("content"),
+                        "stage_memory_updated_at": stage_memory.get("updated_at"),
+                        "stage_memory_id": stage_memory.get("memory_id"),
+                        "stage_memory_version": stage_memory.get("version"),
+                        "group_chat_context": group_memory["content"],
+                        "group_peer_context": group_memory.get("peer_context"),
+                        "group_ai_context": group_memory.get("ai_context"),
+                        "group_memory_message_count": group_memory.get("message_count", 0),
+                        "group_peer_message_count": group_memory.get("peer_message_count", 0),
+                        "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
+                    }
+                elif stage_memory.get("content"):
+                    context = {
+                        **(context or {"content": "", "citations": []}),
+                        "stage_memory_context": stage_memory.get("content"),
+                        "stage_memory_updated_at": stage_memory.get("updated_at"),
+                        "stage_memory_id": stage_memory.get("memory_id"),
+                        "stage_memory_version": stage_memory.get("version"),
+                    }
             except Exception as exc:
                 logger.warning("Group chat single-AI RAG unavailable: %s", exc)
+                if group_memory.get("content") or stage_memory.get("content"):
+                    context = {
+                        "content": "",
+                        "citations": [],
+                        "stage_memory_context": stage_memory.get("content"),
+                        "stage_memory_updated_at": stage_memory.get("updated_at"),
+                        "stage_memory_id": stage_memory.get("memory_id"),
+                        "stage_memory_version": stage_memory.get("version"),
+                        "group_chat_context": group_memory.get("content"),
+                        "group_peer_context": group_memory.get("peer_context"),
+                        "group_ai_context": group_memory.get("ai_context"),
+                        "group_memory_message_count": group_memory.get("message_count", 0),
+                        "group_peer_message_count": group_memory.get("peer_message_count", 0),
+                        "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
+                    }
 
             async for chunk in ai_service.chat_stream(
                 project_id=project_id,
@@ -544,6 +748,11 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
                 routing_decision.get("selected_subagent"),
                 routing_decision,
             )
+            ai_meta.setdefault("routing_summary", []).extend([
+                f"阶段滚动记忆：{'已读取' if stage_memory.get('content') else '暂无'}",
+                f"小组讨论记忆：最近{group_memory.get('peer_message_count', 0)}条",
+                f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",
+            ])
 
             async for chunk in agent_service.chat_stream(
                 persona_key="supervisor", # Entry point
@@ -582,6 +791,10 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
             metadata={
                 "client_message_id": message_id,
                 "ai_meta": ai_meta,
+                "stage_id": current_stage,
+                "experiment_version_id": (
+                    experiment_version.get("version_name") or experiment_version.get("name")
+                ),
             },
         )
         await chat_log.insert()
@@ -592,11 +805,27 @@ async def _process_ai_reply(sio, room_id, project_id, user_content, session_id, 
             user_id=ai_user_id,
             module="chat",
             action="reply",
-            metadata={"length": len(final_response)}
+            metadata={
+                "length": len(final_response),
+                "stage_memory_id": stage_memory.get("memory_id"),
+                "stage_memory_version": stage_memory.get("version"),
+                "group_memory_message_count": group_memory.get("message_count", 0),
+                "group_peer_message_count": group_memory.get("peer_message_count", 0),
+                "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
+            }
         )
 
         if final_response != displayed_response:
             await emit_partial(final_response)
+
+        asyncio.create_task(
+            group_memory_service.maybe_refresh_stage_memory(
+                project_id=project_id,
+                group_id=room_id,
+                stage_id=current_stage,
+                trigger="on_ai_request",
+            )
+        )
         
     except Exception as e:
         logger.error(f"Error processing AI reply: {e}")
@@ -670,6 +899,14 @@ async def handle_chat_op(sio, sid, data, user_id):
             from app.repositories.user import User
             from app.services.research_event_service import research_event_service
 
+            experiment_version = getattr(project, "experiment_version", None) if project else None
+            current_stage = experiment_version.get("current_stage") if experiment_version else None
+            experiment_version_id = (
+                experiment_version.get("version_name") or experiment_version.get("name")
+                if experiment_version
+                else None
+            )
+
             if file_info:
                 resource_id = file_info.get("resource_id")
                 try:
@@ -711,6 +948,8 @@ async def handle_chat_op(sio, sid, data, user_id):
                         else {}
                     ),
                     **({"file_info": file_info} if file_info else {}),
+                    **({"stage_id": current_stage} if current_stage else {}),
+                    **({"experiment_version_id": experiment_version_id} if experiment_version_id else {}),
                 } or None,
             )
             await chat_log.insert()
@@ -727,13 +966,6 @@ async def handle_chat_op(sio, sid, data, user_id):
             
             # Get sender info for richer broadcast
             sender = await User.get(user_id)
-            experiment_version = getattr(project, "experiment_version", None) if project else None
-            current_stage = experiment_version.get("current_stage") if experiment_version else None
-            experiment_version_id = (
-                experiment_version.get("version_name") or experiment_version.get("name")
-                if experiment_version
-                else None
-            )
             sender_actor_type = sender.role if sender and sender.role in {"student", "teacher"} else "student"
 
             if sender:
@@ -801,7 +1033,15 @@ async def handle_chat_op(sio, sid, data, user_id):
                 # Trigger AI response in background
                 # Use project_id as session_id to maintain context
                 asyncio.create_task(
-                    _process_ai_reply(sio, room_id, project_id, content, project_id, routing_context)
+                    _process_ai_reply(
+                        sio,
+                        room_id,
+                        project_id,
+                        content,
+                        project_id,
+                        routing_context,
+                        current_message_id=str(chat_log.id),
+                    )
                 )
             
         except Exception as e:

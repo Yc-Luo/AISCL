@@ -73,6 +73,8 @@ class RAGService:
     @staticmethod
     async def index_wiki_item(wiki_item: Any) -> bool:
         """Index one Wiki item for semantic retrieval."""
+        if wiki_item.item_type == "stage_summary" and wiki_item.source_type == "system":
+            return False
         return await RAGService.index_text(
             project_id=wiki_item.project_id,
             group_id=wiki_item.group_id,
@@ -387,6 +389,12 @@ class RAGService:
         for match in matches:
             payload = match.get("payload") or {}
             source_type = payload.get("source_type") or "vector"
+            if (
+                source_type == "wiki"
+                and payload.get("item_type") == "stage_summary"
+                and payload.get("source_type_detail") == "system"
+            ):
+                continue
             results.append({
                 "id": payload.get("source_id") or str(match.get("id")),
                 "type": source_type,

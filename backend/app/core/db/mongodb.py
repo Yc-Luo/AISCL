@@ -46,6 +46,7 @@ class MongoDB:
         from app.repositories.dashboard_snapshot import DashboardSnapshot
         from app.repositories.inquiry_snapshot import InquirySnapshot
         from app.repositories.wiki_item import WikiItem
+        from app.repositories.group_memory_summary import GroupMemorySummary
 
         await init_beanie(
             database=database,
@@ -76,6 +77,7 @@ class MongoDB:
                 DashboardSnapshot,
                 InquirySnapshot,
                 WikiItem,
+                GroupMemorySummary,
             ],
             recreate_views=False,  # Prevent index recreation conflicts
         )

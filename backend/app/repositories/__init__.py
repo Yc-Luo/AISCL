@@ -28,6 +28,7 @@ from .ai_intervention_rule import AIInterventionRule
 from .activity_log import ActivityLog
 from .analytics_daily_stats import AnalyticsDailyStats
 from .research_event import ResearchEvent
+from .group_memory_summary import GroupMemorySummary
 
 # Course management models
 from .course import Course
@@ -49,7 +50,7 @@ __all__ = [
     # AI
     "AIConversation", "AIMessage", "AIRole", "AIInterventionRule",
     # Analytics
-    "ActivityLog", "AnalyticsDailyStats", "ResearchEvent",
+    "ActivityLog", "AnalyticsDailyStats", "ResearchEvent", "GroupMemorySummary",
     # Course management
     "Course",
     # System

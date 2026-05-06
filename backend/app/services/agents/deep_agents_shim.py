@@ -272,6 +272,10 @@ def create_deep_agent(
         context_data = state.get("context", {})
         rag_citations = context_data.get("rag_citations", [])
         rag_context = context_data.get("rag_context", "")
+        group_chat_context = context_data.get("group_chat_context", "")
+        group_peer_context = context_data.get("group_peer_context", "")
+        group_ai_context = context_data.get("group_ai_context", "")
+        stage_memory_context = context_data.get("stage_memory_context", "")
         current_stage = context_data.get("current_stage", "")
         rule_type = context_data.get("rule_type", "")
         enabled_scaffold_roles = context_data.get("enabled_scaffold_roles", [])
@@ -386,6 +390,9 @@ def create_deep_agent(
 You are the Deep Agent Supervisor. 
 RAG Analysis: {strategy_note}
 Retrieved Context: {rag_context}
+Stage Rolling Memory: {stage_memory_context or "none"}
+Group Peer Discussion Memory: {group_peer_context or group_chat_context or "none"}
+Group AI Interaction Memory: {group_ai_context or "none"}
 Current Stage: {current_stage or "unknown"}
 Triggered Rule Type: {rule_type or "none"}
 Enabled Scaffold Roles: {enabled_scaffold_roles or "not specified"}
@@ -504,6 +511,10 @@ Response Format (JSON):
             
             # Context Quarantine: Sub-agents see limited history + specific instruction
             rag_context = state.get("context", {}).get("rag_context", "")
+            group_chat_context = state.get("context", {}).get("group_chat_context", "")
+            group_peer_context = state.get("context", {}).get("group_peer_context", "")
+            group_ai_context = state.get("context", {}).get("group_ai_context", "")
+            stage_memory_context = state.get("context", {}).get("stage_memory_context", "")
             
             full_prompt = f"""{prompt_text}
             
@@ -511,6 +522,15 @@ Supervisor Instruction: {instruction}
 
 Relevant Context for your use (Cite if using):
 {rag_context}
+
+Stage Rolling Memory for continuity:
+{stage_memory_context or "none"}
+
+Group Peer Discussion Memory for continuity:
+{group_peer_context or group_chat_context or "none"}
+
+Group AI Interaction Memory for continuity:
+{group_ai_context or "none"}
 """
             msg_prompt = ChatPromptTemplate.from_messages([
                 ("system", full_prompt),

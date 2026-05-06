@@ -473,9 +473,23 @@ async def update_experiment_version(
             "Only project owner or scoped teacher can update experiment version",
         )
 
+    previous_stage = (project.experiment_version or {}).get("current_stage")
     payload = await project_service.update_experiment_version(
         project, update_payload
     )
+    next_stage = payload.get("current_stage")
+    if is_stage_only_update and previous_stage and previous_stage != next_stage:
+        try:
+            from app.services.group_memory_service import group_memory_service
+
+            await group_memory_service.maybe_refresh_stage_memory(
+                project_id=project_id,
+                group_id=f"project:{project_id}",
+                stage_id=previous_stage,
+                trigger="stage_transition",
+            )
+        except Exception:
+            pass
     return ExperimentVersionResponse(**payload)
 
 

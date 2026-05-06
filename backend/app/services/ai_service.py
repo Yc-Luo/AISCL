@@ -77,6 +77,61 @@ class AIService:
         return cleaned.strip()
 
     @staticmethod
+    def format_context_for_prompt(context: Optional[dict]) -> str:
+        """Format RAG and short-term group memory for model input."""
+        if not context:
+            return ""
+
+        sections: list[str] = []
+        stage_memory_context = context.get("stage_memory_context")
+        if stage_memory_context:
+            sections.append(f"当前阶段滚动记忆：\n{stage_memory_context}")
+
+        group_peer_context = context.get("group_peer_context")
+        if group_peer_context:
+            sections.append(f"小组协作讨论记忆：\n{group_peer_context}")
+
+        group_ai_context = context.get("group_ai_context")
+        if group_ai_context:
+            sections.append(f"小组 AI 互动记忆：\n{group_ai_context}")
+
+        group_chat_context = context.get("group_chat_context")
+        if group_chat_context and not group_peer_context and not group_ai_context:
+            sections.append(f"小组最近对话上下文：\n{group_chat_context}")
+
+        rag_content = context.get("content")
+        if rag_content:
+            sections.append(f"项目资料/ Wiki 检索结果：\n{rag_content}")
+
+        citations = context.get("citations")
+        if citations:
+            sections.append(f"可引用来源：\n{citations}")
+
+        extra_context = {
+            key: value
+            for key, value in context.items()
+            if key not in {
+                "group_chat_context",
+                "group_peer_context",
+                "group_ai_context",
+                "group_memory_message_count",
+                "group_peer_message_count",
+                "group_ai_interaction_count",
+                "stage_memory_context",
+                "stage_memory_updated_at",
+                "stage_memory_id",
+                "stage_memory_version",
+                "content",
+                "citations",
+            }
+            and value
+        }
+        if extra_context:
+            sections.append(f"其他上下文：\n{extra_context}")
+
+        return "\n\n".join(sections)
+
+    @staticmethod
     def truncate_context(messages: List, max_tokens: int) -> List:
         """Truncate context to fit within token budget."""
         total_tokens = sum(
@@ -274,7 +329,7 @@ class AIService:
 
         # Add context if provided
         if context:
-            context_text = "\n\nContext:\n" + str(context)
+            context_text = "\n\nContext:\n" + AIService.format_context_for_prompt(context)
             messages[-1] = HumanMessage(content=message + context_text)
 
         # Get LLM
@@ -388,7 +443,7 @@ class AIService:
 
         # Add context if provided
         if context:
-            context_text = "\n\nContext:\n" + str(context)
+            context_text = "\n\nContext:\n" + AIService.format_context_for_prompt(context)
             messages[-1] = HumanMessage(content=message + context_text)
 
         # Get LLM

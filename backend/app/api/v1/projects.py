@@ -1,8 +1,9 @@
 """Project management API routes."""
 
+import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
@@ -24,6 +25,7 @@ from app.repositories.course import Course
 from app.services.project_service import project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+logger = logging.getLogger(__name__)
 
 
 async def ensure_project_access(current_user: User, project: Project) -> None:
@@ -76,6 +78,26 @@ async def has_project_stage_control_access(current_user: User, project: Project)
         if member.get("user_id") and member.get("user_id") != project.owner_id
     ]
     return bool(student_members and student_members[0].get("user_id") == current_user_id)
+
+
+async def refresh_stage_memory_after_transition(project_id: str, previous_stage: str) -> None:
+    """Refresh previous-stage memory without blocking the stage-switch request."""
+    try:
+        from app.services.group_memory_service import group_memory_service
+
+        await group_memory_service.maybe_refresh_stage_memory(
+            project_id=project_id,
+            group_id=f"project:{project_id}",
+            stage_id=previous_stage,
+            trigger="stage_transition",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to refresh stage memory after stage transition: project_id=%s stage_id=%s error=%s",
+            project_id,
+            previous_stage,
+            exc,
+        )
 
 
 def _resolve_next_group_leader(project: Project) -> Optional[str]:
@@ -438,6 +460,7 @@ async def get_experiment_version(
 async def update_experiment_version(
     project_id: str,
     version_data: ExperimentVersionUpdateRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ) -> ExperimentVersionResponse:
     """Update experiment-version configuration for a project."""
@@ -479,17 +502,11 @@ async def update_experiment_version(
     )
     next_stage = payload.get("current_stage")
     if is_stage_only_update and previous_stage and previous_stage != next_stage:
-        try:
-            from app.services.group_memory_service import group_memory_service
-
-            await group_memory_service.maybe_refresh_stage_memory(
-                project_id=project_id,
-                group_id=f"project:{project_id}",
-                stage_id=previous_stage,
-                trigger="stage_transition",
-            )
-        except Exception:
-            pass
+        background_tasks.add_task(
+            refresh_stage_memory_after_transition,
+            project_id,
+            previous_stage,
+        )
     return ExperimentVersionResponse(**payload)
 
 

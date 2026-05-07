@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BookOpen, CheckCircle2, ChevronDown, ChevronUp, FileText, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
+import { BookOpen, CheckCircle2, ChevronDown, ChevronUp, FileText, HelpCircle, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
 import { wikiService, WikiItem, WikiItemType } from '../../../../services/api/wiki'
 import { useAuthStore } from '../../../../stores/authStore'
 import { useContextStore } from '../../../../stores/contextStore'
@@ -45,6 +45,7 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
   const [draftContent, setDraftContent] = useState('')
   const [draftType, setDraftType] = useState<WikiItemType>('note')
   const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: '', visible: false })
+  const [showGuide, setShowGuide] = useState(true)
 
   const loadItems = async () => {
     if (!projectId) return
@@ -171,9 +172,19 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-            <Sparkles className="h-3.5 w-3.5" />
-            RAG 优先检索 Wiki
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowGuide((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+              {showGuide ? '收起说明' : '使用说明'}
+            </button>
+            <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+              <Sparkles className="h-3.5 w-3.5" />
+              AI 会优先参考 Wiki
+            </div>
           </div>
         </div>
 
@@ -208,6 +219,23 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
             搜索
           </button>
         </div>
+
+        {showGuide ? (
+          <div className="mt-4 grid gap-2 rounded-3xl border border-indigo-100 bg-indigo-50/70 p-4 text-xs leading-6 text-slate-600 sm:grid-cols-3">
+            <div>
+              <div className="font-bold text-slate-800">什么时候加入 Wiki</div>
+              <p>把任务说明、关键概念、证据来源、争议点和阶段结论沉淀下来。</p>
+            </div>
+            <div>
+              <div className="font-bold text-slate-800">如何使用</div>
+              <p>可手动创建，也可从文档、资源或探究内容中沉淀；搜索可快速找回小组共识。</p>
+            </div>
+            <div>
+              <div className="font-bold text-slate-800">和 AI 的关系</div>
+              <p>个人 AI 导师和小组 AI 会优先参考 Wiki，但不会替代你们自己的判断。</p>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden">

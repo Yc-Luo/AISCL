@@ -30,6 +30,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    user: Optional[dict] = None
 
 
 class TokenRefreshRequest(BaseModel):
@@ -49,4 +50,3 @@ class PasswordResetConfirm(BaseModel):
 
     token: str
     new_password: str = Field(..., min_length=8)
-

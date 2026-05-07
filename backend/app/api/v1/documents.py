@@ -75,6 +75,8 @@ async def get_documents(
                 preview_text=doc.preview_text,
                 last_modified_by=doc.last_modified_by,
                 is_archived=doc.is_archived,
+                source_type=doc.source_type,
+                course_task_release_id=doc.course_task_release_id,
                 created_at=doc.created_at,
                 updated_at=doc.updated_at,
             )
@@ -140,6 +142,8 @@ async def create_document(
         preview_text=new_document.preview_text,
         last_modified_by=new_document.last_modified_by,
         is_archived=new_document.is_archived,
+        source_type=new_document.source_type,
+        course_task_release_id=new_document.course_task_release_id,
         created_at=new_document.created_at,
         updated_at=new_document.updated_at,
     )
@@ -181,6 +185,8 @@ async def get_document(
         preview_text=document.preview_text,
         last_modified_by=document.last_modified_by,
         is_archived=document.is_archived,
+        source_type=document.source_type,
+        course_task_release_id=document.course_task_release_id,
         created_at=document.created_at,
         updated_at=document.updated_at,
     )
@@ -249,6 +255,8 @@ async def update_document(
         preview_text=document.preview_text,
         last_modified_by=document.last_modified_by,
         is_archived=document.is_archived,
+        source_type=document.source_type,
+        course_task_release_id=document.course_task_release_id,
         created_at=document.created_at,
         updated_at=document.updated_at,
     )

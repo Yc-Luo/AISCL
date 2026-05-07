@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
 from app.core.permissions import can_edit_project_content, check_project_member_permission
+from app.repositories.course_task_release import CourseTaskRelease
 from app.repositories.project import Project
 from app.repositories.task import Task
 from app.repositories.user import User
@@ -15,6 +16,7 @@ from app.core.schemas.task import (
     TaskListResponse,
     TaskOrderUpdateRequest,
     TaskResponse,
+    TaskSubmitRequest,
     TaskUpdateRequest,
 )
 
@@ -39,6 +41,39 @@ async def ensure_project_edit_access(current_user: User, project: Project) -> No
         )
 
 
+def is_project_submission_leader(current_user: User, project: Project) -> bool:
+    """Match the student workspace's group-leader fallback rules."""
+    if current_user.role in {"teacher", "admin"}:
+        return True
+    current_user_id = str(current_user.id)
+    explicit_owner_member = next(
+        (
+            member
+            for member in project.members
+            if member.get("role") == "owner" and member.get("user_id") != project.owner_id
+        ),
+        None,
+    )
+    fallback_student_member = next(
+        (
+            member
+            for member in project.members
+            if member.get("user_id") and member.get("user_id") != project.owner_id
+        ),
+        None,
+    )
+    return bool(
+        current_user_id == project.owner_id
+        or current_user_id == project.leader_id
+        or current_user_id == (explicit_owner_member or {}).get("user_id")
+        or (
+            not project.leader_id
+            and not explicit_owner_member
+            and current_user_id == (fallback_student_member or {}).get("user_id")
+        )
+    )
+
+
 def calculate_lexorank(prev_order: Optional[float] = None, next_order: Optional[float] = None) -> float:
     """Calculate Lexorank order value."""
     if prev_order is None and next_order is None:
@@ -48,6 +83,81 @@ def calculate_lexorank(prev_order: Optional[float] = None, next_order: Optional[
     if next_order is None:
         return prev_order + 32768.0
     return (prev_order + next_order) / 2
+
+
+def to_task_response(task: Task) -> TaskResponse:
+    """Convert task document to API response."""
+    return TaskResponse(
+        id=str(task.id),
+        project_id=task.project_id,
+        title=task.title,
+        column=task.column,
+        priority=task.priority,
+        assignees=task.assignees,
+        order=task.order,
+        description=task.description,
+        due_date=task.due_date.isoformat() if task.due_date else None,
+        source_type=task.source_type,
+        course_task_release_id=task.course_task_release_id,
+        submission_status=task.submission_status,
+        submitted_at=task.submitted_at.isoformat() if task.submitted_at else None,
+        submitted_by=task.submitted_by,
+        submission_note=task.submission_note,
+        created_at=task.created_at.isoformat(),
+        updated_at=task.updated_at.isoformat(),
+    )
+
+
+async def auto_submit_due_course_tasks(project_id: Optional[str] = None) -> int:
+    """Mark due course-released tasks as automatically submitted.
+
+    This is a lazy safeguard: it runs when task data is read or submitted, so
+    the teaching workflow does not require a separate scheduler process.
+    """
+    now = datetime.utcnow()
+    query = {
+        "source_type": "course_task_release",
+        "due_date": {"$lte": now},
+        "$or": [
+            {"submission_status": {"$exists": False}},
+            {"submission_status": None},
+        ],
+    }
+    if project_id:
+        query["project_id"] = project_id
+
+    due_tasks = await Task.find(query).to_list()
+    for task in due_tasks:
+        task.submission_status = "auto_submitted"
+        task.submitted_at = task.due_date or now
+        task.submitted_by = "system"
+        task.submission_note = task.submission_note or "系统在截止时间到达后自动提交。"
+        task.column = "done"
+        task.updated_at = now
+        await task.save()
+
+        from app.services.research_event_service import research_event_service
+        await research_event_service.record_batch_events(
+            [
+                {
+                    "project_id": task.project_id,
+                    "group_id": task.project_id,
+                    "user_id": "system",
+                    "actor_type": "system",
+                    "event_domain": "shared_record",
+                    "event_type": "course_task_auto_submit",
+                    "event_time": now,
+                    "payload": {
+                        "task_id": str(task.id),
+                        "course_task_release_id": task.course_task_release_id,
+                        "due_at": task.due_date.isoformat() if task.due_date else None,
+                    },
+                }
+            ],
+            current_user_id=None,
+        )
+
+    return len(due_tasks)
 
 
 @router.get("/projects/{project_id}", response_model=TaskListResponse)
@@ -65,6 +175,7 @@ async def get_tasks(
             detail="Project not found",
         )
     await ensure_project_access(current_user, project)
+    await auto_submit_due_course_tasks(project_id)
 
     # Build query
     query = {"project_id": project_id}
@@ -74,21 +185,7 @@ async def get_tasks(
     tasks = await Task.find(query).to_list()
 
     return TaskListResponse(
-        tasks=[
-            TaskResponse(
-                id=str(t.id),
-                project_id=t.project_id,
-                title=t.title,
-                column=t.column,
-                priority=t.priority,
-                assignees=t.assignees,
-                order=t.order,
-                due_date=t.due_date.isoformat() if t.due_date else None,
-                created_at=t.created_at.isoformat(),
-                updated_at=t.updated_at.isoformat(),
-            )
-            for t in tasks
-        ]
+        tasks=[to_task_response(t) for t in tasks]
     )
 
 
@@ -122,6 +219,7 @@ async def create_task(
         column=task_data.column,
         priority=task_data.priority,
         assignees=task_data.assignees or [],
+        description=task_data.description,
         order=new_order,
         due_date=task_data.due_date,
     )
@@ -137,18 +235,7 @@ async def create_task(
         target_id=str(new_task.id)
     )
 
-    return TaskResponse(
-        id=str(new_task.id),
-        project_id=new_task.project_id,
-        title=new_task.title,
-        column=new_task.column,
-        priority=new_task.priority,
-        assignees=new_task.assignees,
-        order=new_task.order,
-        due_date=new_task.due_date.isoformat() if new_task.due_date else None,
-        created_at=new_task.created_at.isoformat(),
-        updated_at=new_task.updated_at.isoformat(),
-    )
+    return to_task_response(new_task)
 
 
 @router.put("/{task_id}", response_model=TaskResponse)
@@ -182,6 +269,8 @@ async def update_task(
         task.priority = task_data.priority
     if task_data.assignees is not None:
         task.assignees = task_data.assignees
+    if task_data.description is not None:
+        task.description = task_data.description
     if task_data.due_date is not None:
         task.due_date = task_data.due_date
     task.updated_at = datetime.utcnow()
@@ -198,18 +287,7 @@ async def update_task(
         target_id=str(task.id)
     )
 
-    return TaskResponse(
-        id=str(task.id),
-        project_id=task.project_id,
-        title=task.title,
-        column=task.column,
-        priority=task.priority,
-        assignees=task.assignees,
-        order=task.order,
-        due_date=task.due_date.isoformat() if task.due_date else None,
-        created_at=task.created_at.isoformat(),
-        updated_at=task.updated_at.isoformat(),
-    )
+    return to_task_response(task)
 
 
 @router.put("/{task_id}/column", response_model=TaskResponse)
@@ -260,18 +338,101 @@ async def update_task_column(
         metadata={"from": old_column, "to": column}
     )
 
-    return TaskResponse(
-        id=str(task.id),
+    return to_task_response(task)
+
+
+@router.post("/{task_id}/submit", response_model=TaskResponse)
+async def submit_course_task(
+    task_id: str,
+    submit_data: TaskSubmitRequest,
+    current_user: User = Depends(get_current_user),
+) -> TaskResponse:
+    """Submit a teacher-released group task."""
+    await auto_submit_due_course_tasks()
+
+    task = await Task.get(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+    if task.source_type != "course_task_release" or not task.course_task_release_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only teacher-released course tasks can be submitted",
+        )
+
+    project = await Project.get(task.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    await ensure_project_edit_access(current_user, project)
+    if not is_project_submission_leader(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="当前仅组长可以提交小组任务",
+        )
+
+    now = datetime.utcnow()
+    release = await CourseTaskRelease.get(task.course_task_release_id)
+    allow_late_submission = release.allow_late_submission if release else True
+    is_overdue = bool(task.due_date and now > task.due_date)
+
+    if is_overdue and not allow_late_submission and task.submission_status == "auto_submitted":
+        return to_task_response(task)
+    if is_overdue and not allow_late_submission:
+        task.submission_status = "auto_submitted"
+        task.submitted_at = task.due_date or now
+        task.submitted_by = "system"
+        task.submission_note = task.submission_note or "系统在截止时间到达后自动提交。"
+    else:
+        task.submission_status = "late_submitted" if is_overdue else "submitted"
+        task.submitted_at = now
+        task.submitted_by = str(current_user.id)
+        task.submission_note = submit_data.note
+
+    task.column = "done"
+    task.updated_at = now
+    await task.save()
+
+    from app.services.activity_service import activity_service
+    await activity_service.log_activity(
         project_id=task.project_id,
-        title=task.title,
-        column=task.column,
-        priority=task.priority,
-        assignees=task.assignees,
-        order=task.order,
-        due_date=task.due_date.isoformat() if task.due_date else None,
-        created_at=task.created_at.isoformat(),
-        updated_at=task.updated_at.isoformat(),
+        user_id=str(current_user.id),
+        module="task",
+        action="submit",
+        target_id=str(task.id),
+        metadata={
+            "course_task_release_id": task.course_task_release_id,
+            "submission_status": task.submission_status,
+        },
     )
+
+    from app.services.research_event_service import research_event_service
+    await research_event_service.record_batch_events(
+        [
+            {
+                "project_id": task.project_id,
+                "group_id": task.project_id,
+                "user_id": str(current_user.id),
+                "actor_type": "student",
+                "event_domain": "shared_record",
+                "event_type": "course_task_submit",
+                "event_time": now,
+                "payload": {
+                    "task_id": str(task.id),
+                    "course_task_release_id": task.course_task_release_id,
+                    "submission_status": task.submission_status,
+                    "due_at": task.due_date.isoformat() if task.due_date else None,
+                },
+            }
+        ],
+        current_user_id=str(current_user.id),
+    )
+
+    return to_task_response(task)
 
 
 @router.put("/{task_id}/order", response_model=TaskResponse)
@@ -318,18 +479,7 @@ async def update_task_order(
         metadata={"type": "order"}
     )
 
-    return TaskResponse(
-        id=str(task.id),
-        project_id=task.project_id,
-        title=task.title,
-        column=task.column,
-        priority=task.priority,
-        assignees=task.assignees,
-        order=task.order,
-        due_date=task.due_date.isoformat() if task.due_date else None,
-        created_at=task.created_at.isoformat(),
-        updated_at=task.updated_at.isoformat(),
-    )
+    return to_task_response(task)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

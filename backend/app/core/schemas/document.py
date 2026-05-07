@@ -30,6 +30,8 @@ class DocumentResponse(BaseModel):
     preview_text: Optional[str] = None
     last_modified_by: str
     is_archived: bool
+    source_type: Optional[str] = None
+    course_task_release_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -50,6 +52,8 @@ class DocumentDetailResponse(BaseModel):
     preview_text: Optional[str] = None
     last_modified_by: str
     is_archived: bool
+    source_type: Optional[str] = None
+    course_task_release_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -87,4 +91,3 @@ class DocumentVersionListResponse(BaseModel):
 
     versions: List[DocumentVersionResponse]
     total: int
-

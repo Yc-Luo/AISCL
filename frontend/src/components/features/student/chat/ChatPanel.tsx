@@ -26,6 +26,7 @@ import { useChatSync } from '../../../../hooks/chat/useChatSync'
 import { ChatMessage, getChatTimestampMs, normalizeChatTimestamp } from '../../../../modules/chat/ChatPersistence' // Use shared type
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import { useContextStore } from '../../../../stores/contextStore'
+import { Toast } from '../../../ui/Toast'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -36,6 +37,18 @@ interface ChatPanelProps {
 const getMessageKey = (message: ChatMessage): string => message.client_message_id || message.id
 const AI_TYPING_LABEL = 'AISCL智能助手'
 const AI_TYPING_ALIASES = ['AISCL智能助手', '智能助手', 'AI智能助手']
+const compareChatMessages = (currentUserId?: string) => (a: ChatMessage, b: ChatMessage) => {
+  const timeDiff = getChatTimestampMs(a.timestamp) - getChatTimestampMs(b.timestamp)
+  if (timeDiff !== 0) return timeDiff
+  const rank = (message: ChatMessage) => {
+    if (message.user_id === currentUserId) return 1
+    if (message.user_id === 'ai_assistant') return 2
+    return 0
+  }
+  const rankDiff = rank(a) - rank(b)
+  if (rankDiff !== 0) return rankDiff
+  return getMessageKey(a).localeCompare(getMessageKey(b))
+}
 
 export default function ChatPanel({ projectId }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState('')
@@ -53,6 +66,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   const [lightboxRotation, setLightboxRotation] = useState(0)
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, message: ChatMessage } | null>(null)
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -65,6 +79,13 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   const { messages, setMessages, sendMessage, connected } = useChatSync({
     projectId,
   })
+  const displayedMessages = [...messages].sort(compareChatMessages(user?.id))
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
+    })
+  }
 
   // Fetch project members for mention list
   useEffect(() => {
@@ -152,7 +173,16 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   }, [projectId])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    scrollToBottom('smooth')
+  }, [messages, typingUsers.size])
+
+  useEffect(() => {
+    if (!messages.some((msg) => msg.user_id === 'ai_assistant' && msg.content.trim())) return
+    setTypingUsers((prev) => {
+      const next = new Set(prev)
+      AI_TYPING_ALIASES.forEach(label => next.delete(label))
+      return next
+    })
   }, [messages])
 
 
@@ -160,7 +190,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   const isSingleAIMode = experimentVersion?.ai_scaffold_mode === 'single_agent'
   const AI_AGENTS = isSingleAIMode
     ? [
-      { id: 'ai-single', name: 'AI智能助手', description: '直接调用通用 AI 回复' },
+      { id: 'ai-single', name: 'AI智能助手', description: '围绕任务提供学习支持' },
     ]
     : [
       { id: 'ai-research', name: '资料研究员', description: '提供资料线索与出处支持' },
@@ -170,7 +200,6 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
     ]
 
   const EMOJIS = ['😊', '😂', '🥰', '😍', '🤔', '😎', '😭', '😮', '👍', '🔥', '🙌', '✨', '🎉', '💡', '✅', '❌']
-  const [expandedRouting, setExpandedRouting] = useState<Record<string, boolean>>({})
 
   const handleSelectAI = (agent: any) => {
     setInputValue(prev => prev.endsWith(' ') || prev === '' ? `${prev}@${agent.name} ` : `${prev} @${agent.name} `)
@@ -182,13 +211,6 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
     setInputValue(prev => prev + emoji)
     setShowEmojiPicker(false)
     inputRef.current?.focus()
-  }
-
-  const toggleRoutingSummary = (messageId: string) => {
-    setExpandedRouting(prev => ({
-      ...prev,
-      [messageId]: !prev[messageId],
-    }))
   }
 
   // Handle image selection
@@ -230,7 +252,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
       setContextMenu(null)
     } catch (err) {
       console.error('Failed to recall:', err)
-      alert('撤回失败')
+      setToast({ message: '撤回失败，请稍后重试。', type: 'error' })
     }
   }
 
@@ -250,7 +272,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
         next.add(data.userId === 'ai_assistant' ? AI_TYPING_LABEL : (data.username || 'Someone'))
         return next
       })
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      scrollToBottom('smooth')
     }
     const onStopTyping = (data: any) => {
       if (data.roomId !== `project:${projectId}`) return
@@ -282,7 +304,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
     const file = fileInput instanceof File ? fileInput : fileInput.target.files?.[0]
     if (!file || !projectId) return
     if (!file.type.startsWith('image/')) {
-      alert('请选择图片文件')
+      setToast({ message: '请选择图片文件。', type: 'error' })
       return
     }
 
@@ -343,7 +365,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
 
     } catch (error) {
       console.error('Image upload failed:', error)
-      alert('图片发送失败')
+      setToast({ message: '图片发送失败，请检查网络后重试。', type: 'error' })
     } finally {
       setIsUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -538,14 +560,18 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {messages.map((msg: ChatMessage, index: number) => {
+        {displayedMessages.map((msg: ChatMessage, index: number) => {
+          const isOwnMessage = msg.user_id === user?.id
+          const isAIMessage = msg.user_id === 'ai_assistant'
           const isMentioned = msg.mentions.includes(user?.id || '')
-          const prevMsg = index > 0 ? messages[index - 1] : null
+          const prevMsg = index > 0 ? displayedMessages[index - 1] : null
 
           // Grouping logic: hide name/time if same user and within 5 mins
           const isSameUser = prevMsg && prevMsg.user_id === msg.user_id
           const isRecent = prevMsg && (getChatTimestampMs(msg.timestamp) - getChatTimestampMs(prevMsg.timestamp) < 300000)
           const shouldShowHeader = !isSameUser || !isRecent || msg.message_type === 'system'
+          const showAvatar = msg.message_type !== 'system' && !isOwnMessage && shouldShowHeader
+          const replyMessage = msg.reply_to ? displayedMessages.find(m => m.id === msg.reply_to) : null
 
           return (
             <div
@@ -554,11 +580,26 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
               data-chat-message-key={getMessageKey(msg)}
               data-chat-sender-id={msg.user_id}
               data-chat-message-type={msg.message_type}
-              className={`flex ${msg.user_id === user?.id ? 'justify-end' : 'justify-start'} ${shouldShowHeader ? 'mt-4' : 'mt-1'} message-animate`}
+              className={`flex items-end gap-2 ${isOwnMessage ? 'justify-end' : 'justify-start'} ${shouldShowHeader ? 'mt-4' : 'mt-1'} message-animate`}
               onContextMenu={(e) => handleContextMenu(e, msg)}
             >
+              {showAvatar ? (
+                isAIMessage ? (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 shadow-sm">
+                    <Bot className="h-4 w-4" />
+                  </div>
+                ) : msg.avatar_url ? (
+                  <img src={msg.avatar_url} className="h-8 w-8 shrink-0 rounded-full border border-gray-100 object-cover" alt={msg.username} />
+                ) : (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
+                    {(msg.username || 'U')[0]?.toUpperCase()}
+                  </div>
+                )
+              ) : !isOwnMessage && msg.message_type !== 'system' ? (
+                <div className="h-8 w-8 shrink-0" />
+              ) : null}
               <div
-                className={`max-w-[92%] lg:max-w-[84%] px-3 py-2 rounded-xl transition-all ${msg.user_id === user?.id
+                className={`max-w-[92%] lg:max-w-[84%] px-3 py-2 rounded-xl transition-all ${isOwnMessage
                   ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-100 shadow-md'
                   : msg.message_type === 'system'
                     ? 'bg-gray-100 text-gray-600 text-center mx-auto text-xs py-1 px-4 rounded-full'
@@ -576,8 +617,8 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
                     {msg.reply_to && (
                       <div className={`mb-2 p-2 rounded-lg text-xs border-l-2 bg-black/5 flex flex-col gap-0.5 max-w-full overflow-hidden ${msg.user_id === user?.id ? 'border-white/30 text-white/70' : 'border-indigo-400 text-gray-500'
                         }`}>
-                        <div className="font-semibold">{messages.find(m => m.id === msg.reply_to)?.username || '已删除消息'}</div>
-                        <div className="truncate">{messages.find(m => m.id === msg.reply_to)?.content || (messages.find(m => m.id === msg.reply_to)?.message_type === 'file' ? '[图片]' : '消息不可读')}</div>
+                        <div className="font-semibold">{replyMessage?.username || '已删除消息'}</div>
+                        <div className="truncate">{replyMessage?.content || (replyMessage?.message_type === 'file' ? '[图片]' : '消息不可读')}</div>
                       </div>
                     )}
 
@@ -595,29 +636,9 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
                     {msg.ai_meta && (
                       <div className="mb-2 rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-800">
                         <div className="font-semibold">{msg.ai_meta.primary_agent || 'AISCL智能助手'}</div>
-                        {msg.ai_meta.rationale_summary && (
-                          <div className="mt-1 text-[11px] leading-5 text-indigo-700">
-                            {msg.ai_meta.rationale_summary}
-                          </div>
-                        )}
-                        {msg.ai_meta.routing_summary && msg.ai_meta.routing_summary.length > 0 && (
-                          <div className="mt-2">
-                            <button
-                              type="button"
-                              onClick={() => toggleRoutingSummary(msg.id)}
-                              className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700"
-                            >
-                              {expandedRouting[msg.id] ? '收起本轮编排摘要' : '查看本轮编排摘要'}
-                            </button>
-                            {expandedRouting[msg.id] && (
-                              <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-indigo-700">
-                                {msg.ai_meta.routing_summary.map((item, idx) => (
-                                  <li key={`${msg.id}-routing-${idx}`}>{item}</li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
+                        <div className="mt-1 text-[11px] leading-5 text-indigo-700">
+                          已结合项目任务、近期讨论与当前问题生成回应。
+                        </div>
                       </div>
                     )}
 
@@ -683,7 +704,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
                           alt={msg.file_info.name}
                           className="max-w-full rounded-lg border border-gray-100 shadow-sm cursor-zoom-in hover:brightness-95 transition-all"
                           onLoad={() => {
-                            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+                            scrollToBottom('smooth')
                           }}
                           onClick={() => {
                             setLightboxImage({ url: msg.file_info!.url, name: msg.file_info!.name })
@@ -826,7 +847,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyPress}
                 onPaste={handlePaste}
-                placeholder="Type a message... (@mention to tag someone)"
+                placeholder="输入消息，或 @ 智能体 / 成员"
                 className="w-full px-4 py-3 bg-[#f3f4f6] border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
                 disabled={!connected}
               />
@@ -902,6 +923,13 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
           </div>
         </div>
       </div>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

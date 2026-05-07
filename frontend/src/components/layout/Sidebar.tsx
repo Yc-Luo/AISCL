@@ -7,9 +7,10 @@ import { Folder, CheckSquare, Calendar } from 'lucide-react'
 
 interface SidebarProps {
   projectId?: string
+  canSubmitCourseTask?: boolean
 }
 
-export default function Sidebar({ projectId }: SidebarProps) {
+export default function Sidebar({ projectId, canSubmitCourseTask = true }: SidebarProps) {
   const [activeSection, setActiveSection] = useState<'info' | 'tasks' | 'calendar'>('info')
 
   const handleSectionChange = (section: 'info' | 'tasks' | 'calendar') => {
@@ -75,7 +76,7 @@ export default function Sidebar({ projectId }: SidebarProps) {
           <CalendarView projectId={projectId} />
         )}
         {activeSection === 'tasks' && projectId && (
-          <TaskKanban projectId={projectId} />
+          <TaskKanban projectId={projectId} canSubmitCourseTask={canSubmitCourseTask} />
         )}
       </div>
     </div>

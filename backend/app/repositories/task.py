@@ -16,7 +16,18 @@ class Task(Document):
     priority: str = Field(default="medium", pattern="^(low|medium|high)$")
     assignees: List[str] = Field(default_factory=list)  # List of user IDs
     order: float = Field(default=0.0)  # For drag-and-drop sorting (Lexorank)
+    description: Optional[str] = Field(default=None, max_length=10000)
     due_date: Optional[datetime] = None
+    source_type: Optional[str] = Field(default=None, index=True)
+    course_task_release_id: Optional[str] = Field(default=None, index=True)
+    submission_status: Optional[str] = Field(
+        default=None,
+        pattern="^(submitted|late_submitted|auto_submitted)$",
+        index=True,
+    )
+    submitted_at: Optional[datetime] = None
+    submitted_by: Optional[str] = Field(default=None, index=True)
+    submission_note: Optional[str] = Field(default=None, max_length=2000)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -27,5 +38,6 @@ class Task(Document):
         indexes = [
             [("project_id", 1)],
             [("project_id", 1), ("column", 1)],
+            [("course_task_release_id", 1)],
+            [("source_type", 1), ("due_date", 1), ("submission_status", 1)],
         ]
-

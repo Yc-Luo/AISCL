@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { LogOut, Mail, Settings as SettingsIcon, User, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../../../stores/authStore'
@@ -17,6 +17,7 @@ const roleLabelMap: Record<string, string> = {
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  const [confirmLogout, setConfirmLogout] = useState(false)
 
   if (!isOpen) return null
 
@@ -24,7 +25,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const avatarInitial = (user?.username || user?.email || 'U')[0].toUpperCase()
 
   const handleLogout = async () => {
-    if (!window.confirm('确定要退出登录吗？')) return
     await logout()
     onClose()
     navigate('/login')
@@ -105,12 +105,37 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
 
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={() => setConfirmLogout(true)}
             className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600 transition hover:bg-red-100"
           >
             <LogOut size={18} />
             退出登录
           </button>
+
+          {confirmLogout && (
+            <div className="mt-4 rounded-2xl border border-red-100 bg-red-50/70 p-4">
+              <div className="text-sm font-bold text-red-700">确认退出当前账号？</div>
+              <p className="mt-1 text-xs leading-5 text-red-600">
+                退出后需要重新登录才能继续进入学习空间。
+              </p>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmLogout(false)}
+                  className="rounded-xl bg-white px-4 py-2 text-xs font-bold text-slate-600 ring-1 ring-slate-100 hover:bg-slate-50"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+                >
+                  确认退出
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

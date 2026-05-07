@@ -12,6 +12,7 @@ export interface TaskCreateRequest {
   column: 'todo' | 'doing' | 'done'
   priority?: 'low' | 'medium' | 'high'
   assignees?: string[]
+  description?: string
   due_date?: string
 }
 
@@ -19,6 +20,7 @@ export interface TaskUpdateRequest {
   title?: string
   priority?: 'low' | 'medium' | 'high'
   assignees?: string[]
+  description?: string
   due_date?: string
 }
 
@@ -72,5 +74,12 @@ export const taskService = {
   async deleteTask(taskId: string): Promise<void> {
     await api.delete(`${API_ENDPOINTS.TASKS}/${taskId}`)
   },
-}
 
+  async submitTask(taskId: string, note?: string): Promise<Task> {
+    const response = await api.post<Task>(
+      `${API_ENDPOINTS.TASKS}/${taskId}/submit`,
+      { note }
+    )
+    return response.data
+  },
+}

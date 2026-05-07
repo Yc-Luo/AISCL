@@ -3,12 +3,14 @@ import { taskService } from '../../../../services/api/task'
 import { Task } from '../../../../types'
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import { CheckCircle, Circle, PlayCircle, Plus, AlertCircle, ChevronDown, ListTodo, Clock, Trash2, ChevronRight, ChevronLeft } from 'lucide-react'
+import { Toast } from '../../../ui/Toast'
 
 interface TaskKanbanProps {
   projectId: string
+  canSubmitCourseTask?: boolean
 }
 
-export default function TaskKanban({ projectId }: TaskKanbanProps) {
+export default function TaskKanban({ projectId, canSubmitCourseTask = true }: TaskKanbanProps) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
@@ -21,6 +23,8 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
   })
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchTasks = async () => {
@@ -44,6 +48,30 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
     }
   }, [projectId])
 
+  useEffect(() => {
+    if (!projectId || tasks.length === 0) return
+    const now = Date.now()
+    const nextDueTime = tasks
+      .filter(task => task.source_type === 'course_task_release' && !task.submission_status && task.due_date)
+      .map(task => new Date(task.due_date as string).getTime())
+      .filter(time => Number.isFinite(time) && time >= now)
+      .sort((a, b) => a - b)[0]
+
+    if (!nextDueTime) return
+    const delay = Math.min(Math.max(nextDueTime - now + 1200, 1200), 2_147_483_647)
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await taskService.getTasks(projectId)
+        setTasks(data.tasks)
+        setToast({ message: '有任务已到截止时间，系统已更新提交状态。', type: 'success' })
+      } catch (error) {
+        console.error('Failed to refresh due task status:', error)
+      }
+    }, delay)
+
+    return () => window.clearTimeout(timer)
+  }, [projectId, tasks])
+
   const getTasksByColumn = (column: 'todo' | 'doing' | 'done') => {
     return tasks
       .filter((task: Task) => task.column === column)
@@ -56,7 +84,7 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
     if (e) e.preventDefault()
     if (!newTaskTitle.trim() || isSubmitting) return
     if (!projectId) {
-      alert('未找到小组 ID，无法添加任务')
+      setToast({ message: '未找到小组 ID，无法添加任务。', type: 'error' })
       return
     }
 
@@ -78,7 +106,7 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
       setTasks(prev => [...prev, newTask])
     } catch (error: any) {
       console.error('Failed to add task:', error)
-      alert(`添加任务失败: ${error.response?.data?.detail || error.message}`)
+      setToast({ message: `添加任务失败：${error.response?.data?.detail || error.message}`, type: 'error' })
     } finally {
       setIsSubmitting(false)
     }
@@ -140,7 +168,7 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
       console.error('Failed to delete task:', error)
       // Rollback on failure
       setTasks(previousTasks)
-      alert(`无法删除任务: ${error.response?.data?.detail || error.message}`)
+      setToast({ message: `无法删除任务：${error.response?.data?.detail || error.message}`, type: 'error' })
     }
   }
 
@@ -222,6 +250,49 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
 
   const toggleSection = (section: 'todo' | 'doing' | 'done') => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))
+  }
+
+  const getSubmissionLabel = (task: Task) => {
+    if (task.submission_status === 'submitted') return '已提交'
+    if (task.submission_status === 'late_submitted') return '逾期提交'
+    if (task.submission_status === 'auto_submitted') return '已自动提交'
+    if (task.due_date && new Date(task.due_date).getTime() <= Date.now()) return '已到截止时间'
+    return '待提交'
+  }
+
+  const getSubmissionBadgeClass = (task: Task) => {
+    if (task.submission_status === 'submitted') return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+    if (task.submission_status === 'late_submitted') return 'bg-amber-50 text-amber-700 ring-1 ring-amber-100'
+    if (task.submission_status === 'auto_submitted') return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
+    return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
+  }
+
+  const handleSubmitTask = async (task: Task) => {
+    if (!task.course_task_release_id || submittingTaskId) return
+    try {
+      setSubmittingTaskId(task.id)
+      const updated = await taskService.submitTask(task.id)
+      setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
+      setToast({
+        message: updated.submission_status === 'late_submitted' ? '任务已逾期提交。' : '任务已提交。',
+        type: 'success'
+      })
+      trackingService.track({
+        module: 'task',
+        action: 'task_submit',
+        metadata: {
+          projectId,
+          taskId: task.id,
+          courseTaskReleaseId: task.course_task_release_id,
+          submissionStatus: updated.submission_status,
+        }
+      })
+    } catch (error: any) {
+      console.error('Failed to submit task:', error)
+      setToast({ message: error.response?.data?.detail || '任务提交失败，请稍后重试。', type: 'error' })
+    } finally {
+      setSubmittingTaskId(null)
+    }
   }
 
   if (loading) {
@@ -358,6 +429,11 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
 
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
+                              {task.source_type === 'course_task_release' && (
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${getSubmissionBadgeClass(task)}`}>
+                                  {getSubmissionLabel(task)}
+                                </span>
+                              )}
                               {task.priority === 'high' && col !== 'done' && (
                                 <span className="flex items-center gap-0.5 text-[9px] font-black text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full uppercase italic animate-pulse">
                                   <AlertCircle className="w-2.5 h-2.5" /> High
@@ -391,6 +467,38 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
                               )}
                             </div>
                           </div>
+                          {task.source_type === 'course_task_release' && (
+                            <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-2 py-2">
+                              <div className="min-w-0 text-[10px] leading-4 text-slate-500">
+                                {task.submitted_at
+                                  ? `提交时间：${new Date(task.submitted_at).toLocaleString()}`
+                                  : task.due_date
+                                    ? `截止：${new Date(task.due_date).toLocaleString()}`
+                                    : '未设置截止时间'}
+                              </div>
+                              <button
+                                type="button"
+                                disabled={
+                                  submittingTaskId === task.id
+                                  || task.submission_status === 'submitted'
+                                  || !canSubmitCourseTask
+                                }
+                                onClick={() => void handleSubmitTask(task)}
+                                title={canSubmitCourseTask ? '提交小组任务' : '当前仅组长可提交小组任务'}
+                                className="shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                              >
+                                {submittingTaskId === task.id
+                                  ? '提交中'
+                                  : !canSubmitCourseTask
+                                    ? '组长提交'
+                                  : task.submission_status === 'submitted'
+                                    ? '已提交'
+                                    : task.submission_status === 'auto_submitted'
+                                      ? '补交'
+                                      : '提交'}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))
@@ -401,6 +509,13 @@ export default function TaskKanban({ projectId }: TaskKanbanProps) {
           )
         })}
       </div>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

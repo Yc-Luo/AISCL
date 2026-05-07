@@ -6,6 +6,8 @@ export interface Document {
   project_id: string
   title: string
   content?: string
+  source_type?: string
+  course_task_release_id?: string
   created_at: string
   updated_at: string
   created_by: string
@@ -158,4 +160,3 @@ export const documentService = {
     return response.data
   },
 }
-

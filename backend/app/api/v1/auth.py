@@ -85,13 +85,8 @@ async def get_current_user(
     return user
 
 
-@router.get(
-    "/me",
-    summary="Get Current User",
-    description="Get the currently authenticated user's information",
-)
-async def get_me(current_user: User = Depends(get_current_user)) -> dict:
-    """Get current user endpoint."""
+def _serialize_user(current_user: User) -> dict:
+    """Serialize a user for auth responses without exposing credentials."""
     return {
         "id": str(current_user.id),
         "username": current_user.username,
@@ -102,6 +97,16 @@ async def get_me(current_user: User = Depends(get_current_user)) -> dict:
         "is_active": current_user.is_active,
         "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
     }
+
+
+@router.get(
+    "/me",
+    summary="Get Current User",
+    description="Get the currently authenticated user's information",
+)
+async def get_me(current_user: User = Depends(get_current_user)) -> dict:
+    """Get current user endpoint."""
+    return _serialize_user(current_user)
 
 
 @router.post(
@@ -180,6 +185,16 @@ async def register(request: Request, register_data: RegisterRequest) -> TokenRes
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
+        user={
+            "id": str(new_user_id),
+            "username": user_payload["username"],
+            "email": user_payload["email"],
+            "role": user_payload["role"],
+            "avatar_url": None,
+            "settings": user_payload["settings"],
+            "is_active": user_payload["is_active"],
+            "created_at": user_payload["created_at"].isoformat(),
+        },
     )
 
 
@@ -257,6 +272,7 @@ async def login(request: Request, login_data: LoginRequest) -> TokenResponse:
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
+        user=_serialize_user(user),
     )
 
 

@@ -145,7 +145,7 @@ async def get_chat_messages(
     project_id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    message_type: Optional[str] = Query(None, pattern="^(text|system|ai)$"),
+    message_type: Optional[str] = Query(None, pattern="^(text|system|ai|file)$"),
     current_user: User = Depends(get_current_user),
 ) -> ChatLogListResponse:
     """Get chat messages for a project with pagination."""

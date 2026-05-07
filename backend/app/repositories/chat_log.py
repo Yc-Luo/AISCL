@@ -12,7 +12,7 @@ class ChatLog(Document):
     project_id: str = Field(..., index=True)
     user_id: str = Field(..., index=True)
     content: str
-    message_type: str = Field(default="text", pattern="^(text|system|ai)$")
+    message_type: str = Field(default="text", pattern="^(text|system|ai|file)$")
     mentions: list[str] = Field(default_factory=list)  # List of mentioned user IDs
     metadata: dict | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

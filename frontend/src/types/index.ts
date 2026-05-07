@@ -24,6 +24,7 @@ export interface TokenResponse {
   access_token: string
   refresh_token: string
   token_type: string
+  user?: User
 }
 
 // Re-export domain types
@@ -44,7 +45,14 @@ export interface Task {
   priority: 'low' | 'medium' | 'high'
   assignees: string[]
   order: number
+  description?: string
   due_date?: string
+  source_type?: string
+  course_task_release_id?: string
+  submission_status?: 'submitted' | 'late_submitted' | 'auto_submitted'
+  submitted_at?: string
+  submitted_by?: string
+  submission_note?: string
   created_at: string
   updated_at: string
 }

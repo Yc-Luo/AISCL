@@ -495,7 +495,7 @@ export default function DocumentEditor({
           }
         })
       }
-      setToastMessage('已存入灵感池')
+      setToastMessage('已存入素材池')
       setShowToast(true)
     } catch (e) {
       setToastMessage('保存失败')

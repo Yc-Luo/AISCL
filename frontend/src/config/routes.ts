@@ -19,6 +19,7 @@ export const ROUTES = {
         PROJECT_MONITOR: '/teacher/project-monitor',
         PROJECT_DASHBOARD: '/teacher/project-dashboard',
         COURSE_RESOURCES: '/teacher/resources',
+        TASK_RELEASES: '/teacher/task-releases',
         ASSIGNMENT_REVIEW: '/teacher/assignments',
         SETTINGS: '/teacher/settings',
     },

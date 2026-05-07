@@ -11,9 +11,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.llm_config import get_llm
 from app.repositories.chat_log import ChatLog
+from app.repositories.course_task_release import CourseTaskRelease
+from app.repositories.document import Document
 from app.repositories.group_memory_summary import GroupMemorySummary
+from app.repositories.project import Project
 from app.repositories.research_event import ResearchEvent
 from app.repositories.user import User
+from app.repositories.wiki_item import WikiItem
 from app.services.ai_service import AIService
 
 
@@ -144,6 +148,145 @@ def _earliest_datetime(values: List[Optional[datetime]]) -> Optional[datetime]:
 
 class GroupMemoryService:
     """CRUD and event-driven refresh rules for group memory summaries."""
+
+    @staticmethod
+    async def get_project_task_context(project: Optional[Project] = None, project_id: Optional[str] = None) -> str:
+        """Build the shared task brief used by all student-facing AI entry points."""
+        if not project and project_id:
+            project = await Project.get(project_id)
+        if not project:
+            return ""
+
+        sections = [
+            f"项目名称：{project.name}",
+        ]
+        if project.description:
+            sections.append(f"项目目标：{project.description}")
+
+        project_id_str = str(project.id)
+        seen_document_ids: set[str] = set()
+
+        def format_task_section(
+            *,
+            source_label: str,
+            title: str,
+            content: str,
+            due_at: Optional[datetime] = None,
+            status: Optional[str] = None,
+        ) -> Optional[str]:
+            normalized_content = _truncate_text(content, 1800)
+            if not normalized_content and not title:
+                return None
+            lines = [f"任务来源：{source_label}"]
+            if status:
+                lines.append(f"任务状态：{status}")
+            if due_at:
+                lines.append(f"截止时间：{due_at.strftime('%Y-%m-%d %H:%M')}")
+            if title:
+                lines.append(f"任务说明标题：{title}")
+            if normalized_content:
+                lines.append(f"任务说明内容：\n{normalized_content}")
+            return "\n".join(lines)
+
+        async def get_release_document(release_id: str) -> Optional[Document]:
+            return await Document.find_one(
+                {
+                    "project_id": project_id_str,
+                    "source_type": "course_task_release",
+                    "course_task_release_id": release_id,
+                    "is_archived": False,
+                }
+            )
+
+        release_sections: List[str] = []
+        releases = (
+            await CourseTaskRelease.find(
+                {
+                    "target_project_ids": project_id_str,
+                    "status": "open",
+                }
+            )
+            .sort("-published_at")
+            .limit(3)
+            .to_list()
+        )
+        source_label = "教师发布任务（进行中）"
+        if not releases:
+            releases = (
+                await CourseTaskRelease.find({"target_project_ids": project_id_str})
+                .sort("-published_at")
+                .limit(2)
+                .to_list()
+            )
+            source_label = "最近教师发布任务"
+
+        for release in releases:
+            document = await get_release_document(str(release.id))
+            if document:
+                seen_document_ids.add(str(document.id))
+            document_content = (document.content if document else None) or (document.preview_text if document else None)
+            fallback_content = "\n\n".join(
+                f"{label}\n{value.strip()}"
+                for label, value in [
+                    ("任务背景", release.task_background),
+                    ("核心问题", release.core_question),
+                    ("协作要求", release.collaboration_requirements),
+                    ("提交成果", release.deliverable_requirements),
+                    ("评价要点", release.evaluation_points),
+                ]
+                if value and value.strip()
+            )
+            section = format_task_section(
+                source_label=source_label,
+                title=(document.title if document else None) or release.title,
+                content=document_content or fallback_content,
+                due_at=release.due_at,
+                status="开放" if release.status == "open" else "已关闭",
+            )
+            if section:
+                release_sections.append(section)
+
+        sections.extend(release_sections)
+
+        initial_task_title = ""
+        initial_task_content = ""
+        if project.initial_task_document_id:
+            try:
+                task_document = await Document.get(project.initial_task_document_id)
+            except Exception:
+                task_document = None
+            if task_document and str(task_document.id) not in seen_document_ids:
+                initial_task_title = task_document.title or ""
+                initial_task_content = task_document.content or task_document.preview_text or ""
+
+        initial_section = format_task_section(
+            source_label="项目初始说明",
+            title=initial_task_title,
+            content=initial_task_content,
+        )
+        if initial_section:
+            sections.append(initial_section)
+
+        if not release_sections and not initial_task_content:
+            task_items = (
+                await WikiItem.find(
+                    WikiItem.project_id == project_id_str,
+                    WikiItem.item_type == "task_brief",
+                )
+                .sort("-updated_at")
+                .limit(2)
+                .to_list()
+            )
+            for task_item in task_items:
+                section = format_task_section(
+                    source_label="项目Wiki任务说明",
+                    title=task_item.title,
+                    content=task_item.content or task_item.summary or "",
+                )
+                if section:
+                    sections.append(section)
+
+        return "\n".join(section for section in sections if section.strip())
 
     @staticmethod
     async def get_stage_memory(

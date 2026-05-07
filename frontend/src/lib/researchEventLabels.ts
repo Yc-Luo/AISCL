@@ -178,7 +178,7 @@ const EVENT_TYPE_META: Record<string, EventTypeMeta> = {
   },
   card_to_node: {
     label: '素材转为证据节点',
-    description: '学习者将灵感素材池内容拖入画布并转化为探究节点。',
+    description: '学习者将素材池内容拖入画布并转化为探究节点。',
     analysisCategory: '证据建构',
   },
   evidence_source_bind: {
@@ -193,7 +193,7 @@ const EVENT_TYPE_META: Record<string, EventTypeMeta> = {
   },
   scrapbook_image_add: {
     label: '素材图片加入',
-    description: '学习者将图片材料加入灵感素材池。',
+    description: '学习者将图片材料加入素材池。',
     analysisCategory: '证据建构',
   },
   snapshot_save: {
@@ -238,7 +238,7 @@ const EVENT_TYPE_META: Record<string, EventTypeMeta> = {
   },
   shared_record_extract_to_scrapbook: {
     label: '文档摘录到素材池',
-    description: '学习者将共享文档中的内容摘录到灵感素材池。',
+    description: '学习者将共享文档中的内容摘录到素材池。',
     analysisCategory: '证据建构',
   },
   shared_record_annotation_create: {

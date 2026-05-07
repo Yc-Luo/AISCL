@@ -1,32 +1,34 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
+import type { ReactNode } from 'react'
 import { ROUTES } from '../config/routes'
 
-// Pages
-import Login from '../pages/auth/Login'
-import RequestResetPassword from '../pages/auth/RequestResetPassword'
-import ResetPassword from '../pages/auth/ResetPassword'
-import ProjectWorkspace from '../pages/student/ProjectWorkspace'
-import ProjectList from '../pages/student/ProjectList'
-import TeacherDashboard from '../pages/teacher/TeacherDashboard'
-import AdminDashboard from '../pages/manager/AdminDashboard'
-import Settings from '../pages/student/Settings'
-import ProjectSettings from '../pages/student/ProjectSettings'
-import NotFound from '../pages/shared/NotFound'
 import LoadingPage from '../pages/shared/Loading'
-import ProjectMonitor from '../components/features/teacher/projectmonitor/ProjectMonitor'
-import ClassManagement from '../components/features/teacher/classmanagement/ClassManagement'
-import StudentList from '../components/features/teacher/studentlist/StudentList'
-import ProjectManager from '../components/features/teacher/projectmanager/ProjectManager'
-import ProjectDashboard from '../components/features/teacher/studentanalytics/ProjectDashboard'
-import TeacherSettings from '../components/features/teacher/settings/TeacherSettings'
-import DashboardOverview from '../components/features/teacher/overview/DashboardOverview'
-import CourseResource from '../components/features/teacher/courseresource/CourseResource'
-import AssignmentReview from '../components/features/teacher/assignmentreview/AssignmentReview'
+
+const Login = lazy(() => import('../pages/auth/Login'))
+const RequestResetPassword = lazy(() => import('../pages/auth/RequestResetPassword'))
+const ResetPassword = lazy(() => import('../pages/auth/ResetPassword'))
+const ProjectWorkspace = lazy(() => import('../pages/student/ProjectWorkspace'))
+const ProjectList = lazy(() => import('../pages/student/ProjectList'))
+const TeacherDashboard = lazy(() => import('../pages/teacher/TeacherDashboard'))
+const AdminDashboard = lazy(() => import('../pages/manager/AdminDashboard'))
+const Settings = lazy(() => import('../pages/student/Settings'))
+const ProjectSettings = lazy(() => import('../pages/student/ProjectSettings'))
+const NotFound = lazy(() => import('../pages/shared/NotFound'))
+const ProjectMonitor = lazy(() => import('../components/features/teacher/projectmonitor/ProjectMonitor'))
+const ClassManagement = lazy(() => import('../components/features/teacher/classmanagement/ClassManagement'))
+const StudentList = lazy(() => import('../components/features/teacher/studentlist/StudentList'))
+const ProjectManager = lazy(() => import('../components/features/teacher/projectmanager/ProjectManager'))
+const ProjectDashboard = lazy(() => import('../components/features/teacher/studentanalytics/ProjectDashboard'))
+const TeacherSettings = lazy(() => import('../components/features/teacher/settings/TeacherSettings'))
+const DashboardOverview = lazy(() => import('../components/features/teacher/overview/DashboardOverview'))
+const CourseResource = lazy(() => import('../components/features/teacher/courseresource/CourseResource'))
+const CourseTaskRelease = lazy(() => import('../components/features/teacher/taskrelease/CourseTaskRelease'))
+const AssignmentReview = lazy(() => import('../components/features/teacher/assignmentreview/AssignmentReview'))
 
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading, isInitialized, fetchUser } = useAuthStore()
 
   useEffect(() => {
@@ -51,7 +53,7 @@ function RoleBasedRoute({
   children,
 }: {
   allowedRoles: string[]
-  children: React.ReactNode
+  children: ReactNode
 }) {
   const { user } = useAuthStore()
 
@@ -64,7 +66,8 @@ function RoleBasedRoute({
 
 export function Router() {
   return (
-    <Routes>
+    <Suspense fallback={<LoadingPage />}>
+      <Routes>
       <Route path="/forgot-password" element={<RequestResetPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path={ROUTES.LOGIN} element={<Login />} />
@@ -157,6 +160,7 @@ export function Router() {
         <Route path="project-monitor" element={<ProjectMonitor />} />
         <Route path="project-dashboard" element={<ProjectDashboard />} />
         <Route path="resources" element={<CourseResource />} />
+        <Route path="task-releases" element={<CourseTaskRelease />} />
         <Route path="assignments" element={<AssignmentReview />} />
         <Route path="settings" element={<TeacherSettings />} />
       </Route>
@@ -179,6 +183,7 @@ export function Router() {
 
       {/* 404 Route */}
       <Route path="*" element={<NotFound />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   )
 }

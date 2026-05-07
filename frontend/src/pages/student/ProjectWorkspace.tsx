@@ -139,6 +139,11 @@ export default function Main() {
   const [currentStage, setCurrentStage] = useState<string | null>(null)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(() => {
+    const savedWidth = Number(window.localStorage.getItem('aiscl:right-sidebar-width') || 380)
+    return Number.isFinite(savedWidth) ? Math.min(Math.max(savedWidth, 320), 560) : 380
+  })
+  const [rightSidebarResizing, setRightSidebarResizing] = useState(false)
   const [_project, setProject] = useState<Project | null>(null)
   const [experimentVersion, setExperimentVersion] = useState<ExperimentVersion | null>(null)
   const [currentDocumentId, setCurrentDocumentId] = useState<string | undefined>(undefined)
@@ -158,6 +163,7 @@ export default function Main() {
   const [stageActionNotice, setStageActionNotice] = useState<string | null>(null)
   const previousStageRef = useRef<string | null>(null)
   const previousGuidedStageRef = useRef<string | null>(null)
+  const rightSidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
 
   const { connectionStatus } = useSyncStore()
   const { user } = useAuthStore()
@@ -250,6 +256,43 @@ export default function Main() {
       setActiveTab(getVisiblePrimaryTabForStage(currentStage, experimentVersion))
     }
   }, [activeTab, currentStage, experimentVersion])
+
+  useEffect(() => {
+    if (!rightSidebarResizing) return
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const start = rightSidebarResizeRef.current
+      if (!start) return
+      const viewportLimitedMax = Math.max(320, Math.min(560, window.innerWidth - 520))
+      const nextWidth = Math.min(
+        Math.max(start.startWidth + (start.startX - event.clientX), 320),
+        viewportLimitedMax
+      )
+      setRightSidebarWidth(nextWidth)
+    }
+
+    const handlePointerUp = () => {
+      setRightSidebarResizing(false)
+      rightSidebarResizeRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [rightSidebarResizing])
+
+  useEffect(() => {
+    window.localStorage.setItem('aiscl:right-sidebar-width', String(rightSidebarWidth))
+  }, [rightSidebarWidth])
 
   useEffect(() => {
     if (!currentStage) return
@@ -512,7 +555,6 @@ export default function Main() {
 
   const stageToolGuidance = getStageToolGuidance(currentStage)
   const stageControlMode = experimentVersion?.stage_control_mode || 'soft_guidance'
-  const processScaffoldMode = experimentVersion?.process_scaffold_mode || 'on'
   const hasConfiguredStages = (experimentVersion?.stage_sequence?.length || 0) > 0
   const showProcessGuidance = Boolean(hasConfiguredStages && currentStage && isProcessScaffoldActive(experimentVersion))
   const tutorTabEnabled = isTutorTabEnabled(experimentVersion)
@@ -654,7 +696,7 @@ export default function Main() {
         {/* Left Sidebar */}
         {leftSidebarOpen && (
           <div className="absolute inset-y-0 left-0 z-40 w-[min(18rem,86vw)] flex-shrink-0 shadow-2xl transition-all duration-300 lg:relative lg:z-auto lg:w-auto lg:shadow-none">
-            <Sidebar projectId={currentProjectId} />
+            <Sidebar projectId={currentProjectId} canSubmitCourseTask={isGroupLeader} />
           </div>
         )}
 
@@ -722,7 +764,7 @@ export default function Main() {
                     </button>
                   ) : (
                     <span className="rounded-full bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-500 ring-1 ring-slate-200">
-                      {processScaffoldMode === 'off' ? '未启用过程支架' : '仅显示任务进度'}
+                      仅显示任务进度
                     </span>
                   )}
                 </div>
@@ -900,7 +942,25 @@ export default function Main() {
 
         {/* Right Sidebar */}
         {rightSidebarOpen && (
-          <div className="absolute inset-y-0 right-0 z-40 w-[min(28rem,92vw)] flex-shrink-0 shadow-2xl lg:relative lg:z-auto lg:w-[340px] lg:shadow-none xl:w-[380px] 2xl:w-[400px]">
+          <div
+            className="absolute inset-y-0 right-0 z-40 flex-shrink-0 shadow-2xl lg:relative lg:z-auto lg:shadow-none"
+            style={{ width: `min(${rightSidebarWidth}px, 92vw)` }}
+          >
+            <button
+              type="button"
+              aria-label="拖动调整聊天侧栏宽度"
+              title="拖动调整侧栏宽度"
+              onPointerDown={(event) => {
+                rightSidebarResizeRef.current = {
+                  startX: event.clientX,
+                  startWidth: rightSidebarWidth,
+                }
+                setRightSidebarResizing(true)
+              }}
+              className={`absolute left-0 top-0 z-10 hidden h-full w-2 -translate-x-1 cursor-col-resize lg:block ${
+                rightSidebarResizing ? 'bg-indigo-300/60' : 'bg-transparent hover:bg-indigo-200/50'
+              }`}
+            />
             <RightSidebar projectId={currentProjectId} />
           </div>
         )}

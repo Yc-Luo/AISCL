@@ -13,6 +13,7 @@ from app.api.v1 import (
     projects,
     storage,
     courses,
+    course_task_releases,
     tasks,
     calendar,
     documents,
@@ -171,6 +172,7 @@ app.include_router(users.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
 app.include_router(storage.router, prefix="/api/v1")
 app.include_router(courses.router, prefix="/api/v1")
+app.include_router(course_task_releases.router, prefix="/api/v1")
 app.include_router(tasks.router, prefix="/api/v1")
 app.include_router(calendar.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")

@@ -32,7 +32,11 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
   // Custom dialog state
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleteName, setDeleteName] = useState<string>('')
-  const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: '', visible: false })
+  const [toast, setToast] = useState<{ message: string; visible: boolean; type?: 'success' | 'error' }>({
+    message: '',
+    visible: false,
+    type: 'success',
+  })
 
   useEffect(() => {
     const fetchResources = async () => {
@@ -102,7 +106,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
           })
         } catch (error) {
           console.error(`Failed to upload ${file.name}:`, error)
-          alert(`上传 ${file.name} 失败`)
+          setToast({ message: `上传 ${file.name} 失败，请稍后重试。`, visible: true, type: 'error' })
         }
       }
 
@@ -126,7 +130,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
       setToast({ message: '资源已删除', visible: true })
     } catch (error) {
       console.error('Failed to delete resource:', error)
-      setToast({ message: '删除失败', visible: true })
+      setToast({ message: '删除失败', visible: true, type: 'error' })
     } finally {
       setDeleteId(null)
     }
@@ -150,7 +154,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
       })
     } catch (error) {
       console.error('Failed to download resource:', error)
-      alert('下载失败')
+      setToast({ message: '下载失败，请稍后重试。', visible: true, type: 'error' })
     }
   }
 
@@ -174,7 +178,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
       setToast({ message: '资源已加入项目 Wiki', visible: true })
     } catch (error) {
       console.error('Failed to add resource to wiki:', error)
-      setToast({ message: '加入 Wiki 失败', visible: true })
+      setToast({ message: '加入 Wiki 失败', visible: true, type: 'error' })
     }
   }
 
@@ -360,6 +364,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
       {toast.visible && (
         <Toast
           message={toast.message}
+          type={toast.type || 'success'}
           onClose={() => setToast(prev => ({ ...prev, visible: false }))}
         />
       )}

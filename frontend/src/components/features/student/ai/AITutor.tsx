@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { aiService } from '../../../../services/api/ai'
+import { storageService } from '../../../../services/api/storage'
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import { useScrapbookActions } from '../../../../modules/inquiry/hooks/useScrapbookActions'
-import { Lightbulb } from 'lucide-react'
+import { Image as ImageIcon, Lightbulb, Loader2, X } from 'lucide-react'
 import { Toast } from '../../../ui/Toast'
 import { ExperimentVersion } from '../../../../types'
 import { useContextStore } from '../../../../stores/contextStore'
@@ -33,6 +36,13 @@ interface Message {
     }
 }
 
+interface PendingImage {
+    name: string
+    size: number
+    url: string
+    resourceId: string
+}
+
 export default function AITutor({ projectId, experimentVersion }: AITutorProps) {
     const experimentVersionId = experimentVersion?.version_name || undefined
     const [messages, setMessages] = useState<Message[]>([
@@ -53,12 +63,15 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
     const [showProcessingSummary, setShowProcessingSummary] = useState(false)
     const [processingCollapsed, setProcessingCollapsed] = useState(false)
     const [processingSummary, setProcessingSummary] = useState<string[]>([])
+    const [pendingImage, setPendingImage] = useState<PendingImage | null>(null)
+    const [isUploadingImage, setIsUploadingImage] = useState(false)
 
     const { addMaterial } = useScrapbookActions(projectId)
     const [showToast, setShowToast] = useState(false)
     const [toastMessage, setToastMessage] = useState('')
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const imageInputRef = useRef<HTMLInputElement>(null)
     const consumeRecommendation = useScaffoldRecommendationStore((state) => state.consumeRecommendation)
     const rawStreamContentRef = useRef('')
     const processingStepsRef = useRef<string[]>([])
@@ -137,23 +150,18 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
     const buildTutorRationaleSummary = (roleKey: string, stage?: string | null) => {
         const roleLabel = getTutorRoleLabel(roleKey)
         if (stage) {
-            return `结合当前阶段与提问内容，本轮 AI 导师主要采用“${roleLabel}”的支架视角。`
+            return `结合当前阶段与提问内容，本轮 AI 导师主要采用“${roleLabel}”的学习支持视角。`
         }
-        return `结合当前提问内容，本轮 AI 导师主要采用“${roleLabel}”的支架视角。`
+        return `结合当前提问内容，本轮 AI 导师主要采用“${roleLabel}”的学习支持视角。`
     }
 
     const buildProcessingSummary = (content: string) => {
         const inferredRole = inferTutorRole(content)
         const summary = [
-            `正在识别当前阶段目标：${currentStage || '未设置阶段'}`,
-            `正在调用 ${getTutorRoleLabel(inferredRole)} 组织本轮支架回应`,
+            '正在识别当前任务阶段与提问意图',
+            `正在从“${getTutorRoleLabel(inferredRole)}”视角组织回应`,
         ]
-
-        if (experimentVersion?.enabled_rule_set) {
-            summary.push(`正在结合规则集 ${experimentVersion.enabled_rule_set} 调整回应重点`)
-        }
-
-        summary.push('正在生成面向当前任务的下一步建议')
+        summary.push('正在生成面向当前任务的学习建议')
         return summary
     }
 
@@ -329,17 +337,27 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
             metadata?: Record<string, unknown>
         }
     ) => {
-        if (!content.trim()) return
+        const imageAttachment = content === inputValue ? pendingImage : null
+        if (!content.trim() && !imageAttachment) return
+
+        const messageContent = imageAttachment
+            ? [
+                content.trim(),
+                `![${imageAttachment.name}](${imageAttachment.url})`,
+                `图片附件：${imageAttachment.name}。如果你不能直接识别图片内容，请结合我的文字描述给出建议，并提示我补充关键信息。`,
+            ].filter(Boolean).join('\n\n')
+            : content
 
         const newMessage: Message = {
             id: Date.now().toString(),
             role: 'user',
-            content: content,
+            content: messageContent,
             timestamp: new Date()
         }
 
         setMessages(prev => [...prev, newMessage])
         setInputValue('')
+        setPendingImage(null)
         setIsTyping(true)
 
         trackingService.trackResearchEvent({
@@ -351,11 +369,13 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
             stage_id: currentStage || undefined,
             payload: {
                 scaffold_layer: 'process_scaffold',
-                scaffold_role: inferTutorRole(content),
+                scaffold_role: inferTutorRole(messageContent),
                 trigger_source: options?.triggerSource || 'manual_call',
                 trigger_reason: options?.triggerReason || 'tutor_chat',
                 current_stage: currentStage,
                 conversation_id: conversationId,
+                has_image_attachment: !!imageAttachment,
+                image_resource_id: imageAttachment?.resourceId,
                 ...options?.metadata,
             }
         })
@@ -365,7 +385,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
             trackingService.track({
                 module: 'ai',
                 action: 'ai_query_start',
-                metadata: { projectId, length: content.length }
+                metadata: { projectId, length: messageContent.length, hasImageAttachment: !!imageAttachment }
             });
 
             let activeConvId = conversationId;
@@ -378,9 +398,9 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
             }
 
             if (activeConvId) {
-                const inferredRole = inferTutorRole(content);
+                const inferredRole = inferTutorRole(messageContent);
                 const assistantMsgId = (Date.now() + 1).toString();
-                const initialProcessingSummary = buildProcessingSummary(content)
+                const initialProcessingSummary = buildProcessingSummary(messageContent)
                 processingStepsRef.current = initialProcessingSummary
                 const assistantMsg: Message = {
                     id: assistantMsgId,
@@ -430,7 +450,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                 const streamPayload = {
                     project_id: projectId,
                     conversation_id: activeConvId,
-                    message: content,
+                    message: messageContent,
                     role_id: 'default-tutor',
                     current_stage: currentStage || undefined,
                     enabled_rule_set: experimentVersion?.enabled_rule_set || undefined,
@@ -500,7 +520,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     console.warn('Tutor stream failed, fallback to non-streaming chat:', streamError)
                     const fallbackResponse = await aiService.sendMessage(
                         activeConvId,
-                        content,
+                        messageContent,
                         projectId,
                         {
                             current_stage: currentStage || undefined,
@@ -545,10 +565,10 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     stage_id: currentStage || undefined,
                     payload: {
                         scaffold_layer: 'process_scaffold',
-                        scaffold_role: inferTutorRole(finalMessage || content),
+                        scaffold_role: inferTutorRole(finalMessage || messageContent),
                         trigger_source: options?.triggerSource || 'manual_call',
                         trigger_reason: options?.triggerReason || 'tutor_chat',
-                        response_mode: inferTutorResponseMode(finalMessage || content),
+                        response_mode: inferTutorResponseMode(finalMessage || messageContent),
                         current_stage: currentStage,
                         conversation_id: activeConvId,
                         ...options?.metadata,
@@ -594,7 +614,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     const responseMessage: Message = {
                         id: (Date.now() + 1).toString(),
                         role: 'assistant',
-                        content: `[离线模式] 后端连接似乎不可用。这是针对 "${content}" 的本地响应。`,
+                        content: `[离线模式] 后端连接似乎不可用。这是针对 "${messageContent}" 的本地响应。`,
                         timestamp: new Date()
                     }
                     setMessages(prev => [...prev, responseMessage])
@@ -610,6 +630,48 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
             }]);
         } finally {
             setIsTyping(false);
+        }
+    }
+
+    const handleImageUpload = async (file: File) => {
+        if (!projectId) return
+        if (!file.type.startsWith('image/')) {
+            setToastMessage('请选择图片文件')
+            setShowToast(true)
+            return
+        }
+        setIsUploadingImage(true)
+        try {
+            const { upload_url, file_key } = await storageService.getPresignedUploadUrl(
+                projectId,
+                file.name,
+                file.type,
+                file.size
+            )
+            await storageService.uploadFile(upload_url, file)
+            const resource = await storageService.createResource({
+                file_key,
+                filename: file.name,
+                size: file.size,
+                project_id: projectId,
+                mime_type: file.type,
+                source_type: 'chat_attachment',
+            })
+            setPendingImage({
+                name: file.name,
+                size: file.size,
+                url: storageService.getResourceViewUrl(resource.id),
+                resourceId: resource.id,
+            })
+            setToastMessage('图片已添加到本轮提问')
+            setShowToast(true)
+        } catch (error) {
+            console.error('Failed to upload tutor image:', error)
+            setToastMessage('图片上传失败')
+            setShowToast(true)
+        } finally {
+            setIsUploadingImage(false)
+            if (imageInputRef.current) imageInputRef.current.value = ''
         }
     }
 
@@ -654,7 +716,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     <div>
                         <h3 className="font-bold text-gray-800 flex items-center gap-1.5 text-base">
                             <span className="text-xl filter drop-shadow-sm">🎓</span>
-                            <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">AI 智能导师</span>
+                            <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">个人 AI 导师</span>
                         </h3>
                         <p className="text-[10px] text-indigo-500/80 mt-0 font-medium tracking-tight">✨ 您的实时协作学习助手</p>
                     </div>
@@ -712,7 +774,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             >
                                 {msg.role === 'assistant' && msg.aiMeta && (
                                     <div className="mb-2 rounded-xl border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-800">
-                                        <div className="font-semibold">AI 导师</div>
+                                        <div className="font-semibold">个人 AI 导师</div>
                                         {msg.aiMeta.primaryView && (
                                             <div className="mt-1 text-[11px] font-medium text-indigo-700">
                                                 本轮主要视角：{msg.aiMeta.primaryView}
@@ -737,9 +799,19 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                         )}
                                     </div>
                                 )}
-                                <div className={`text-sm whitespace-pre-wrap leading-6 ${msg.role === 'assistant' ? 'markdown-body' : ''}`}>
-                                    {msg.content || (msg.role === 'assistant' && isTyping && msg.id === messages[messages.length - 1].id ? '...' : '')}
-                                </div>
+                                {msg.role === 'assistant' ? (
+                                    <div className="prose prose-sm max-w-none text-sm leading-6 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5 prose-headings:my-2">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {msg.content || (isTyping && msg.id === messages[messages.length - 1].id ? '...' : '')}
+                                        </ReactMarkdown>
+                                    </div>
+                                ) : (
+                                    <div className="prose prose-sm prose-invert max-w-none text-sm leading-6 prose-p:my-1 prose-img:my-2 prose-img:max-h-48 prose-img:rounded-xl prose-img:border prose-img:border-white/20 prose-img:object-contain">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {msg.content}
+                                        </ReactMarkdown>
+                                    </div>
+                                )}
                                 {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
                                     <details className="mt-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                                         <summary className="cursor-pointer font-semibold text-slate-700">
@@ -761,7 +833,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                 )}
                                 <div className={`text-[10px] mt-1 flex items-center gap-1 ${msg.role === 'user' ? 'text-indigo-200 justify-end' : 'text-gray-400'}`}>
                                     <span>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                    {msg.role === 'assistant' && <span>• AI Tutor</span>}
+                                    {msg.role === 'assistant' && <span>• 个人 AI 导师</span>}
                                     {msg.role === 'assistant' && msg.content && (
                                         <button
                                             onClick={() => handleSaveToScrapbook(msg.content)}
@@ -802,7 +874,49 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             ))}
                         </div>
                     )}
+                    {pendingImage && (
+                        <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-indigo-100 bg-indigo-50 px-3 py-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                                <img
+                                    src={pendingImage.url}
+                                    alt={pendingImage.name}
+                                    className="h-10 w-10 rounded-xl border border-white object-cover"
+                                />
+                                <div className="min-w-0">
+                                    <div className="truncate text-xs font-bold text-indigo-700">{pendingImage.name}</div>
+                                    <div className="text-[10px] text-indigo-500">图片将随本轮提问发送给个人 AI 导师</div>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setPendingImage(null)}
+                                className="shrink-0 rounded-full p-1 text-indigo-400 hover:bg-white hover:text-indigo-700"
+                                title="移除图片"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+                    )}
                     <div className="flex gap-2 items-end">
+                        <input
+                            ref={imageInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(event) => {
+                                const file = event.target.files?.[0]
+                                if (file) void handleImageUpload(file)
+                            }}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => imageInputRef.current?.click()}
+                            disabled={isTyping || isUploadingImage}
+                            className="p-3 rounded-xl bg-white text-indigo-600 ring-1 ring-indigo-100 shadow-sm hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                            title="添加图片"
+                        >
+                            {isUploadingImage ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-5 h-5" />}
+                        </button>
                         <div className="flex-1 relative group">
                             <input
                                 type="text"
@@ -816,7 +930,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                         </div>
                         <button
                             onClick={() => handleSend()}
-                            disabled={!inputValue.trim() || isTyping}
+                            disabled={(!inputValue.trim() && !pendingImage) || isTyping || isUploadingImage}
                             className="p-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl shadow-lg hover:shadow-indigo-500/30 hover:translate-y-[-1px] active:translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 group"
                         >
                             <svg className="w-5 h-5 transform group-hover:rotate-12 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -18,6 +18,8 @@ class Document(BeanieDocument):
     preview_text: Optional[str] = Field(None, max_length=200)  # First 50 chars for preview
     last_modified_by: str = Field(..., index=True)
     is_archived: bool = Field(default=False)
+    source_type: Optional[str] = Field(default=None, index=True)
+    course_task_release_id: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -28,6 +30,7 @@ class Document(BeanieDocument):
         indexes = [
             [("project_id", 1)],
             [("title", 1)],
+            [("course_task_release_id", 1)],
             # [("project_id", 1), ("title", 1)],
         ]
 
@@ -50,4 +53,3 @@ class DocumentVersion(BeanieDocument):
             [("document_id", 1), ("version_number", 1)],
             IndexModel([("created_at", 1)], expireAfterSeconds=2592000),
         ]
-

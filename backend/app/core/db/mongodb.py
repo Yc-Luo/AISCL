@@ -27,6 +27,7 @@ class MongoDB:
         from app.repositories.collaboration_snapshot import CollaborationSnapshot
         from app.repositories.chat_log import ChatLog
         from app.repositories.task import Task
+        from app.repositories.course_task_release import CourseTaskRelease
         from app.repositories.calendar_event import CalendarEvent
         from app.repositories.resource import Resource
         from app.repositories.ai_conversation import AIConversation
@@ -57,6 +58,7 @@ class MongoDB:
                 CollaborationSnapshot,
                 ChatLog,
                 Task,
+                CourseTaskRelease,
                 CalendarEvent,
                 Resource,
                 AIConversation,

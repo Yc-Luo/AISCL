@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { projectService } from '../../services/api/project'
 import { Project } from '../../types'
+import { Toast } from '../../components/ui/Toast'
 
 export default function ProjectSettings() {
     const { projectId } = useParams<{ projectId: string }>()
@@ -10,6 +11,7 @@ export default function ProjectSettings() {
     const [loading, setLoading] = useState(true)
     const [inviteInput, setInviteInput] = useState('')
     const [inviting, setInviting] = useState(false)
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
     const handleInvite = async () => {
         if (!project || !inviteInput.trim()) return
@@ -24,10 +26,10 @@ export default function ProjectSettings() {
             const p = await projectService.getProject(project.id)
             setProject(p)
             setInviteInput('')
-            alert('邀请成功')
+            setToast({ message: '邀请成功。', type: 'success' })
         } catch (error: any) {
             console.error('Invite failed:', error)
-            alert(error.response?.data?.detail || '邀请失败')
+            setToast({ message: error.response?.data?.detail || '邀请失败。', type: 'error' })
         } finally {
             setInviting(false)
         }
@@ -128,6 +130,13 @@ export default function ProjectSettings() {
                     </div>
                 </div>
             </div>
+            {toast && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast(null)}
+                />
+            )}
         </div>
     )
 }

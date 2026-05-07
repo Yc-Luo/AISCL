@@ -28,8 +28,13 @@ export const ScrapbookSidebar: React.FC<ScrapbookSidebarProps> = ({ isVisible })
 
     return (
         <div className="w-80 h-full border-r bg-slate-50 flex flex-col">
-            <div className="p-4 border-b bg-white flex justify-between items-center">
-                <h3 className="font-semibold text-slate-800">灵感素材池</h3>
+            <div className="p-4 border-b bg-white flex justify-between items-start gap-3">
+                <div>
+                    <h3 className="font-semibold text-slate-800">素材池</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                        暂存文本、图片和 AI 建议；拖入论证画布后再转化为证据节点。
+                    </p>
+                </div>
                 <Button
                     size="icon"
                     variant={isAdding ? "default" : "ghost"}
@@ -48,7 +53,7 @@ export const ScrapbookSidebar: React.FC<ScrapbookSidebarProps> = ({ isVisible })
                             <CardContent className="p-3 space-y-3">
                                 <textarea
                                     autoFocus
-                                    placeholder="输入新的灵感、问题或素材内容..."
+                                    placeholder="输入资料摘录、问题线索或待验证素材..."
                                     className="w-full h-24 p-2 text-sm bg-slate-50 border-none focus:ring-0 resize-none outline-none"
                                     value={newContent}
                                     onChange={(e) => setNewContent(e.target.value)}
@@ -66,7 +71,7 @@ export const ScrapbookSidebar: React.FC<ScrapbookSidebarProps> = ({ isVisible })
 
                     {scrapbook.length === 0 && !isAdding ? (
                         <div className="text-center py-8 text-slate-400 text-sm">
-                            还没有收集到素材，点击上方 + 号手动添加，或去资源库发现精彩内容。
+                            还没有收集到素材。可点击上方 + 手动添加，也可从文档、资源或 AI 回复中提取。
                         </div>
                     ) : (
                         scrapbook.map((card) => (

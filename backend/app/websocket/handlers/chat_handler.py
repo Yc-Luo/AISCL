@@ -606,6 +606,7 @@ async def _process_ai_reply(
             group_id=room_id,
             stage_id=current_stage,
         )
+        project_task_context = await group_memory_service.get_project_task_context(project)
         # Using project_id as session_id for continuity within the project
         graph_context = {
             **(routing_context or {}),
@@ -613,6 +614,7 @@ async def _process_ai_reply(
             "room_id": room_id,
             "group_id": room_id,
             "source_actor_type": "ai_assistant",
+            "project_task_context": project_task_context,
             "stage_memory_context": stage_memory.get("content"),
             "stage_memory_updated_at": stage_memory.get("updated_at"),
             "stage_memory_id": stage_memory.get("memory_id"),
@@ -631,10 +633,9 @@ async def _process_ai_reply(
         routing_decision = {}
         ai_meta = {
             "primary_agent": "AI智能助手",
-            "rationale_summary": "当前班级采用单 AI 模式，本轮由通用 AI 助手直接回应。",
+            "rationale_summary": "我会结合项目任务、当前阶段和小组近期讨论进行回应。",
             "routing_summary": [
-                "AI模式：单AI直接回复",
-                "编排方式：不经过多智能体 graph 路由",
+                "已读取项目任务说明" if project_task_context else "暂无项目任务说明",
                 f"阶段滚动记忆：{'已读取' if stage_memory.get('content') else '暂无'}",
                 f"小组讨论记忆：最近{group_memory.get('peer_message_count', 0)}条",
                 f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",
@@ -674,9 +675,13 @@ async def _process_ai_reply(
                     stage_id=experiment_version.get("current_stage"),
                     actor_type="ai_assistant",
                 )
+                context = {
+                    **(context or {"content": "", "citations": []}),
+                    "project_task_context": project_task_context,
+                }
                 if group_memory.get("content"):
                     context = {
-                        **(context or {"content": "", "citations": []}),
+                        **context,
                         "stage_memory_context": stage_memory.get("content"),
                         "stage_memory_updated_at": stage_memory.get("updated_at"),
                         "stage_memory_id": stage_memory.get("memory_id"),
@@ -690,7 +695,7 @@ async def _process_ai_reply(
                     }
                 elif stage_memory.get("content"):
                     context = {
-                        **(context or {"content": "", "citations": []}),
+                        **context,
                         "stage_memory_context": stage_memory.get("content"),
                         "stage_memory_updated_at": stage_memory.get("updated_at"),
                         "stage_memory_id": stage_memory.get("memory_id"),
@@ -698,10 +703,11 @@ async def _process_ai_reply(
                     }
             except Exception as exc:
                 logger.warning("Group chat single-AI RAG unavailable: %s", exc)
-                if group_memory.get("content") or stage_memory.get("content"):
+                if group_memory.get("content") or stage_memory.get("content") or project_task_context:
                     context = {
                         "content": "",
                         "citations": [],
+                        "project_task_context": project_task_context,
                         "stage_memory_context": stage_memory.get("content"),
                         "stage_memory_updated_at": stage_memory.get("updated_at"),
                         "stage_memory_id": stage_memory.get("memory_id"),
@@ -749,6 +755,7 @@ async def _process_ai_reply(
                 routing_decision,
             )
             ai_meta.setdefault("routing_summary", []).extend([
+                "已读取项目任务说明" if project_task_context else "暂无项目任务说明",
                 f"阶段滚动记忆：{'已读取' if stage_memory.get('content') else '暂无'}",
                 f"小组讨论记忆：最近{group_memory.get('peer_message_count', 0)}条",
                 f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",

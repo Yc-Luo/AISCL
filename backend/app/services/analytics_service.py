@@ -1120,50 +1120,108 @@ JSON Output Format:
             return []
 
     @classmethod
-    async def get_learning_suggestions(cls, scores: Dict[str, float], activity_summary: Optional[Dict] = None) -> List[Dict]:
-        """Generate learning suggestions based on 4C scores and behavior."""
-        # 1. Try AI generation if summary is provided
-        if activity_summary:
-            ai_suggestions = await cls._generate_ai_suggestions(scores, activity_summary)
-            if ai_suggestions:
-                return ai_suggestions
+    async def get_learning_suggestions(
+        cls,
+        scores: Dict[str, float],
+        activity_summary: Optional[Dict] = None,
+        evidence: Optional[Dict[str, Any]] = None,
+        scope: str = "group",
+    ) -> List[Dict]:
+        """Generate deterministic suggestions from real 4C evidence."""
+        evidence = evidence or {}
+        active_minutes = int((activity_summary or {}).get("total_active_minutes", 0) or 0)
+        scope_prefix = "你个人" if scope == "personal" else "小组"
 
-        # 2. Fallback to rule-based logic
-        suggestions = []
-        
-        # Logic based on scores
-        if scores.get("communication", 0) < 60:
-            suggestions.append({
-                "id": "s1",
-                "title": "提升沟通频率",
-                "content": "检测到您的沟通评分较低，建议多在文档评论区或群聊中分享想法。",
-                "type": "important"
-            })
-            
-        if scores.get("collaboration", 0) < 60:
-            suggestions.append({
-                "id": "s2",
-                "title": "加强团队协作",
-                "content": "建议参与到其他成员创建的白板或文档中，共同编辑内容。",
-                "type": "critical"
-            })
-            
-        if scores.get("critical_thinking", 0) < 70:
-            suggestions.append({
-                "id": "s3",
-                "title": "深度思考与反馈",
-                "content": "在向他人提供反馈时，尝试提供更具建设性和深度评论。",
-                "type": "normal"
-            })
-            
+        def count_sum(dimension: str, labels: List[str]) -> int:
+            counts = evidence.get(dimension, {}).get("counts", {}) if evidence else {}
+            return sum(int(counts.get(label, 0) or 0) for label in labels)
+
+        def suggestion_type(score: float) -> str:
+            if score < 40:
+                return "critical"
+            if score < 65:
+                return "important"
+            return "normal"
+
+        dimensions = [
+            ("communication", "沟通表达", scores.get("communication", 0)),
+            ("collaboration", "协作推进", scores.get("collaboration", 0)),
+            ("critical_thinking", "证据与反思", scores.get("critical_thinking", 0)),
+            ("creativity", "观点生成", scores.get("creativity", 0)),
+        ]
+        ranked_dimensions = sorted(dimensions, key=lambda item: item[2])
+
+        suggestions: List[Dict[str, Any]] = []
+
+        for key, _, score in ranked_dimensions:
+            if score >= 75 and len(suggestions) >= 2:
+                continue
+            if key == "communication":
+                chat_count = count_sum("communication", ["聊天/同伴消息", "文档批注", "批注互动"])
+                suggestions.append({
+                    "id": f"{scope}_communication",
+                    "title": "把想法说清楚并留下回应",
+                    "content": (
+                        f"近 7 天{scope_prefix}可见的沟通记录约 {chat_count} 次。"
+                        "建议在群聊中先说明自己的理解，再用文档批注回应同伴观点，尽量写出“理由+证据+疑问”。"
+                    ),
+                    "type": suggestion_type(score),
+                    "source": "four_c_evidence",
+                })
+            elif key == "collaboration":
+                structure_count = count_sum("collaboration", ["共享文档提交", "探究节点/连线", "资源/Wiki操作"])
+                suggestions.append({
+                    "id": f"{scope}_collaboration",
+                    "title": "把协作推进落实到共同产物",
+                    "content": (
+                        f"近 7 天{scope_prefix}共同产物操作约 {structure_count} 次。"
+                        "建议至少完成一次共享文档修订、一次探究节点补充或一次 Wiki/资源沉淀，让讨论能转化为小组产物。"
+                    ),
+                    "type": suggestion_type(score),
+                    "source": "four_c_evidence",
+                })
+            elif key == "critical_thinking":
+                evidence_count = count_sum("critical_thinking", ["证据/引用"])
+                challenge_count = count_sum("critical_thinking", ["反驳/质疑"])
+                revision_count = count_sum("critical_thinking", ["修订提交"])
+                suggestions.append({
+                    "id": f"{scope}_critical_thinking",
+                    "title": "补强证据、反驳与修订链条",
+                    "content": (
+                        f"当前证据/引用 {evidence_count} 次，反驳/质疑 {challenge_count} 次，修订 {revision_count} 次。"
+                        "建议每个核心观点至少补充一个证据来源，并主动写出一个可能反例，再据此修订文档或论证节点。"
+                    ),
+                    "type": suggestion_type(score),
+                    "source": "four_c_evidence",
+                })
+            elif key == "creativity":
+                idea_count = count_sum("creativity", ["新想法/探究节点"])
+                artifact_count = count_sum("creativity", ["文档/Wiki新产物", "素材/媒体操作"])
+                suggestions.append({
+                    "id": f"{scope}_creativity",
+                    "title": "沉淀新想法并形成可见材料",
+                    "content": (
+                        f"近 7 天{scope_prefix}新想法/探究节点约 {idea_count} 个，产物或素材操作约 {artifact_count} 次。"
+                        "建议把一个新想法放入素材池，再在论证画布中转化为观点、证据或反驳节点。"
+                    ),
+                    "type": suggestion_type(score),
+                    "source": "four_c_evidence",
+                })
+            if len(suggestions) >= 3:
+                break
+
         if not suggestions:
             suggestions.append({
-                "id": "s4",
-                "title": "继续保持",
-                "content": "您目前的各项能力发展均衡，请继续保持良好的学习状态。",
-                "type": "info"
+                "id": f"{scope}_balanced",
+                "title": "继续保持均衡投入",
+                "content": (
+                    f"近 7 天记录到的学习活跃时长约 {active_minutes} 分钟，4C 指标相对均衡。"
+                    "建议下一步挑战更高质量的证据整合和阶段性结论沉淀。"
+                ),
+                "type": "info",
+                "source": "four_c_evidence",
             })
-            
+
         return suggestions
 
     @classmethod
@@ -1321,6 +1379,12 @@ JSON Output Format:
                 end_datetime,
             ),
         }
+        result["learning_suggestions"] = await cls.get_learning_suggestions(
+            result["four_c"],
+            activity_summary=result.get("summary"),
+            evidence=result["four_c_evidence"]["group"],
+            scope="group",
+        )
         
         # 3. If user_id is provided, merge personal stats into the trend
         if user_id:
@@ -1398,6 +1462,15 @@ JSON Output Format:
                 user_id,
                 start_datetime,
                 end_datetime,
+            )
+            result["learning_suggestions"] = await cls.get_learning_suggestions(
+                personal_four_c,
+                activity_summary={
+                    "total_active_minutes": sum(stat.active_minutes for stat in personal_stats),
+                    "total_activity_score": sum(stat.activity_score for stat in personal_stats),
+                },
+                evidence=result["four_c_evidence"]["personal"],
+                scope="personal",
             )
             
         return result

@@ -270,6 +270,7 @@ export const aiService = {
         context_type: 'document' | 'whiteboard' | 'dashboard'
         content: string
         additional_query?: string
+        current_stage?: string
     }) => {
         const response = await api.post('/ai/action', data)
         return response.data

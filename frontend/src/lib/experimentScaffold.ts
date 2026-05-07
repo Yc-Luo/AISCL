@@ -144,7 +144,7 @@ export function getRuleRecommendationAvailability(
       roleKey,
       target,
       available: false,
-      reason: '当前实验配置已关闭协作过程支架。',
+      reason: '当前暂不开放该协作提示。',
     }
   }
 
@@ -154,7 +154,7 @@ export function getRuleRecommendationAvailability(
       roleKey,
       target,
       available: false,
-      reason: '当前实验配置未启用多智能体支架层。',
+      reason: '当前暂不开放该智能支持。',
     }
   }
 
@@ -164,7 +164,7 @@ export function getRuleRecommendationAvailability(
       roleKey,
       target,
       available: false,
-      reason: '当前实验配置未启用该支架角色。',
+      reason: '当前暂不开放该智能支持。',
     }
   }
 

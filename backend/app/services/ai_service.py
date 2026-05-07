@@ -83,6 +83,10 @@ class AIService:
             return ""
 
         sections: list[str] = []
+        project_task_context = context.get("project_task_context")
+        if project_task_context:
+            sections.append(f"当前项目任务说明：\n{project_task_context}")
+
         stage_memory_context = context.get("stage_memory_context")
         if stage_memory_context:
             sections.append(f"当前阶段滚动记忆：\n{stage_memory_context}")
@@ -121,6 +125,7 @@ class AIService:
                 "stage_memory_updated_at",
                 "stage_memory_id",
                 "stage_memory_version",
+                "project_task_context",
                 "content",
                 "citations",
             }

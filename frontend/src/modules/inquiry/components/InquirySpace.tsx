@@ -81,7 +81,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
 
     const handleAIAnalysis = useCallback(async () => {
         if (!devilAdvocateEnabled) {
-            setToast({ message: "当前实验配置未启用观点挑战角色", visible: true });
+            setToast({ message: "当前暂不开放观点挑战分析。", visible: true });
             return;
         }
         if (nodes.length === 0) {
@@ -128,7 +128,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
 
             if (response?.message) {
                 addCard(response.message, 'ai_response');
-                setToast({ message: "AI 分析完成，建议已加入灵感墙", visible: true });
+                setToast({ message: "AI 分析完成，建议已加入素材池", visible: true });
                 trackBehavior('ai', 'devil_advocate_success');
                 trackingService.trackResearchEvent({
                     project_id: projectId,
@@ -155,7 +155,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
 
     const handleClustering = useCallback(async () => {
         if (!clusteringEnabled) {
-            setToast({ message: "当前实验配置未启用认知支持角色", visible: true });
+            setToast({ message: "当前暂不开放聚类分析。", visible: true });
             return;
         }
         if (nodes.length < 2) {
@@ -190,7 +190,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
 
             if (response?.message) {
                 addCard(response.message, 'ai_response');
-                setToast({ message: "智能聚类分析完成，已生成逻辑模块卡片", visible: true });
+                setToast({ message: "素材归类建议已加入素材池，可按需拖入论证画布", visible: true });
                 trackBehavior('ai', 'clustering_success');
                 trackingService.trackResearchEvent({
                     project_id: projectId,
@@ -331,7 +331,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
                     const imageUrl = storageService.getResourceViewUrl(resource.id);
 
                     addCard('[粘贴的图片]', 'image', undefined, '剪贴板导入', imageUrl);
-                    setToast({ message: '图片已存入灵感池', visible: true });
+                    setToast({ message: '图片已存入素材池', visible: true });
                     trackBehavior('resource', 'paste_image', resource.id);
                     trackInquiryResearchEvent('scrapbook_image_add', {
                         resource_id: resource.id,
@@ -402,8 +402,8 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
                     onClustering={handleClustering}
                     aiAnalysisEnabled={devilAdvocateEnabled}
                     clusteringEnabled={clusteringEnabled}
-                    aiAnalysisDisabledReason="当前实验配置未启用观点挑战角色。"
-                    clusteringDisabledReason="当前实验配置未启用认知支持角色。"
+                    aiAnalysisDisabledReason="当前暂不开放观点挑战分析。"
+                    clusteringDisabledReason="当前暂不开放聚类分析。"
                     analyzingType={analyzingType}
                     onSave={handleSave}
                     isSaving={isSaving}

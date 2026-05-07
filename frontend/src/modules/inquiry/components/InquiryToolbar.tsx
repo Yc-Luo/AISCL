@@ -60,7 +60,7 @@ export const InquiryToolbar: React.FC<InquiryToolbarProps> = ({
                     onClick={() => setViewMode('scrapbook')}
                 >
                     <LayoutDashboard className={cn("w-3.5 h-3.5 mr-1.5 transition-transform", viewMode === 'scrapbook' && "scale-110")} />
-                    灵感墙
+                    素材池
                 </Button>
                 <Button
                     variant="ghost"

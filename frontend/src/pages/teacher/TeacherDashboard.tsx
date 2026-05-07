@@ -13,7 +13,8 @@ import {
   Briefcase,
   UserCircle,
   FolderOpen,
-  ClipboardCheck
+  ClipboardCheck,
+  CalendarClock
 } from 'lucide-react'
 import { ROUTES } from '../../config/routes'
 
@@ -101,6 +102,13 @@ export default function TeacherDashboard() {
             icon={FolderOpen}
             label="课程资源"
             active={isActive(ROUTES.TEACHER.COURSE_RESOURCES)}
+            isCollapsed={isCollapsed}
+          />
+          <SidebarLink
+            to={ROUTES.TEACHER.TASK_RELEASES}
+            icon={CalendarClock}
+            label="任务发布"
+            active={isActive(ROUTES.TEACHER.TASK_RELEASES)}
             isCollapsed={isCollapsed}
           />
           <SidebarLink

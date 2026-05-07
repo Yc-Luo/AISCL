@@ -6,6 +6,7 @@ import { CalendarEvent, Task } from '../../../../types'
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import { useAuthStore } from '../../../../stores/authStore'
 import { Calendar, ChevronLeft, ChevronRight, Clock, MapPin, Target } from 'lucide-react'
+import { Toast } from '../../../ui/Toast'
 
 interface CalendarViewProps {
   projectId: string
@@ -21,6 +22,7 @@ export default function CalendarView({ projectId }: CalendarViewProps) {
   const [newEventTitle, setNewEventTitle] = useState('')
   const [newEventType, setNewEventType] = useState<'meeting' | 'deadline' | 'personal'>('meeting')
   const [newEventIsPrivate, setNewEventIsPrivate] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
 
@@ -142,7 +144,7 @@ export default function CalendarView({ projectId }: CalendarViewProps) {
       setShowCreateDialog(false)
     } catch (error) {
       console.error('Failed to create event:', error)
-      alert('创建事件失败')
+      setToast({ message: '创建事件失败，请稍后重试。', type: 'error' })
     }
   }
 
@@ -367,6 +369,13 @@ export default function CalendarView({ projectId }: CalendarViewProps) {
             </div>
           </div>
         </div>
+      )}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   )

@@ -43,7 +43,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Update SyncService token to ensure WebSocket reconnects with new user identity
       syncService.setToken(tokens.access_token)
 
-      const user = await authService.getCurrentUser()
+      const user = tokens.user || await authService.getCurrentUser()
       set({ user, isAuthenticated: true, isLoading: false, isInitialized: true })
     } catch (error) {
       set({ isLoading: false, isInitialized: true })

@@ -153,7 +153,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
         if (!isAssistantActionEnabled(experimentVersion, assistantRole)) {
             setMessages(prev => [...prev, {
                 role: 'system',
-                content: '当前实验配置未启用该 AI 支架角色，暂不提供此操作。'
+                content: '当前暂不开放这个快捷操作。你仍然可以直接输入问题，我会围绕任务提供帮助。'
             }])
             return
         }
@@ -205,7 +205,8 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
                 project_id: projectId,
                 action_type: type,
                 context_type: contextType,
-                content: content
+                content: content,
+                current_stage: currentStage || undefined,
             })
 
             setMessages(prev => [...prev, { role: 'assistant', content: response.message }])
@@ -283,20 +284,59 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
 
         try {
             const inferredRole = inferAssistantRole(userMsg)
-            const response = await aiService.sendMessage(
-                conversationId || '',
-                `${contextText}用户提问: ${userMsg}`,
-                projectId,
-                {
+            setMessages(prev => [...prev, { role: 'assistant', content: '' }])
+
+            let responseMessage = ''
+            let responseConversationId = conversationId
+            try {
+                await aiService.streamChat({
+                    project_id: projectId,
+                    conversation_id: conversationId || undefined,
+                    message: `${contextText}用户提问: ${userMsg}`,
                     current_stage: currentStage || undefined,
                     enabled_rule_set: experimentVersion?.enabled_rule_set || undefined,
                     enabled_scaffold_roles: experimentVersion?.enabled_scaffold_roles || [],
                     preferred_subagent: roleKeyToPreferredSubagent(inferredRole as ScaffoldRoleKey),
-                },
-            )
-            setMessages(prev => [...prev, { role: 'assistant', content: response.message }])
-            if (response.conversation_id) {
-                setConversationId(response.conversation_id)
+                }, {
+                    onChunk: (_chunk, fullText) => {
+                        responseMessage = fullText
+                        setMessages(prev => prev.map((msg, index) =>
+                            index === prev.length - 1 && msg.role === 'assistant'
+                                ? { ...msg, content: fullText }
+                                : msg
+                        ))
+                    },
+                    onDone: (meta) => {
+                        if (meta.conversation_id) {
+                            responseConversationId = meta.conversation_id
+                            setConversationId(meta.conversation_id)
+                        }
+                    },
+                })
+            } catch (streamError) {
+                console.warn('Floating assistant stream failed, fallback to non-streaming chat:', streamError)
+                const response = await aiService.sendMessage(
+                    conversationId || '',
+                    `${contextText}用户提问: ${userMsg}`,
+                    projectId,
+                    {
+                        current_stage: currentStage || undefined,
+                        enabled_rule_set: experimentVersion?.enabled_rule_set || undefined,
+                        enabled_scaffold_roles: experimentVersion?.enabled_scaffold_roles || [],
+                        preferred_subagent: roleKeyToPreferredSubagent(inferredRole as ScaffoldRoleKey),
+                    },
+                )
+                responseMessage = response.message
+                responseConversationId = response.conversation_id || responseConversationId
+                setMessages(prev => prev.map((msg, index) =>
+                    index === prev.length - 1 && msg.role === 'assistant'
+                        ? { ...msg, content: response.message }
+                        : msg
+                ))
+            }
+
+            if (responseConversationId) {
+                setConversationId(responseConversationId)
             }
 
             trackingService.trackResearchEvent({
@@ -308,13 +348,13 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
                 stage_id: currentStage || undefined,
                 payload: {
                     scaffold_layer: 'multi_agent_scaffold',
-                    scaffold_role: inferAssistantRole(response.message || userMsg),
+                    scaffold_role: inferAssistantRole(responseMessage || userMsg),
                     trigger_source: options?.triggerSource || 'manual_call',
                     trigger_reason: options?.triggerReason || 'chat_query',
-                    response_mode: inferResponseMode(response.message || userMsg),
+                    response_mode: inferResponseMode(responseMessage || userMsg),
                     active_tab: activeTab,
                     current_stage: currentStage,
-                    conversation_id: response.conversation_id,
+                    conversation_id: responseConversationId,
                     ...options?.metadata,
                 }
             })
@@ -322,7 +362,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
             trackingService.track({
                 module: 'ai',
                 action: 'ai_assistant_chat',
-                metadata: { projectId, has_context: !!contextText, conversationId: response.conversation_id }
+                metadata: { projectId, has_context: !!contextText, conversationId: responseConversationId }
             })
         } catch (error) {
             console.error('AI Chat failed:', error)
@@ -413,7 +453,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
                                     <button
                                         onClick={() => handleAction('summarize')}
                                         disabled={loading || !summarizeEnabled}
-                                        title={!summarizeEnabled ? '当前实验配置未启用认知支持角色。' : undefined}
+                                        title={!summarizeEnabled ? '当前暂不开放该快捷操作。' : undefined}
                                         className="group w-full text-left p-4 rounded-xl bg-white border border-gray-100 hover:border-indigo-300 hover:shadow-md hover:bg-indigo-50/30 transition-all flex items-center gap-3"
                                     >
                                         <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">📝</div>
@@ -425,7 +465,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
                                     <button
                                         onClick={() => handleAction('knowledge_graph')}
                                         disabled={loading || !knowledgeGraphEnabled}
-                                        title={!knowledgeGraphEnabled ? '当前实验配置未启用问题推进角色。' : undefined}
+                                        title={!knowledgeGraphEnabled ? '当前暂不开放该快捷操作。' : undefined}
                                         className="group w-full text-left p-4 rounded-xl bg-white border border-gray-100 hover:border-purple-300 hover:shadow-md hover:bg-purple-50/30 transition-all flex items-center gap-3"
                                     >
                                         <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">🧠</div>
@@ -437,7 +477,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
                                     <button
                                         onClick={() => handleAction('optimize')}
                                         disabled={loading || !optimizeEnabled}
-                                        title={!optimizeEnabled ? '当前实验配置未启用反馈追问角色。' : undefined}
+                                        title={!optimizeEnabled ? '当前暂不开放该快捷操作。' : undefined}
                                         className="group w-full text-left p-4 rounded-xl bg-white border border-gray-100 hover:border-amber-300 hover:shadow-md hover:bg-amber-50/30 transition-all flex items-center gap-3"
                                     >
                                         <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">💡</div>

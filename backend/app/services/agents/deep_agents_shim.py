@@ -174,7 +174,7 @@ def _build_constrained_instruction(
         reasons.append(f"当前命中的教育性规则为 {rule_type}")
     if current_stage:
         reasons.append(f"当前学习阶段为 {current_stage}")
-    reason_text = "；".join(reasons) if reasons else "当前需要优先满足实验配置与阶段要求"
+    reason_text = "；".join(reasons) if reasons else "当前需要优先结合任务阶段与提问意图"
     return (
         f"本轮采用显式约束路由，直接交由 {target_agent} 处理。"
         f"请围绕当前问题提供该角色职责内的支架介入。"
@@ -276,6 +276,7 @@ def create_deep_agent(
         group_peer_context = context_data.get("group_peer_context", "")
         group_ai_context = context_data.get("group_ai_context", "")
         stage_memory_context = context_data.get("stage_memory_context", "")
+        project_task_context = context_data.get("project_task_context", "")
         current_stage = context_data.get("current_stage", "")
         rule_type = context_data.get("rule_type", "")
         enabled_scaffold_roles = context_data.get("enabled_scaffold_roles", [])
@@ -390,6 +391,7 @@ def create_deep_agent(
 You are the Deep Agent Supervisor. 
 RAG Analysis: {strategy_note}
 Retrieved Context: {rag_context}
+Project Task Brief: {project_task_context or "none"}
 Stage Rolling Memory: {stage_memory_context or "none"}
 Group Peer Discussion Memory: {group_peer_context or group_chat_context or "none"}
 Group AI Interaction Memory: {group_ai_context or "none"}
@@ -515,6 +517,7 @@ Response Format (JSON):
             group_peer_context = state.get("context", {}).get("group_peer_context", "")
             group_ai_context = state.get("context", {}).get("group_ai_context", "")
             stage_memory_context = state.get("context", {}).get("stage_memory_context", "")
+            project_task_context = state.get("context", {}).get("project_task_context", "")
             
             full_prompt = f"""{prompt_text}
             
@@ -522,6 +525,9 @@ Supervisor Instruction: {instruction}
 
 Relevant Context for your use (Cite if using):
 {rag_context}
+
+Project Task Brief:
+{project_task_context or "none"}
 
 Stage Rolling Memory for continuity:
 {stage_memory_context or "none"}

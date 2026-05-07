@@ -36,6 +36,7 @@ from app.services.ai_service import ai_service
 from app.services.intervention_service import intervention_service
 from app.services.rag_service import rag_service
 from app.services.agents.agent_service import agent_service
+from app.services.group_memory_service import group_memory_service
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -145,23 +146,44 @@ def _build_tutor_ai_meta(chat_data: AIChatRequest) -> dict:
         chat_data.current_stage,
     )
     rationale_summary = (
-        f"结合当前阶段与提问内容，本轮 AI 导师主要采用“{primary_view}”的支架视角。"
+        f"结合当前阶段与提问内容，本轮 AI 导师主要采用“{primary_view}”的学习支持视角。"
         if chat_data.current_stage
-        else f"结合当前提问内容，本轮 AI 导师主要采用“{primary_view}”的支架视角。"
+        else f"结合当前提问内容，本轮 AI 导师主要采用“{primary_view}”的学习支持视角。"
     )
     processing_summary = [
-        f"正在识别当前阶段目标：{chat_data.current_stage or '未设置阶段'}",
-        f"正在调用 {primary_view} 组织本轮支架回应",
+        "正在识别当前任务阶段与提问意图",
+        f"正在从“{primary_view}”视角组织回应",
     ]
-    if chat_data.enabled_rule_set:
-        processing_summary.append(
-            f"正在结合规则集 {chat_data.enabled_rule_set} 调整回应重点"
-        )
-    processing_summary.append("正在生成面向当前任务的下一步建议")
+    processing_summary.append("正在生成面向当前任务的学习建议")
     return {
         "primary_view": primary_view,
         "rationale_summary": rationale_summary,
         "processing_summary": processing_summary,
+    }
+
+
+async def _build_project_ai_context(
+    *,
+    project: Project,
+    chat_data: AIChatRequest,
+    base_context: Optional[dict],
+) -> dict:
+    """Attach task brief and shared group-stage memory to student AI context."""
+    stage_id = chat_data.current_stage or (project.experiment_version or {}).get("current_stage")
+    group_id = f"project:{str(project.id)}"
+    stage_memory = await group_memory_service.get_stage_memory_context(
+        project_id=str(project.id),
+        group_id=group_id,
+        stage_id=stage_id,
+    )
+    project_task_context = await group_memory_service.get_project_task_context(project)
+    return {
+        **(base_context or {"content": "", "citations": []}),
+        "project_task_context": project_task_context,
+        "stage_memory_context": stage_memory.get("content"),
+        "stage_memory_updated_at": stage_memory.get("updated_at"),
+        "stage_memory_id": stage_memory.get("memory_id"),
+        "stage_memory_version": stage_memory.get("version"),
     }
 
 
@@ -202,6 +224,11 @@ async def chat(
         except Exception as e:
             print(f"RAG Error: {e}")
             context = None
+    context = await _build_project_ai_context(
+        project=project,
+        chat_data=chat_data,
+        base_context=context,
+    )
 
     # Chat with AI
     response = await ai_service.chat(
@@ -267,6 +294,17 @@ async def ai_action(
     if action_data.additional_query:
         user_message += f"\n\n用户特别要求：{action_data.additional_query}"
 
+    action_context = await _build_project_ai_context(
+        project=project,
+        chat_data=AIChatRequest(
+            project_id=action_data.project_id,
+            message=action_data.additional_query or action_data.content[:1000],
+            current_stage=action_data.current_stage,
+            use_rag=False,
+        ),
+        base_context={"content": "", "citations": []},
+    )
+
     # Use ai_service to perform the chat
     # We pass use_rag=False because the context is already provided explicitly in the content
     response = await ai_service.chat(
@@ -275,6 +313,7 @@ async def ai_action(
         message=user_message,
         role_id=None, # Use default role
         conversation_id=None, # New session for each action usually
+        context=action_context,
         system_message_override=system_prompt,
         category="action",
     )
@@ -392,6 +431,11 @@ async def chat_stream(
                 )
 
         # Construct context string if RAG is enabled
+        context = await _build_project_ai_context(
+            project=project,
+            chat_data=chat_data,
+            base_context=context,
+        )
         final_message = chat_data.message
         if context:
             final_message = f"Context:\n{context['content']}\n\nUser Question: {chat_data.message}"
@@ -408,7 +452,7 @@ async def chat_stream(
                     "status",
                     {
                         "step": "generating",
-                        "message": "已进入单 AI 回答模式，正在生成最终回答。",
+                        "message": "正在结合项目任务和当前协作记录生成回应。",
                     },
                 )
                 async for chunk in ai_service.chat_stream(
@@ -447,7 +491,7 @@ async def chat_stream(
                 "status",
                 {
                     "step": "routing",
-                    "message": f"正在进行多智能体编排，本轮主要视角：{primary_view}。",
+                    "message": f"正在从“{primary_view}”视角组织回应。",
                     "primary_view": primary_view,
                 },
             )
@@ -464,6 +508,12 @@ async def chat_stream(
                 "preferred_subagent": chat_data.preferred_subagent,
                 "source_actor_type": "system",
                 "user_id": str(current_user.id),
+                "group_id": f"project:{chat_data.project_id}",
+                "project_task_context": context.get("project_task_context") if context else "",
+                "stage_memory_context": context.get("stage_memory_context") if context else "",
+                "stage_memory_updated_at": context.get("stage_memory_updated_at") if context else None,
+                "stage_memory_id": context.get("stage_memory_id") if context else None,
+                "stage_memory_version": context.get("stage_memory_version") if context else None,
             }
 
             user_message = AIMessage(
@@ -477,7 +527,7 @@ async def chat_stream(
                 "status",
                 {
                     "step": "generating",
-                    "message": "已完成角色选择，正在生成最终回答。",
+                    "message": "正在生成面向当前任务的回应。",
                 },
             )
             async for chunk in agent_service.chat_stream(

@@ -186,6 +186,7 @@ class AIContextActionRequest(BaseModel):
     context_type: str = Field(..., pattern="^(document|whiteboard|browser|dashboard)$")
     content: str = Field(..., max_length=50000)
     additional_query: Optional[str] = Field(None, max_length=1000)
+    current_stage: Optional[str] = Field(default=None, max_length=100)
 
 
 class InterventionCheckContext(BaseModel):

@@ -30,6 +30,27 @@ const ITEM_TYPES: WikiItemType[] = [
   'note',
 ]
 
+const normalizeWikiText = (value?: string | null) => (value || '').trim()
+
+const estimateDisplayLines = (text: string) => {
+  return text.split(/\r?\n/).reduce((total, line) => {
+    const lineLength = line.trim().length
+    return total + Math.max(1, Math.ceil(lineLength / 42))
+  }, 0)
+}
+
+const getCollapsedText = (item: WikiItem) => {
+  const summary = normalizeWikiText(item.summary)
+  return summary || normalizeWikiText(item.content)
+}
+
+const canExpandWikiItem = (item: WikiItem, collapsedText: string) => {
+  const content = normalizeWikiText(item.content)
+  if (!content) return false
+  if (collapsedText !== content) return true
+  return content.length > 220 || estimateDisplayLines(content) > 3
+}
+
 export default function ProjectWiki({ projectId }: ProjectWikiProps) {
   const user = useAuthStore((state) => state.user)
   const currentStage = useContextStore((state) => state.currentStage)
@@ -251,9 +272,10 @@ export default function ProjectWiki({ projectId }: ProjectWikiProps) {
             <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
               {items.map((item) => {
                 const isExpanded = expandedItemIds.has(item.id)
-                const collapsedText = item.summary || item.content
-                const shownText = isExpanded ? item.content : collapsedText
-                const canExpand = Boolean(item.summary && item.summary.trim() !== item.content.trim()) || item.content.length > 220
+                const contentText = normalizeWikiText(item.content)
+                const collapsedText = getCollapsedText(item)
+                const shownText = isExpanded ? contentText : collapsedText
+                const canExpand = canExpandWikiItem(item, collapsedText)
                 const canDelete = canDeleteWikiItem(item)
 
                 return (

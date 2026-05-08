@@ -77,10 +77,11 @@ class TrackingService {
         const storeState = useProjectStore.getState();
         const project = storeState.currentProject;
 
-        let projectId = project?.id || event.metadata?.projectId || event.metadata?.project_id || 'global';
+        const projectId = project?.id || event.metadata?.projectId || event.metadata?.project_id;
+        if (!projectId) return;
 
         // If currentProject is null but we have a projectId, try to find it in the projects list
-        const activeProject = project || (projectId !== 'global' ? storeState.projects.find(p => p.id === projectId) : null);
+        const activeProject = project || storeState.projects.find(p => p.id === projectId);
 
         // Enhance metadata with role information
         const projectRole = activeProject?.members?.find((m: any) => m.user_id === user.id)?.role || 'unknown';

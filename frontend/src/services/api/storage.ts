@@ -132,6 +132,30 @@ export const storageService = {
     return response.data
   },
 
+  async uploadResourceFile(data: {
+    file: File
+    project_id?: string
+    course_id?: string
+    source_type?: 'library' | 'document_embed' | 'chat_attachment' | 'inquiry_material'
+  }): Promise<Resource> {
+    const formData = new FormData()
+    formData.append('file', data.file)
+    if (data.project_id) formData.append('project_id', data.project_id)
+    if (data.course_id) formData.append('course_id', data.course_id)
+    if (data.source_type) formData.append('source_type', data.source_type)
+
+    const response = await api.post<Resource>(
+      `${API_ENDPOINTS.RESOURCES}/upload-resource`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    )
+    return response.data
+  },
+
   async createCourseResource(data: {
     file_key: string
     filename: string

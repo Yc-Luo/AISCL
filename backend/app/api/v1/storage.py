@@ -1,13 +1,14 @@
 """Storage API routes for file uploads."""
 
 import hashlib
+import mimetypes
 import uuid
 from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status, BackgroundTasks
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 
@@ -32,6 +33,13 @@ ALLOWED_UPLOAD_MIME_TYPES = {
     "image/jpg",
     "image/gif",
     "image/webp",
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/wav",
+    "audio/webm",
     "application/pdf",
     "text/plain",
     "text/markdown",
@@ -57,6 +65,15 @@ INLINE_IMAGE_MIME_TYPES = {
 def _normalize_mime_type(mime_type: str) -> str:
     """Normalize client-provided MIME values before validation."""
     return (mime_type or "").split(";", 1)[0].strip().lower()
+
+
+def _resolve_upload_mime_type(filename: str, mime_type: Optional[str]) -> str:
+    """Resolve blank browser MIME values from file extension when possible."""
+    normalized = _normalize_mime_type(mime_type or "")
+    if normalized:
+        return normalized
+    guessed, _ = mimetypes.guess_type(filename or "")
+    return _normalize_mime_type(guessed or "")
 
 
 def _ensure_allowed_upload_mime(mime_type: str) -> str:
@@ -218,6 +235,81 @@ async def create_resource(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Create resource record after file upload."""
+    return await _create_resource_from_uploaded_object(resource_data, background_tasks, current_user)
+
+
+@router.post("/upload-resource")
+async def upload_resource_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    project_id: Optional[str] = Form(None),
+    course_id: Optional[str] = Form(None),
+    scope: str = Form("project", pattern="^(project|course)$"),
+    source_type: str = Form("library", pattern="^(library|document_embed|chat_attachment|inquiry_material)$"),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Upload a file through the backend and create its resource record.
+
+    This avoids browser-to-MinIO direct uploads, which are fragile across IP,
+    domain, HTTPS and reverse-proxy deployments.
+    """
+    if bool(project_id) == bool(course_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Exactly one of project_id or course_id is required",
+        )
+
+    filename = sanitize_filename(file.filename or "upload")
+    normalized_mime_type = _ensure_allowed_upload_mime(
+        _resolve_upload_mime_type(filename, file.content_type)
+    )
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty",
+        )
+    if len(file_bytes) > settings.MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Uploaded file exceeds the maximum allowed size",
+        )
+
+    if course_id:
+        resource_scope = "course"
+        owner_id = course_id
+        file_key = f"courses/{course_id}/files/{str(uuid.uuid4())}"
+    else:
+        resource_scope = "project"
+        owner_id = project_id
+        file_key = f"projects/{project_id}/files/{str(uuid.uuid4())}"
+
+    await run_in_threadpool(
+        storage_service.upload_file_bytes,
+        file_key,
+        file_bytes,
+        normalized_mime_type,
+    )
+
+    resource_data = CreateResourceRequest(
+        file_key=file_key,
+        filename=filename,
+        size=len(file_bytes),
+        project_id=owner_id if not course_id else None,
+        course_id=course_id,
+        scope=resource_scope,
+        mime_type=normalized_mime_type,
+        source_type=source_type,
+    )
+    return await _create_resource_from_uploaded_object(resource_data, background_tasks, current_user)
+
+
+async def _create_resource_from_uploaded_object(
+    resource_data: CreateResourceRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User,
+) -> dict:
+    """Create a resource record for an object that already exists in storage."""
     normalized_mime_type = _ensure_allowed_upload_mime(resource_data.mime_type)
 
     if resource_data.scope == "course":

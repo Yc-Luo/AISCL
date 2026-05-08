@@ -4,7 +4,6 @@ import { storageService } from '../../../../services/api/storage'
 import { wikiService } from '../../../../services/api/wiki'
 import { Resource } from '../../../../types'
 import { useAuthStore } from '../../../../stores/authStore'
-import api from '../../../../services/api/client'
 import SimpleDropzone from './SimpleDropzone'
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import {
@@ -63,30 +62,15 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
 
       for (const file of acceptedFiles) {
         try {
-          // Get presigned URL
-          const { upload_url, file_key } = await storageService.getPresignedUploadUrl(
-            projectId,
-            file.name,
-            file.type,
-            file.size
-          )
+          setUploadProgress((prev) => ({ ...prev, [file.name]: 15 }))
 
-          // Upload file
-          await storageService.uploadFile(upload_url, file, (progress) => {
-            setUploadProgress((prev) => ({
-              ...prev,
-              [file.name]: progress,
-            }))
-          })
-
-          // Create resource record
-          await api.post('/storage/resources', {
-            file_key,
-            filename: file.name,
-            size: file.size,
+          await storageService.uploadResourceFile({
+            file,
             project_id: projectId,
-            mime_type: file.type,
+            source_type: 'library',
           })
+
+          setUploadProgress((prev) => ({ ...prev, [file.name]: 100 }))
 
           // Refresh resource list
           const data = await storageService.getResources(projectId, { includeCourseResources: true })

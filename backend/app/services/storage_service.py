@@ -1,6 +1,7 @@
 """Storage service for file uploads (MinIO/S3)."""
 
 import logging
+from io import BytesIO
 from datetime import timedelta
 from typing import Optional
 from urllib.parse import urlparse
@@ -165,6 +166,24 @@ class StorageService:
             return True
         except S3Error:
             return False
+
+    def upload_file_bytes(self, file_key: str, data: bytes, content_type: str) -> None:
+        """Upload bytes through the backend storage client."""
+        if not self.client:
+            raise ValueError("Storage client not initialized")
+
+        self._ensure_bucket_exists()
+
+        try:
+            self.client.put_object(
+                settings.MINIO_BUCKET_NAME,
+                file_key,
+                BytesIO(data),
+                length=len(data),
+                content_type=content_type,
+            )
+        except S3Error as e:
+            raise ValueError(f"Failed to upload file: {e}")
 
     def get_file_bytes(self, file_key: str) -> bytes:
         """Download file bytes from object storage."""

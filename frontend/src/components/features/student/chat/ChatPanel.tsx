@@ -310,21 +310,9 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
 
     setIsUploading(true)
     try {
-      const { upload_url, file_key } = await storageService.getPresignedUploadUrl(
-        projectId,
-        file.name,
-        file.type,
-        file.size
-      )
-
-      await storageService.uploadFile(upload_url, file)
-
-      const resource = await storageService.createResource({
-        file_key,
-        filename: file.name,
-        size: file.size,
+      const resource = await storageService.uploadResourceFile({
+        file,
         project_id: projectId,
-        mime_type: file.type,
         source_type: 'chat_attachment',
       })
       const imageUrl = storageService.getResourceViewUrl(resource.id)

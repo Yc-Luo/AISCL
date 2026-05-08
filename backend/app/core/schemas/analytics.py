@@ -11,7 +11,7 @@ class BehaviorDataRequest(BaseModel):
 
     project_id: str
     user_id: str
-    module: str = Field(..., pattern="^(whiteboard|document|chat|resource|resources|task|calendar|browser|ai|dashboard|analytics|inquiry)$")
+    module: str = Field(..., pattern="^(whiteboard|document|chat|resource|resources|task|calendar|browser|ai|dashboard|analytics|inquiry|wiki)$")
     action: str = Field(..., pattern="^[a-zA-Z0-9_]+$")
     resource_id: Optional[str] = None
     metadata: Optional[dict] = None
@@ -38,4 +38,3 @@ class SuccessResponse(BaseModel):
     """Generic success response."""
 
     message: str
-

@@ -146,12 +146,7 @@ export const storageService = {
 
     const response = await api.post<Resource>(
       `${API_ENDPOINTS.RESOURCES}/upload-resource`,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      formData
     )
     return response.data
   },

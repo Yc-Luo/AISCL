@@ -75,6 +75,8 @@ services:
       MONGODB_URI: mongodb://mongodb:27017/AISCL
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
       QDRANT_URL: http://qdrant:6333
     networks:
       - AISCL-network

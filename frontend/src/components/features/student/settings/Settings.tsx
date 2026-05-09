@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { LogOut, Mail, Settings as SettingsIcon, User, X } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { KeyRound, LogOut, Mail, Save, Settings as SettingsIcon, User, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../../../stores/authStore'
 
@@ -15,9 +15,28 @@ const roleLabelMap: Record<string, string> = {
 }
 
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
-  const { user, logout } = useAuthStore()
+  const { user, logout, updateUser } = useAuthStore()
   const navigate = useNavigate()
   const [confirmLogout, setConfirmLogout] = useState(false)
+  const [displayName, setDisplayName] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileMessage, setProfileMessage] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [passwordMessage, setPasswordMessage] = useState('')
+
+  useEffect(() => {
+    if (isOpen) {
+      setDisplayName(user?.username || '')
+      setProfileMessage('')
+      setPasswordMessage('')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    }
+  }, [isOpen, user?.username])
 
   if (!isOpen) return null
 
@@ -28,6 +47,56 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     await logout()
     onClose()
     navigate('/login')
+  }
+
+  const handleSaveProfile = async () => {
+    const nextName = displayName.trim()
+    if (nextName.length < 3) {
+      setProfileMessage('姓名至少需要 3 个字符。')
+      return
+    }
+    setProfileSaving(true)
+    setProfileMessage('')
+    try {
+      await updateUser({ username: nextName })
+      setProfileMessage('姓名已更新。')
+    } catch (error: any) {
+      setProfileMessage(error?.response?.data?.detail || '姓名更新失败。')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordMessage('请完整填写当前密码、新密码和确认密码。')
+      return
+    }
+    if (newPassword.length < 8) {
+      setPasswordMessage('新密码至少需要 8 个字符。')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage('两次输入的新密码不一致。')
+      return
+    }
+
+    setPasswordSaving(true)
+    setPasswordMessage('')
+    try {
+      await updateUser({
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordMessage('密码已更新，下次登录请使用新密码。')
+    } catch (error: any) {
+      setPasswordMessage(error?.response?.data?.detail || '密码修改失败。')
+    } finally {
+      setPasswordSaving(false)
+    }
   }
 
   return (
@@ -45,7 +114,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
             </div>
             <div>
               <h2 className="text-lg font-black text-slate-900">设置中心</h2>
-              <p className="text-xs text-slate-500">仅保留实验运行所需的账号信息与退出入口。</p>
+              <p className="text-xs text-slate-500">管理学生端显示姓名、登录密码与退出登录。</p>
             </div>
           </div>
           <button
@@ -75,7 +144,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                   {roleLabel}
                 </div>
                 <p className="mt-3 text-sm leading-6 text-slate-500">
-                  学生端不开放个人偏好、通知、安全策略等配置，相关设置由教师端或管理员端统一维护。
+                  这里的姓名用于学习空间展示；邮箱和班级归属由教师或管理员统一维护。
                 </p>
               </div>
             </div>
@@ -101,6 +170,80 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                 <div className="truncate text-sm font-semibold text-slate-800">{user?.email || '未设置'}</div>
               </div>
             </div>
+          </div>
+
+          <div className="mt-5 rounded-3xl border border-slate-100 bg-white p-5">
+            <div className="flex items-center gap-2 text-sm font-black text-slate-900">
+              <User size={18} className="text-indigo-600" />
+              修改姓名
+            </div>
+            <label className="mt-4 block text-xs font-bold text-slate-500" htmlFor="student-display-name">
+              显示姓名
+            </label>
+            <input
+              id="student-display-name"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
+              placeholder="请输入姓名或展示名称"
+            />
+            {profileMessage ? (
+              <p className="mt-2 text-xs font-semibold text-slate-500">{profileMessage}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleSaveProfile}
+              disabled={profileSaving}
+              className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Save size={16} />
+              {profileSaving ? '保存中...' : '保存姓名'}
+            </button>
+          </div>
+
+          <div className="mt-5 rounded-3xl border border-slate-100 bg-white p-5">
+            <div className="flex items-center gap-2 text-sm font-black text-slate-900">
+              <KeyRound size={18} className="text-indigo-600" />
+              修改密码
+            </div>
+            <div className="mt-4 grid gap-3">
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
+                placeholder="当前密码"
+                autoComplete="current-password"
+              />
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
+                placeholder="新密码（至少 8 位）"
+                autoComplete="new-password"
+              />
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
+                placeholder="再次输入新密码"
+                autoComplete="new-password"
+              />
+            </div>
+            {passwordMessage ? (
+              <p className="mt-2 text-xs font-semibold text-slate-500">{passwordMessage}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleChangePassword}
+              disabled={passwordSaving}
+              className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-xs font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <KeyRound size={16} />
+              {passwordSaving ? '修改中...' : '修改密码'}
+            </button>
           </div>
 
           <button

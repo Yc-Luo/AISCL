@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { User } from '../types'
 import { authService } from '../services/api/auth'
-import { userService } from '../services/api/user'
+import { userService, UpdateCurrentUserPayload } from '../services/api/user'
 import { syncService } from '../services/sync/SyncService'
 
 interface AuthTokens {
@@ -18,7 +18,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   fetchUser: () => Promise<void>
-  updateUser: (data: Partial<User>) => Promise<void>
+  updateUser: (data: UpdateCurrentUserPayload) => Promise<void>
   setTokens: (tokens: AuthTokens) => void
 }
 
@@ -92,7 +92,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  updateUser: async (data: Partial<User>) => {
+  updateUser: async (data: UpdateCurrentUserPayload) => {
     set({ isLoading: true })
     try {
       const updatedUser = await userService.updateCurrentUser(data)

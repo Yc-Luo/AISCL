@@ -32,6 +32,8 @@ class UserUpdateRequest(BaseModel):
     username: Optional[str] = Field(None, min_length=3, max_length=50)
     avatar_url: Optional[str] = None
     settings: Optional[Dict] = None
+    current_password: Optional[str] = Field(None, min_length=6)
+    new_password: Optional[str] = Field(None, min_length=8)
 
 
 class UserCreateRequest(BaseModel):
@@ -49,4 +51,3 @@ class UserListResponse(BaseModel):
     """User list response schema."""
 
     users: List[UserResponse]
-

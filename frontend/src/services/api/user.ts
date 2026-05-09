@@ -2,6 +2,14 @@ import api from './client'
 import { API_ENDPOINTS } from '../../config/api'
 import { User } from '../../types'
 
+export interface UpdateCurrentUserPayload {
+  username?: string
+  avatar_url?: string | null
+  settings?: Record<string, unknown>
+  current_password?: string
+  new_password?: string
+}
+
 export const userService = {
   async getUser(userId: string): Promise<User> {
     const response = await api.get<User>(`${API_ENDPOINTS.USERS}/${userId}`)
@@ -13,7 +21,7 @@ export const userService = {
     return Promise.all(promises)
   },
 
-  async updateCurrentUser(data: Partial<User>): Promise<User> {
+  async updateCurrentUser(data: UpdateCurrentUserPayload): Promise<User> {
     const response = await api.put<User>(`${API_ENDPOINTS.USERS}/me`, data)
     return response.data
   },

@@ -1,5 +1,6 @@
 """User management API routes."""
 
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -7,7 +8,7 @@ from app.api.v1.auth import get_current_user
 from app.repositories.course import Course
 from app.repositories.user import User
 from app.core.schemas.user import UserCreateRequest, UserResponse, UserUpdateRequest, UserListResponse
-from app.services.auth_service import get_password_hash
+from app.services.auth_service import get_password_hash, verify_password
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -128,12 +129,33 @@ async def update_current_user(
 ) -> UserResponse:
     """Update current user information."""
     if user_data.username:
-        current_user.username = user_data.username
+        username = user_data.username.strip()
+        if username != current_user.username:
+            existing_user = await User.find_one(User.username == username)
+            if existing_user and str(existing_user.id) != str(current_user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username is already in use",
+                )
+            current_user.username = username
     if user_data.avatar_url is not None:
         current_user.avatar_url = user_data.avatar_url
     if user_data.settings:
         current_user.settings.update(user_data.settings)
+    if user_data.current_password or user_data.new_password:
+        if not user_data.current_password or not user_data.new_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password and new password are required",
+            )
+        if not verify_password(user_data.current_password, current_user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect",
+            )
+        current_user.password_hash = get_password_hash(user_data.new_password)
 
+    current_user.updated_at = datetime.utcnow()
     await current_user.save()
 
     return UserResponse(

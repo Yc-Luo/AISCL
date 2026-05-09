@@ -92,7 +92,10 @@ export default function ProjectEditModal({
             // Fetch resources
             fetchResources(project.id)
             // Fetch full member details
-            fetchMembers(project.members.map((m) => m.user_id))
+            fetchMembers(project.members
+                .map((m) => m.user_id)
+                .filter((userId) => userId && userId !== project.owner_id)
+            )
             setLeaderId(project.leader_id || '')
         } else {
             setFormData({
@@ -166,6 +169,12 @@ export default function ProjectEditModal({
             setMembers(users.filter((user) => user.role === 'student'))
         } catch (error) {
             console.error('Failed to fetch members:', error)
+            const settled = await Promise.allSettled(ids.map(id => userService.getUser(id)))
+            setMembers(settled
+                .filter((result): result is PromiseFulfilledResult<User> => result.status === 'fulfilled')
+                .map(result => result.value)
+                .filter((user) => user.role === 'student')
+            )
         }
     }
 
@@ -273,7 +282,9 @@ export default function ProjectEditModal({
                 // Note: Project members update might need separate logic if backend doesn't handle list replacement
                 // For now we assume we just updated the basic info.
                 // If we want to sync members:
-                const oldIds = project.members.map(m => m.user_id)
+                const oldIds = project.members
+                    .map(m => m.user_id)
+                    .filter(userId => userId && userId !== project.owner_id)
                 const newIds = members.map(m => m.id)
 
                 // Add new

@@ -18,7 +18,7 @@ class UserSettings(Document):
 class User(Document):
     """User document model."""
 
-    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    username: Optional[str] = Field(None, min_length=1, max_length=50)
     email: str
     phone: Optional[str] = None
     password_hash: str

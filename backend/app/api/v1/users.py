@@ -185,6 +185,20 @@ async def get_user(
             detail="User not found",
         )
 
+    if str(current_user.id) == user_id:
+        return UserResponse(
+            id=str(user.id),
+            username=user.username,
+            email=user.email,
+            phone=user.phone,
+            avatar_url=user.avatar_url,
+            role=user.role,
+            settings=user.settings,
+            class_id=user.class_id,
+            is_active=user.is_active,
+            created_at=user.created_at,
+        )
+
     if current_user.role == "teacher":
         if not await teacher_can_view_user(current_user, user):
             raise HTTPException(

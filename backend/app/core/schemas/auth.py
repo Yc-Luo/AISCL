@@ -17,7 +17,7 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     """User registration request schema."""
 
-    username: str = Field(..., min_length=3, max_length=50)
+    username: str = Field(..., min_length=1, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=6)
     role: str = Field(default="student", pattern="^(student|teacher|admin)$")

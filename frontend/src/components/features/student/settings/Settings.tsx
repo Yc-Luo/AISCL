@@ -51,8 +51,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
 
   const handleSaveProfile = async () => {
     const nextName = displayName.trim()
-    if (nextName.length < 3) {
-      setProfileMessage('姓名至少需要 3 个字符。')
+    if (nextName.length < 1) {
+      setProfileMessage('姓名不能为空。')
       return
     }
     setProfileSaving(true)

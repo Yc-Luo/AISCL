@@ -5,12 +5,14 @@ import { useNavigate } from 'react-router-dom';
 import { projectService } from '../../../../services/api/project';
 import { Project } from '../../../../types';
 import ProjectEditModal from './ProjectEditModal';
+import { courseService, Course } from '../../../../services/api/course';
 
 export default function ProjectManager() {
     const navigate = useNavigate();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed'>('all');
     const [projects, setProjects] = useState<Project[]>([]);
+    const [courses, setCourses] = useState<Course[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -21,8 +23,12 @@ export default function ProjectManager() {
     const fetchProjects = async () => {
         try {
             setLoading(true);
-            const data = await projectService.getProjects();
-            setProjects(data.projects);
+            const [projectData, courseData] = await Promise.all([
+                projectService.getProjects(),
+                courseService.getCourses().catch(() => [] as Course[]),
+            ]);
+            setProjects(projectData.projects);
+            setCourses(courseData);
         } catch (error) {
             console.error('Failed to fetch projects:', error);
         } finally {
@@ -70,6 +76,25 @@ export default function ProjectManager() {
 
         return matchesSearch && matchesStatus;
     });
+    const courseMap = new Map(courses.map(course => [course.id, course]));
+    const groupedProjects = filteredProjects.reduce<Array<{ key: string; title: string; subtitle: string; projects: Project[] }>>((groups, project) => {
+        const course = project.course_id ? courseMap.get(project.course_id) : undefined;
+        const key = project.course_id || 'unbound';
+        let group = groups.find(item => item.key === key);
+        if (!group) {
+            group = {
+                key,
+                title: course ? course.name : '未绑定班级',
+                subtitle: course ? course.semester : '未指定班级的小组',
+                projects: [],
+            };
+            groups.push(group);
+        }
+        group.projects.push(project);
+        return groups;
+    }, []);
+
+    const getStudentMemberCount = (project: Project) => project.members.filter(member => member.user_id !== project.owner_id).length;
 
     if (loading) {
         return <div className="flex items-center justify-center h-64">
@@ -142,9 +167,18 @@ export default function ProjectManager() {
                 </div>
             </div>
 
-            {/* Projects Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredProjects.map((project) => (
+            {/* Projects by Course */}
+            <div className="space-y-6">
+                {groupedProjects.map((group) => (
+                    <section key={group.key} className="rounded-2xl border border-slate-200 bg-white/70 p-4 shadow-sm">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <h2 className="text-base font-black text-slate-900">{group.title}</h2>
+                                <p className="text-xs font-medium text-slate-400">{group.subtitle} · {group.projects.length} 个小组</p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            {group.projects.map((project) => (
                     <div key={project.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                         <div className="p-6">
                             <div className="flex justify-between items-start mb-4">
@@ -170,7 +204,7 @@ export default function ProjectManager() {
                             <div className="flex items-center gap-4 text-sm text-slate-500 mb-6">
                                 <div className="flex items-center gap-1.5">
                                     <Users className="w-4 h-4" />
-                                    <span>{project.members.length} 名成员</span>
+                                    <span>{getStudentMemberCount(project)} 名学生</span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
                                     <Clock className="w-4 h-4" />
@@ -219,10 +253,13 @@ export default function ProjectManager() {
                             </div>
                         </div>
                     </div>
+                            ))}
+                        </div>
+                    </section>
                 ))}
 
                 {filteredProjects.length === 0 && (
-                    <div className="col-span-full py-20 bg-white rounded-xl border-2 border-dashed border-gray-100 flex flex-col items-center justify-center text-slate-500">
+                    <div className="py-20 bg-white rounded-xl border-2 border-dashed border-gray-100 flex flex-col items-center justify-center text-slate-500">
                         <FolderPlus className="w-12 h-12 mb-4 opacity-20" />
                         <p className="text-lg">暂无符合条件的小组</p>
                     </div>

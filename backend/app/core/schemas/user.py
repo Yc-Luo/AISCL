@@ -29,7 +29,7 @@ class UserResponse(BaseModel):
 class UserUpdateRequest(BaseModel):
     """User update request schema."""
 
-    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    username: Optional[str] = Field(None, min_length=1, max_length=50)
     avatar_url: Optional[str] = None
     settings: Optional[Dict] = None
     current_password: Optional[str] = Field(None, min_length=6)
@@ -39,7 +39,7 @@ class UserUpdateRequest(BaseModel):
 class UserCreateRequest(BaseModel):
     """User create request schema."""
 
-    username: str = Field(..., min_length=3, max_length=50)
+    username: str = Field(..., min_length=1, max_length=50)
     email: str = Field(..., min_length=1, max_length=254)
     phone: Optional[str] = None
     password: str = Field(..., min_length=8)

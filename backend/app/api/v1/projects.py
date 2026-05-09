@@ -541,7 +541,7 @@ async def add_project_member(
         )
 
     # Check member limit
-    if len(project.members) >= settings.MAX_PROJECT_MEMBERS:
+    if settings.MAX_PROJECT_MEMBERS > 0 and len(project.members) >= settings.MAX_PROJECT_MEMBERS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Project can have at most {settings.MAX_PROJECT_MEMBERS} members",

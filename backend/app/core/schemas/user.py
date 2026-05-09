@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 class UserResponse(BaseModel):
@@ -11,7 +11,7 @@ class UserResponse(BaseModel):
 
     id: str
     username: str
-    email: EmailStr
+    email: str
     phone: Optional[str] = None
     avatar_url: Optional[str] = None
     role: str
@@ -40,7 +40,7 @@ class UserCreateRequest(BaseModel):
     """User create request schema."""
 
     username: str = Field(..., min_length=3, max_length=50)
-    email: EmailStr
+    email: str = Field(..., min_length=1, max_length=254)
     phone: Optional[str] = None
     password: str = Field(..., min_length=8)
     role: str = Field(default="student", pattern="^(student|teacher|admin)$")

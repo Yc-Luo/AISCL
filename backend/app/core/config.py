@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     MAX_PROJECT_STORAGE: int = 5368709120  # 5GB
 
     # Project Limits
-    MAX_PROJECT_MEMBERS: int = 5
+    MAX_PROJECT_MEMBERS: int = 20
 
     # CDN Configuration
     CDN_BASE_URL: Optional[str] = None  # CDN base URL for file serving

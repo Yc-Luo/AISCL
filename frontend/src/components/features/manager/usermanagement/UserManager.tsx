@@ -142,7 +142,7 @@ export default function UserManager() {
             })
         } catch (error: any) {
             console.error('Failed to create user:', error)
-            const errorMessage = error.response?.data?.detail || '请检查账号名或邮箱是否已存在，或网络连接是否正常。'
+            const errorMessage = error.response?.data?.detail || '请检查姓名或登录账号是否已存在，或网络连接是否正常。'
             setNotice({
                 isOpen: true,
                 title: '账户创建失败',
@@ -197,7 +197,7 @@ export default function UserManager() {
             })
         } catch (error: any) {
             console.error('Failed to update user:', error)
-            const errorMessage = error.response?.data?.detail || '账号修改失败，请检查邮箱是否重复或稍后再试。'
+            const errorMessage = error.response?.data?.detail || '账号修改失败，请检查登录账号是否重复或稍后再试。'
             setNotice({
                 isOpen: true,
                 title: '账号修改失败',
@@ -277,7 +277,7 @@ export default function UserManager() {
                 <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <Input
-                        placeholder="搜索姓名、邮箱或账号..."
+                        placeholder="搜索姓名或账号..."
                         className="pl-10"
                         value={searchQuery}
                         onChange={(e) => {
@@ -487,13 +487,13 @@ export default function UserManager() {
                                         />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-bold text-slate-600 ml-1">登录邮箱 / 账号</label>
+                                        <label className="text-xs font-bold text-slate-600 ml-1">登录账号</label>
                                         <Input
                                             required
-                                            type="email"
+                                            type="text"
                                             value={formData.email}
                                             onChange={e => setFormData({ ...formData, email: e.target.value })}
-                                            placeholder="zhangsan@example.com"
+                                            placeholder="学号、手机号或邮箱"
                                         />
                                     </div>
                                     <div className="space-y-1.5">
@@ -611,13 +611,13 @@ export default function UserManager() {
                                     />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="ml-1 text-xs font-bold text-slate-600">登录邮箱 / 账号</label>
+                                    <label className="ml-1 text-xs font-bold text-slate-600">登录账号</label>
                                     <Input
                                         required
-                                        type="email"
+                                        type="text"
                                         value={editFormData.email}
                                         onChange={e => setEditFormData({ ...editFormData, email: e.target.value })}
-                                        placeholder="zhangsan@example.com"
+                                        placeholder="学号、手机号或邮箱"
                                     />
                                 </div>
                             </div>

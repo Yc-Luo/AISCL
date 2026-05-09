@@ -428,7 +428,7 @@ async def create_user(
         raise HTTPException(status_code=403, detail="Admin only")
     
     if await User.find_one(User.email == user_data.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Account already registered")
     
     new_user = User(
         username=user_data.username,

@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 class LoginRequest(BaseModel):
     """Login request schema."""
 
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     username: Optional[str] = None
     phone: Optional[str] = None
     password: str

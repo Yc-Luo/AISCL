@@ -261,7 +261,7 @@ async def create_user(
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email, username, or phone already exists",
+            detail="User with this account, username, or phone already exists",
         )
 
     # Create new user

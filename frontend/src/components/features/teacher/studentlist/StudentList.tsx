@@ -62,7 +62,7 @@ const parseStudentCsv = (text: string): StudentImportItem[] => {
         .map(line => line.trim())
         .filter(Boolean);
 
-    const rows = lines[0]?.includes('邮箱') ? lines.slice(1) : lines;
+    const rows = lines[0]?.includes('账号') || lines[0]?.includes('邮箱') ? lines.slice(1) : lines;
     return rows
         .map(parseCsvLine)
         .filter(cells => cells.length >= 2)
@@ -220,7 +220,7 @@ export default function StudentList() {
 
     // CSV Template Download
     const downloadTemplate = () => {
-        const header = "用户名,邮箱,初始密码\n";
+        const header = "用户名,账号,初始密码\n";
         const content = "张三,zhangsan@example.com,Password123!\n李四,lisi@example.com,Password123!";
         const blob = new Blob(["\uFEFF" + header + content], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -381,7 +381,7 @@ export default function StudentList() {
                     <div className="relative flex-1">
                             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <Input
-                            placeholder="搜索当前班级中的学生姓名、邮箱或 ID..."
+                            placeholder="搜索当前班级中的学生姓名、账号或 ID..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="pl-9 bg-slate-50 border-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all rounded-xl"
@@ -402,7 +402,7 @@ export default function StudentList() {
                                 <thead className="bg-slate-50/50">
                                     <tr>
                                         <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">学生信息</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">联系邮箱</th>
+                                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">登录账号</th>
                                         <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">学习状态</th>
                                         <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest text-right">操作</th>
                                     </tr>
@@ -501,7 +501,7 @@ export default function StudentList() {
                                 <div className="relative">
                                     <Search className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
                                     <Input
-                                        placeholder="搜索全校学生姓名、邮箱..."
+                                        placeholder="搜索全校学生姓名、账号..."
                                         value={userSearch}
                                         onChange={e => setUserSearch(e.target.value)}
                                         className="pl-12 h-14 bg-slate-50 border-none rounded-2xl focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all text-lg"

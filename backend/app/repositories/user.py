@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from beanie import Document
-from pydantic import EmailStr, Field
+from pydantic import Field
 
 
 class UserSettings(Document):
@@ -19,7 +19,7 @@ class User(Document):
     """User document model."""
 
     username: Optional[str] = Field(None, min_length=3, max_length=50)
-    email: EmailStr
+    email: str
     phone: Optional[str] = None
     password_hash: str
     avatar_url: Optional[str] = None
@@ -45,4 +45,3 @@ class User(Document):
             [("created_at", 1)],  # For user sorting
             [("class_id", 1), ("role", 1)],  # For class-based role queries
         ]
-

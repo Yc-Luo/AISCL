@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 
 export default function Login() {
-  const [email, setEmail] = useState('')
+  const [account, setAccount] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -33,7 +33,7 @@ export default function Login() {
     setIsLoading(true)
 
     try {
-      await login(email, password)
+      await login(account, password)
       // Redirect based on role
       const currentUser = useAuthStore.getState().user
       if (currentUser) {
@@ -71,19 +71,19 @@ export default function Login() {
           )}
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
-              <label htmlFor="email" className="sr-only">
-                邮箱
+              <label htmlFor="account" className="sr-only">
+                账号
               </label>
               <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
+                id="account"
+                name="account"
+                type="text"
+                autoComplete="username"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="邮箱地址"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder="账号、学号、手机号或邮箱"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
               />
             </div>
             <div>
@@ -129,4 +129,3 @@ export default function Login() {
     </div>
   )
 }
-

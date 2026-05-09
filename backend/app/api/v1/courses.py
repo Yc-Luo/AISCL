@@ -466,15 +466,15 @@ async def bulk_import_students_to_course(
     linked_count = 0
     skipped_count = 0
     failed_count = 0
-    seen_emails: set[str] = set()
+    seen_accounts: set[str] = set()
     course_changed = False
 
     for row_index, item in enumerate(import_data.students, start=1):
-        email = str(item.email).strip().lower()
+        email = str(item.email).strip()
         username = item.username.strip()
         password = item.password or import_data.default_password
 
-        if "@" not in email or "." not in email.split("@")[-1]:
+        if not email:
             failed_count += 1
             results.append(
                 CourseStudentImportRowResult(
@@ -482,12 +482,13 @@ async def bulk_import_students_to_course(
                     username=username,
                     email=email,
                     status="failed",
-                    message="邮箱格式无效",
+                    message="账号不能为空",
                 )
             )
             continue
 
-        if email in seen_emails:
+        account_key = email.lower()
+        if account_key in seen_accounts:
             skipped_count += 1
             results.append(
                 CourseStudentImportRowResult(
@@ -495,11 +496,11 @@ async def bulk_import_students_to_course(
                     username=username,
                     email=email,
                     status="skipped",
-                    message="同一批次中邮箱重复，已跳过",
+                    message="同一批次中账号重复，已跳过",
                 )
             )
             continue
-        seen_emails.add(email)
+        seen_accounts.add(account_key)
 
         try:
             user = await UserModel.find_one(UserModel.email == email)
@@ -512,7 +513,7 @@ async def bulk_import_students_to_course(
                         username=username,
                         email=email,
                         status="failed",
-                        message=f"该邮箱已属于 {user.role} 角色，不能导入为学生",
+                        message=f"该账号已属于 {user.role} 角色，不能导入为学生",
                         user_id=str(user.id),
                     )
                 )

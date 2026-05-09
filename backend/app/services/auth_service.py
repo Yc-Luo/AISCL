@@ -84,16 +84,17 @@ async def authenticate_user(
     password: str = "",
 ) -> Optional["User"]:
     """Authenticate a user by email/username/phone and password."""
-    query = None
+    conditions = []
     if email:
-        query = {"email": email}
-    elif username:
-        query = {"username": username}
-    elif phone:
-        query = {"phone": phone}
+        conditions.append({"email": email.strip()})
+    if username:
+        conditions.append({"username": username.strip()})
+    if phone:
+        conditions.append({"phone": phone.strip()})
 
-    if not query:
+    if not conditions:
         return None
+    query = conditions[0] if len(conditions) == 1 else {"$or": conditions}
 
     users = mongodb.get_database()["users"]
     user_doc = await asyncio.wait_for(users.find_one(query), timeout=5)

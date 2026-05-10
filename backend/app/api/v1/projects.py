@@ -540,13 +540,6 @@ async def add_project_member(
             detail="Only owner and editor can invite members",
         )
 
-    # Check member limit
-    if settings.MAX_PROJECT_MEMBERS > 0 and len(project.members) >= settings.MAX_PROJECT_MEMBERS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Project can have at most {settings.MAX_PROJECT_MEMBERS} members",
-        )
-
     # Resolve user
     target_user_id = member_data.user_id
     target_user = None
@@ -592,11 +585,17 @@ async def add_project_member(
                     detail="Teacher can only add students from their own classes",
                 )
 
-    # Check if user is already a member
+    # Treat repeated add requests as idempotent. The teacher-side member editor
+    # can submit a stale project snapshot after local selection changes; failing
+    # on already-existing members makes an otherwise valid save look broken.
     if any(m.get("user_id") == target_user_id for m in project.members):
+        return {"message": "Member already exists"}
+
+    # Check member limit only for truly new members.
+    if settings.MAX_PROJECT_MEMBERS > 0 and len(project.members) >= settings.MAX_PROJECT_MEMBERS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User is already a member of this project",
+            detail=f"Project can have at most {settings.MAX_PROJECT_MEMBERS} members",
         )
 
     # Add member

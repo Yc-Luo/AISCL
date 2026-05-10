@@ -346,9 +346,12 @@ export default function ProjectEditModal({
             }
             onSuccess()
             onClose()
-        } catch (error) {
+        } catch (error: any) {
             console.error('Submit failed:', error)
-            setNotice({ type: 'error', message: '操作失败，请检查输入、成员权限或班级绑定状态。' })
+            setNotice({
+                type: 'error',
+                message: error?.response?.data?.detail || '操作失败，请检查输入、成员权限或班级绑定状态。',
+            })
         } finally {
             setLoading(false)
         }

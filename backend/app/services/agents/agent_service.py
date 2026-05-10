@@ -163,11 +163,13 @@ class AgentService:
             }
 
         if selected_subagent == "feedback_prompter":
+            diagnosis = (routing_decision or {}).get("collaboration_diagnosis") or {}
+            should_include_resources = diagnosis.get("knowledge_construct") == "explanation_integration"
             return {
                 "should_retrieve": True,
                 "max_results": 2,
                 "retrieval_mode": "role_aware_revision",
-                "source_types": ["wiki"],
+                "source_types": ["wiki", "resource"] if should_include_resources else ["wiki"],
                 "wiki_item_types": ["claim", "evidence", "stage_summary"],
                 "selected_subagent": selected_subagent,
                 "routing_decision": routing_decision,
@@ -244,7 +246,8 @@ class AgentService:
             if context and context.get("project_id")
             else session_id.split(":")[0]
         )
-        rag_plan = self._resolve_rag_plan(context=context)
+        routing_context = {**(context or {}), "current_message": message}
+        rag_plan = self._resolve_rag_plan(context=routing_context)
         rag_results = {"content": "", "citations": []}
         if rag_plan["should_retrieve"]:
             rag_results = await rag_service.retrieve_context(
@@ -278,6 +281,9 @@ class AgentService:
         }
         if context:
             merged_context.update(context)
+        if rag_plan.get("routing_decision"):
+            merged_context["collaboration_diagnosis"] = rag_plan["routing_decision"].get("collaboration_diagnosis")
+            merged_context["preselected_subagent"] = rag_plan["routing_decision"].get("selected_subagent")
 
         inputs = {
             "messages": [HumanMessage(content=message)],

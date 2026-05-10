@@ -18,6 +18,18 @@ import json
 
 def _match_subagent_name(subagents: List[Dict[str, Any]], keywords: List[str], default: str) -> str:
     """Infer a target sub-agent name from descriptions to avoid hard-coded role names."""
+    valid_names = {subagent.get("name", "") for subagent in subagents}
+    keyword_text = " ".join(keywords).lower()
+    canonical_matches = [
+        (["资料", "证据", "research", "evidence"], "evidence_researcher"),
+        (["挑战", "反驳", "challeng", "counterargument"], "viewpoint_challenger"),
+        (["追问", "反馈", "socratic"], "feedback_prompter"),
+        (["推进", "规划", "协作", "progress", "stage", "problem"], "problem_progressor"),
+    ]
+    for marker_keywords, canonical_name in canonical_matches:
+        if canonical_name in valid_names and any(marker in keyword_text for marker in marker_keywords):
+            return canonical_name
+
     lowered_keywords = [keyword.lower() for keyword in keywords]
     for subagent in subagents:
         combined = f"{subagent.get('name', '')} {subagent.get('description', '')}".lower()
@@ -34,6 +46,158 @@ ROLE_TO_SUBAGENT = {
 }
 
 
+KNOWLEDGE_CONSTRUCT_LABELS = {
+    "problem_construction": "问题构建",
+    "meaning_exploration": "意义探索",
+    "explanation_integration": "解释整合",
+    "application_solution": "应用解决",
+}
+
+REGULATION_CONSTRUCT_LABELS = {
+    "goal_regulation": "目标调节",
+    "process_monitoring": "过程监控",
+    "strategy_coordination": "策略协同",
+    "emotion_coordination": "情绪协调",
+}
+
+
+def _contains_any(text: str, keywords: List[str]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _diagnose_collaboration_state(
+    *,
+    message: str,
+    current_stage: str,
+    rule_type: str,
+    evidence_agent_name: str,
+    challenger_agent_name: str,
+    feedback_agent_name: str,
+    progress_agent_name: str,
+) -> Dict[str, Any]:
+    """Map the latest request to research-aligned process constructs."""
+    text = f"{message or ''} {current_stage or ''} {rule_type or ''}".lower()
+
+    diagnosis = {
+        "knowledge_construct": "problem_construction",
+        "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["problem_construction"],
+        "regulation_construct": "goal_regulation",
+        "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["goal_regulation"],
+        "support_need": "task_clarification",
+        "primary_subagent": progress_agent_name,
+        "answer_policy": "brief_next_step",
+    }
+
+    if _contains_any(text, ["焦虑", "冲突", "争吵", "不愿意", "没人", "沉默", "参与", "分歧太大", "情绪"]):
+        diagnosis.update({
+            "knowledge_construct": "problem_construction",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["problem_construction"],
+            "regulation_construct": "emotion_coordination",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["emotion_coordination"],
+            "support_need": "emotion_or_participation_risk",
+            "primary_subagent": progress_agent_name,
+            "answer_policy": "coordinate_participation",
+        })
+        return diagnosis
+
+    if _contains_any(text, ["适用条件", "适用范围", "前提", "限制", "边界", "任务情境", "检验方案", "检验这个方案", "风险"]):
+        diagnosis.update({
+            "knowledge_construct": "application_solution",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["application_solution"],
+            "regulation_construct": "process_monitoring",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["process_monitoring"],
+            "support_need": "application_boundary_check",
+            "primary_subagent": feedback_agent_name,
+            "answer_policy": "check_assumptions_and_boundaries",
+        })
+        return diagnosis
+
+    if _contains_any(text, ["ai输出", "ai 的输出", "ai说法", "ai 的说法", "同伴意见", "同学意见", "比较ai", "比较 ai", "比较同伴", "判断标准", "评价标准", "标准是什么"]):
+        diagnosis.update({
+            "knowledge_construct": "meaning_exploration",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["meaning_exploration"],
+            "regulation_construct": "process_monitoring",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["process_monitoring"],
+            "support_need": "criteria_or_ai_peer_comparison",
+            "primary_subagent": feedback_agent_name,
+            "answer_policy": "clarify_criteria_and_compare_views",
+        })
+        return diagnosis
+
+    if _contains_any(text, ["多种观点", "多个观点", "不同解释", "多种解释", "多种看法", "观点有哪些", "还能怎么看", "其他角度"]):
+        diagnosis.update({
+            "knowledge_construct": "meaning_exploration",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["meaning_exploration"],
+            "regulation_construct": "strategy_coordination",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["strategy_coordination"],
+            "support_need": "multiple_view_generation",
+            "primary_subagent": challenger_agent_name,
+            "answer_policy": "generate_and_compare_views",
+        })
+        return diagnosis
+
+    if _contains_any(text, ["资料", "证据", "来源", "文献", "案例", "数据", "背景", "概念", "什么是", "搜集", "搜索", "依据"]):
+        diagnosis.update({
+            "knowledge_construct": "meaning_exploration",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["meaning_exploration"],
+            "regulation_construct": "process_monitoring",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["process_monitoring"],
+            "support_need": "evidence_gap",
+            "primary_subagent": evidence_agent_name,
+            "answer_policy": "evidence_grounded",
+        })
+        return diagnosis
+
+    if _contains_any(text, ["反驳", "反例", "质疑", "不同观点", "不同意见", "另一种解释", "替代解释", "局限", "漏洞", "争议", "挑战"]):
+        diagnosis.update({
+            "knowledge_construct": "explanation_integration",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["explanation_integration"],
+            "regulation_construct": "process_monitoring",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["process_monitoring"],
+            "support_need": "counterargument_missing",
+            "primary_subagent": challenger_agent_name,
+            "answer_policy": "challenge_and_compare",
+        })
+        return diagnosis
+
+    if _contains_any(text, ["整合", "总结", "归纳", "共识", "解释", "观点", "论证", "理由", "标准", "充分", "不足", "修改", "修订", "评价", "可辩护"]):
+        diagnosis.update({
+            "knowledge_construct": "explanation_integration",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["explanation_integration"],
+            "regulation_construct": "process_monitoring",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["process_monitoring"],
+            "support_need": "reasoning_or_integration_need",
+            "primary_subagent": feedback_agent_name,
+            "answer_policy": "socratic_revision",
+        })
+        return diagnosis
+
+    if _contains_any(text, ["方案", "解决", "应用", "实践", "提交", "成果", "下一步", "怎么做", "分工", "推进", "安排", "计划"]):
+        diagnosis.update({
+            "knowledge_construct": "application_solution",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["application_solution"],
+            "regulation_construct": "strategy_coordination",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["strategy_coordination"],
+            "support_need": "strategy_or_action_need",
+            "primary_subagent": progress_agent_name,
+            "answer_policy": "actionable_plan",
+        })
+        return diagnosis
+
+    if _contains_any(text, ["核心问题", "讨论焦点", "收束", "分歧指向", "界定问题", "澄清问题", "任务导入", "问题规划", "任务", "规划", "导入", "问题"]):
+        diagnosis.update({
+            "knowledge_construct": "problem_construction",
+            "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["problem_construction"],
+            "regulation_construct": "goal_regulation",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["goal_regulation"],
+            "support_need": "problem_framing",
+            "primary_subagent": progress_agent_name,
+            "answer_policy": "clarify_goal",
+        })
+
+    return diagnosis
+
+
 def derive_routing_decision_from_context(
     *,
     subagents: List[Dict[str, Any]],
@@ -47,6 +211,7 @@ def derive_routing_decision_from_context(
     context = context or {}
     current_stage = context.get("current_stage", "") or ""
     rule_type = context.get("rule_type", "") or ""
+    current_message = context.get("current_message", "") or context.get("message", "") or ""
     preferred_subagent = context.get("preferred_subagent", "") or ""
     enabled_scaffold_roles = context.get("enabled_scaffold_roles", []) or []
     enabled_subagents = context.get("enabled_subagents", []) or []
@@ -76,6 +241,15 @@ def derive_routing_decision_from_context(
         enabled_subagents=enabled_subagents,
         enabled_scaffold_roles=enabled_scaffold_roles,
     )
+    collaboration_diagnosis = _diagnose_collaboration_state(
+        message=current_message,
+        current_stage=current_stage,
+        rule_type=rule_type,
+        evidence_agent_name=evidence_agent_name,
+        challenger_agent_name=challenger_agent_name,
+        feedback_agent_name=feedback_agent_name,
+        progress_agent_name=progress_agent_name,
+    )
 
     def _classify_intervention_mode(target_agent: str) -> str:
         if target_agent in {feedback_agent_name, progress_agent_name}:
@@ -88,6 +262,7 @@ def derive_routing_decision_from_context(
         preferred_subagent=preferred_subagent,
         rule_type=rule_type,
         current_stage=current_stage,
+        collaboration_diagnosis=collaboration_diagnosis,
         enabled_subagents=effective_enabled_subagents,
         evidence_agent_name=evidence_agent_name,
         challenger_agent_name=challenger_agent_name,
@@ -111,6 +286,8 @@ def derive_routing_decision_from_context(
         "rule_type": rule_type or None,
         "current_stage": current_stage or None,
         "enabled_subagents": effective_enabled_subagents,
+        "collaboration_diagnosis": collaboration_diagnosis,
+        **collaboration_diagnosis,
     }
 
 
@@ -165,6 +342,7 @@ def _build_constrained_instruction(
     current_stage: str,
     rule_type: str,
     preferred_subagent: str,
+    collaboration_diagnosis: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Provide a deterministic routing instruction when explicit constraints are applied."""
     reasons: List[str] = []
@@ -175,10 +353,18 @@ def _build_constrained_instruction(
     if current_stage:
         reasons.append(f"当前学习阶段为 {current_stage}")
     reason_text = "；".join(reasons) if reasons else "当前需要优先结合任务阶段与提问意图"
+    diagnosis = collaboration_diagnosis or {}
+    construct_text = ""
+    if diagnosis:
+        construct_text = (
+            f"本轮诊断为协作知识建构“{diagnosis.get('knowledge_construct_label')}”、"
+            f"共享调节“{diagnosis.get('regulation_construct_label')}”，"
+            f"支架需要为 {diagnosis.get('support_need')}。"
+        )
     return (
         f"本轮采用显式约束路由，直接交由 {target_agent} 处理。"
         f"请围绕当前问题提供该角色职责内的支架介入。"
-        f"路由依据：{reason_text}。"
+        f"路由依据：{reason_text}。{construct_text}"
         "不要改派其他角色，不要退回通用回答。"
     )
 
@@ -188,6 +374,7 @@ def _select_constrained_subagent(
     preferred_subagent: str,
     rule_type: str,
     current_stage: str,
+    collaboration_diagnosis: Optional[Dict[str, Any]],
     enabled_subagents: List[str],
     evidence_agent_name: str,
     challenger_agent_name: str,
@@ -217,6 +404,10 @@ def _select_constrained_subagent(
     rule_target = rule_mapping.get(rule_type or "")
     if _is_available(rule_target):
         return rule_target
+
+    diagnosis_target = (collaboration_diagnosis or {}).get("primary_subagent", "")
+    if _is_available(diagnosis_target):
+        return diagnosis_target
 
     stage_target = _infer_stage_constrained_subagent(
         current_stage=current_stage,
@@ -282,6 +473,7 @@ def create_deep_agent(
         enabled_scaffold_roles = context_data.get("enabled_scaffold_roles", [])
         preferred_subagent = context_data.get("preferred_subagent", "")
         enabled_subagents = context_data.get("enabled_subagents", [])
+        latest_message = messages[-1].content if messages else ""
         max_score = max([c.get("score", 0) for c in rag_citations]) if rag_citations else 0
 
         evidence_agent_name = _match_subagent_name(
@@ -309,6 +501,15 @@ def create_deep_agent(
             enabled_subagents=enabled_subagents,
             enabled_scaffold_roles=enabled_scaffold_roles,
         )
+        collaboration_diagnosis = _diagnose_collaboration_state(
+            message=latest_message,
+            current_stage=current_stage,
+            rule_type=rule_type,
+            evidence_agent_name=evidence_agent_name,
+            challenger_agent_name=challenger_agent_name,
+            feedback_agent_name=feedback_agent_name,
+            progress_agent_name=progress_agent_name,
+        )
 
         def _classify_intervention_mode(target_agent: str) -> str:
             if target_agent in {feedback_agent_name, progress_agent_name}:
@@ -334,12 +535,15 @@ def create_deep_agent(
                 "rule_type": rule_type or None,
                 "current_stage": current_stage or None,
                 "enabled_subagents": effective_enabled_subagents,
+                "collaboration_diagnosis": collaboration_diagnosis,
+                **collaboration_diagnosis,
             }
 
         constrained_target = _select_constrained_subagent(
             preferred_subagent=preferred_subagent,
             rule_type=rule_type,
             current_stage=current_stage,
+            collaboration_diagnosis=collaboration_diagnosis,
             enabled_subagents=effective_enabled_subagents,
             evidence_agent_name=evidence_agent_name,
             challenger_agent_name=challenger_agent_name,
@@ -364,6 +568,7 @@ def create_deep_agent(
                     current_stage=current_stage,
                     rule_type=rule_type,
                     preferred_subagent=preferred_subagent,
+                    collaboration_diagnosis=collaboration_diagnosis,
                 ),
                 "intervention_mode": routing_decision["intervention_mode"],
                 "routing_decision": routing_decision,
@@ -400,6 +605,10 @@ Triggered Rule Type: {rule_type or "none"}
 Enabled Scaffold Roles: {enabled_scaffold_roles or "not specified"}
 Enabled Sub-Agents: {effective_enabled_subagents or "not specified"}
 Preferred Sub-Agent: {preferred_subagent or "none"}
+Collaboration Knowledge Construction: {collaboration_diagnosis.get("knowledge_construct_label")} ({collaboration_diagnosis.get("knowledge_construct")})
+Shared Regulation Focus: {collaboration_diagnosis.get("regulation_construct_label")} ({collaboration_diagnosis.get("regulation_construct")})
+Support Need: {collaboration_diagnosis.get("support_need")}
+Answer Policy: {collaboration_diagnosis.get("answer_policy")}
 
 Manage the conversation using the available Sub-Agents:
 {agents_desc}
@@ -411,6 +620,7 @@ Tiered Response Policy:
 - If current stage is provided, prefer the sub-agent that best fits the stage goal.
 - If enabled sub-agents are provided, you must keep delegation within that set.
 - If a preferred sub-agent is provided, treat it as the first routing candidate unless it clearly conflicts with the user request.
+- Use the collaboration diagnosis as the main pedagogical rationale when no explicit preferred sub-agent or rule type is present.
 - If High Similarity: Prefer {evidence_agent_name}. Mention you found specific info in project materials.
 - If Medium Similarity: Prefer {evidence_agent_name} or {feedback_agent_name}.
 - If Low Similarity: Do NOT make up facts. Prefer {feedback_agent_name} or {challenger_agent_name}.
@@ -445,6 +655,7 @@ Response Format (JSON):
                     preferred_subagent=preferred_subagent,
                     rule_type=rule_type,
                     current_stage=current_stage,
+                    collaboration_diagnosis=collaboration_diagnosis,
                     enabled_subagents=effective_enabled_subagents,
                     evidence_agent_name=evidence_agent_name,
                     challenger_agent_name=challenger_agent_name,
@@ -518,10 +729,25 @@ Response Format (JSON):
             group_ai_context = state.get("context", {}).get("group_ai_context", "")
             stage_memory_context = state.get("context", {}).get("stage_memory_context", "")
             project_task_context = state.get("context", {}).get("project_task_context", "")
+            diagnosis = state.get("routing_decision", {}).get("collaboration_diagnosis") or state.get("context", {}).get("collaboration_diagnosis") or {}
             
             full_prompt = f"""{prompt_text}
             
 Supervisor Instruction: {instruction}
+
+Process Diagnosis:
+- 协作知识建构：{diagnosis.get("knowledge_construct_label") or "未识别"}
+- 共享调节：{diagnosis.get("regulation_construct_label") or "未识别"}
+- 支架需要：{diagnosis.get("support_need") or "未识别"}
+- 回答策略：{diagnosis.get("answer_policy") or "brief_actionable"}
+
+Response Protocol:
+- 先用一句话指出当前需要处理的协作问题或思考重点。
+- 再给出一个具体、可执行的下一步行动。
+- 最后给出一个可以继续讨论的问题。
+- 回答应围绕问题、标准、证据和解释边界提供判断支架。
+- 默认控制在 120-220 字，除非学习者明确要求详细解释。
+- 不替学习者完成最终答案，不暴露实验条件、路由规则或内部系统配置。
 
 Relevant Context for your use (Cite if using):
 {rag_context}

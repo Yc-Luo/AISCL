@@ -85,6 +85,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
     const {
         currentStage,
     } = useContextStore()
+    const isSingleAIMode = experimentVersion?.ai_scaffold_mode === 'single_agent'
 
     const getStageDefaultRole = (stage?: string | null): ScaffoldRoleKey => {
         if (!stage) return 'problem_progression'
@@ -148,6 +149,9 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
     }
 
     const buildTutorRationaleSummary = (roleKey: string, stage?: string | null) => {
+        if (isSingleAIMode) {
+            return '结合当前任务、提问内容和协作记录生成学习支持回应。'
+        }
         const roleLabel = getTutorRoleLabel(roleKey)
         if (stage) {
             return `结合当前阶段与提问内容，本轮 AI 导师主要采用“${roleLabel}”的学习支持视角。`
@@ -157,6 +161,13 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
 
     const buildProcessingSummary = (content: string) => {
         const inferredRole = inferTutorRole(content)
+        if (isSingleAIMode) {
+            return [
+                '正在识别当前任务阶段与提问意图',
+                '正在结合项目任务和当前协作记录生成回应',
+                '正在生成面向当前任务的学习建议',
+            ]
+        }
         const summary = [
             '正在识别当前任务阶段与提问意图',
             `正在从“${getTutorRoleLabel(inferredRole)}”视角组织回应`,
@@ -399,6 +410,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
 
             if (activeConvId) {
                 const inferredRole = inferTutorRole(messageContent);
+                const primaryView = isSingleAIMode ? 'AI导师' : getTutorRoleLabel(inferredRole);
                 const assistantMsgId = (Date.now() + 1).toString();
                 const initialProcessingSummary = buildProcessingSummary(messageContent)
                 processingStepsRef.current = initialProcessingSummary
@@ -408,7 +420,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     content: '',
                     timestamp: new Date(),
                     aiMeta: {
-                        primaryView: getTutorRoleLabel(inferredRole),
+                        primaryView,
                         rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
                         processingSummary: initialProcessingSummary,
                     }
@@ -429,7 +441,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             ? {
                                 ...msg,
                                 aiMeta: {
-                                    primaryView: meta?.primaryView || msg.aiMeta?.primaryView || getTutorRoleLabel(inferredRole),
+                                    primaryView: meta?.primaryView || msg.aiMeta?.primaryView || primaryView,
                                     rationaleSummary: meta?.rationaleSummary || msg.aiMeta?.rationaleSummary || buildTutorRationaleSummary(inferredRole, currentStage),
                                     processingSummary: nextSteps,
                                 }
@@ -455,7 +467,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     current_stage: currentStage || undefined,
                     enabled_rule_set: experimentVersion?.enabled_rule_set || undefined,
                     enabled_scaffold_roles: experimentVersion?.enabled_scaffold_roles || [],
-                    preferred_subagent: roleKeyToPreferredSubagent(inferredRole),
+                    preferred_subagent: isSingleAIMode ? undefined : roleKeyToPreferredSubagent(inferredRole),
                 }
                 setProcessingSummary(initialProcessingSummary)
                 setShowProcessingSummary(true)
@@ -474,7 +486,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                         ...msg,
                                         content: displayText,
                                         aiMeta: {
-                                            primaryView: getTutorRoleLabel(inferredRole),
+                                            primaryView: msg.aiMeta?.primaryView || primaryView,
                                             rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
                                             processingSummary: processingStepsRef.current,
                                         }
@@ -526,7 +538,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             current_stage: currentStage || undefined,
                             enabled_rule_set: experimentVersion?.enabled_rule_set || undefined,
                             enabled_scaffold_roles: experimentVersion?.enabled_scaffold_roles || [],
-                            preferred_subagent: roleKeyToPreferredSubagent(inferredRole),
+                            preferred_subagent: isSingleAIMode ? undefined : roleKeyToPreferredSubagent(inferredRole),
                         }
                     )
                     finalMessage = (fallbackResponse.content || fallbackResponse.message || '').trim()
@@ -594,7 +606,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             ...msg,
                             content: finalMessage,
                             aiMeta: {
-                                primaryView: msg.aiMeta?.primaryView || getTutorRoleLabel(inferredRole),
+                                primaryView: msg.aiMeta?.primaryView || primaryView,
                                 rationaleSummary: msg.aiMeta?.rationaleSummary || buildTutorRationaleSummary(inferredRole, currentStage),
                                 processingSummary: processingStepsRef.current,
                             },

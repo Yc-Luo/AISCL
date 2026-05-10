@@ -143,21 +143,26 @@ def _build_group_ai_meta(selected_subagent: Optional[str], routing_decision: dic
 
 def _extract_routing_context(project: object, content: str) -> dict:
     experiment_version = getattr(project, "experiment_version", None) or {}
+    ai_scaffold_mode = experiment_version.get("ai_scaffold_mode")
     enabled_roles = experiment_version.get("enabled_scaffold_roles") or []
-    enabled_subagents = [
-        ROLE_KEY_TO_SUBAGENT[role]
-        for role in enabled_roles
-        if role in ROLE_KEY_TO_SUBAGENT
-    ]
+    enabled_subagents = []
+    preferred_subagent = None
+    if ai_scaffold_mode == "multi_agent":
+        enabled_subagents = [
+            ROLE_KEY_TO_SUBAGENT[role]
+            for role in enabled_roles
+            if role in ROLE_KEY_TO_SUBAGENT
+        ]
+        preferred_subagent = _detect_preferred_subagent(content)
     return {
         "project_id": str(getattr(project, "id", "")) if project else None,
         "experiment_version_id": experiment_version.get("version_name") or experiment_version.get("name"),
         "current_stage": experiment_version.get("current_stage"),
-        "ai_scaffold_mode": experiment_version.get("ai_scaffold_mode"),
+        "ai_scaffold_mode": ai_scaffold_mode,
         "process_scaffold_mode": experiment_version.get("process_scaffold_mode"),
         "enabled_scaffold_roles": enabled_roles,
         "enabled_subagents": enabled_subagents,
-        "preferred_subagent": _detect_preferred_subagent(content),
+        "preferred_subagent": preferred_subagent,
     }
 
 
@@ -338,6 +343,7 @@ async def _evaluate_shadow_prompt_candidates(
 
     current_stage = experiment_version.get("current_stage")
     enabled_rule_set = experiment_version.get("enabled_rule_set")
+    is_multi_agent_mode = experiment_version.get("ai_scaffold_mode") == "multi_agent"
     experiment_version_id = (
         experiment_version.get("version_name")
         or experiment_version.get("name")
@@ -383,7 +389,7 @@ async def _evaluate_shadow_prompt_candidates(
         if not policy.get("should_record"):
             continue
 
-        recommended_subagent = RULE_TYPE_TO_SUBAGENT.get(rule_type)
+        recommended_subagent = RULE_TYPE_TO_SUBAGENT.get(rule_type) if is_multi_agent_mode else None
         shadow_events.append(
             {
                 "project_id": str(project.id),
@@ -410,7 +416,7 @@ async def _evaluate_shadow_prompt_candidates(
                     "previous_window_bucket": policy.get("previous_window_bucket"),
                     "consecutive_window_count": policy.get("consecutive_window_count", 0),
                     "recommended_subagent": recommended_subagent,
-                    "recommended_role_label": SUBAGENT_LABELS.get(recommended_subagent),
+                    "recommended_role_label": SUBAGENT_LABELS.get(recommended_subagent, "协作提示"),
                     "recommended_message": intervention.get("message"),
                     "intervention_context": intervention_context,
                     "shadow_mode": True,
@@ -423,7 +429,7 @@ async def _evaluate_shadow_prompt_candidates(
             and policy.get("would_send")
             and live_prompt_candidate is None
         ):
-            recommended_subagent = RULE_TYPE_TO_SUBAGENT.get(rule_type)
+            recommended_subagent = RULE_TYPE_TO_SUBAGENT.get(rule_type) if is_multi_agent_mode else None
             live_prompt_candidate = {
                 "project_id": str(project.id),
                 "experiment_version_id": experiment_version_id,
@@ -433,7 +439,7 @@ async def _evaluate_shadow_prompt_candidates(
                 "rule_type": rule_type,
                 "rule_name": intervention.get("rule_name"),
                 "recommended_subagent": recommended_subagent,
-                "recommended_role_label": SUBAGENT_LABELS.get(recommended_subagent, "AISCL智能助手"),
+                "recommended_role_label": SUBAGENT_LABELS.get(recommended_subagent, "协作提示"),
                 "message": intervention.get("message"),
                 "enabled_rule_set": enabled_rule_set,
                 "online_learner_count": online_learner_count,
@@ -470,13 +476,17 @@ async def _emit_auto_group_prompt(
     room_id = prompt_data["room_id"]
     rule_type = prompt_data["rule_type"]
     recommended_subagent = prompt_data.get("recommended_subagent")
-    role_label = prompt_data.get("recommended_role_label") or "AISCL智能助手"
+    role_label = prompt_data.get("recommended_role_label") or "协作提示"
     message = prompt_data.get("message") or "请继续推进当前协作任务。"
     sender_id = AUTO_PROMPT_SENDER_IDS.get(recommended_subagent, "auto_prompt:assistant")
-    prompt_text = f"【{role_label}提示】{message}"
+    prompt_text = f"【{role_label}】{message}" if recommended_subagent is None else f"【{role_label}提示】{message}"
     ai_meta = {
         "primary_agent": role_label,
-        "rationale_summary": f"依据当前协作状态与规则命中，本轮由{role_label}向小组发出短提示。",
+        "rationale_summary": (
+            "依据当前协作状态与规则命中，系统向小组发出短提示。"
+            if recommended_subagent is None
+            else f"依据当前协作状态与规则命中，本轮由{role_label}向小组发出短提示。"
+        ),
         "routing_summary": [
             f"当前阶段：{_label_stage(prompt_data.get('stage_id')) or '未标记'}",
             f"触发依据：{_label_rule_type(rule_type) or rule_type}",
@@ -1019,7 +1029,11 @@ async def handle_chat_op(sio, sid, data, user_id):
                             "message_length": len(content),
                             "mention_count": len(mentions),
                             "contains_ai_mention": is_ai_mentioned,
-                            "preferred_subagent": _detect_preferred_subagent(content),
+                            "preferred_subagent": (
+                                _detect_preferred_subagent(content)
+                                if experiment_version.get("ai_scaffold_mode") == "multi_agent"
+                                else None
+                            ),
                         },
                     }
                 ],

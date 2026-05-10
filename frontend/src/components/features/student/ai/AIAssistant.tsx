@@ -114,6 +114,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
 
     const projectId = propProjectId || contextProjectId || undefined
     const experimentVersionId = experimentVersion?.version_name || undefined
+    const isSingleAIMode = experimentVersion?.ai_scaffold_mode === 'single_agent'
     const summarizeEnabled = isAssistantActionEnabled(experimentVersion, 'cognitive_support')
     const knowledgeGraphEnabled = isAssistantActionEnabled(experimentVersion, 'problem_progression')
     const optimizeEnabled = isAssistantActionEnabled(experimentVersion, 'feedback_prompting')
@@ -296,7 +297,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
                     current_stage: currentStage || undefined,
                     enabled_rule_set: experimentVersion?.enabled_rule_set || undefined,
                     enabled_scaffold_roles: experimentVersion?.enabled_scaffold_roles || [],
-                    preferred_subagent: roleKeyToPreferredSubagent(inferredRole as ScaffoldRoleKey),
+                    preferred_subagent: isSingleAIMode ? undefined : roleKeyToPreferredSubagent(inferredRole as ScaffoldRoleKey),
                 }, {
                     onChunk: (_chunk, fullText) => {
                         responseMessage = fullText
@@ -323,7 +324,7 @@ export default function AIAssistant({ projectId: propProjectId, experimentVersio
                         current_stage: currentStage || undefined,
                         enabled_rule_set: experimentVersion?.enabled_rule_set || undefined,
                         enabled_scaffold_roles: experimentVersion?.enabled_scaffold_roles || [],
-                        preferred_subagent: roleKeyToPreferredSubagent(inferredRole as ScaffoldRoleKey),
+                        preferred_subagent: isSingleAIMode ? undefined : roleKeyToPreferredSubagent(inferredRole as ScaffoldRoleKey),
                     },
                 )
                 responseMessage = response.message

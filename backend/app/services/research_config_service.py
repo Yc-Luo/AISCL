@@ -270,8 +270,15 @@ class ResearchConfigService:
         rule_set = template.get("ruleSet") or template.get("enabled_rule_set")
         stage_sequence = list(template.get("stageSequence") or template.get("stage_sequence") or [])
         current_stage = template.get("currentStage") or template.get("current_stage") or (stage_sequence[0] if stage_sequence else None)
-        enabled_layers = template.get("enabled_scaffold_layers") or cls._derive_enabled_scaffold_layers(process_mode)
-        enabled_roles = template.get("enabled_scaffold_roles") or cls._derive_enabled_scaffold_roles(ai_mode, process_mode)
+        enabled_layers = cls._normalize_scaffold_layers(
+            template.get("enabled_scaffold_layers"),
+            ai_mode=ai_mode,
+            process_mode=process_mode,
+        )
+        enabled_roles = cls._normalize_scaffold_roles(
+            template.get("enabled_scaffold_roles"),
+            ai_mode=ai_mode,
+        )
 
         payload = cls._build_base_experiment_version()
         payload.update(
@@ -328,8 +335,17 @@ class ResearchConfigService:
         else:
             payload["project_id"] = payload.get("project_id")
 
-        payload["enabled_scaffold_layers"] = list(payload.get("enabled_scaffold_layers") or [])
-        payload["enabled_scaffold_roles"] = list(payload.get("enabled_scaffold_roles") or [])
+        ai_mode = str(payload.get("ai_scaffold_mode") or "multi_agent").strip() or "multi_agent"
+        process_mode = str(payload.get("process_scaffold_mode") or "on").strip() or "on"
+        payload["enabled_scaffold_layers"] = cls._normalize_scaffold_layers(
+            payload.get("enabled_scaffold_layers"),
+            ai_mode=ai_mode,
+            process_mode=process_mode,
+        )
+        payload["enabled_scaffold_roles"] = cls._normalize_scaffold_roles(
+            payload.get("enabled_scaffold_roles"),
+            ai_mode=ai_mode,
+        )
         payload["stage_sequence"] = list(payload.get("stage_sequence") or [])
 
         if payload.get("current_stage") is None and payload["stage_sequence"]:
@@ -398,17 +414,52 @@ class ResearchConfigService:
         }
 
     @classmethod
-    def _derive_enabled_scaffold_layers(cls, process_mode: str) -> list[str]:
-        layers = ["multi_agent_scaffold"]
+    def _derive_enabled_scaffold_layers(cls, ai_mode: str, process_mode: str) -> list[str]:
+        layers = []
+        if ai_mode == "multi_agent":
+            layers.append("multi_agent_scaffold")
         if process_mode == "on":
             layers.append("process_scaffold")
         return layers
 
     @classmethod
     def _derive_enabled_scaffold_roles(cls, ai_mode: str, process_mode: str) -> list[str]:
-        if ai_mode == "single_agent" and process_mode == "off":
-            return ["cognitive_support"]
+        if ai_mode != "multi_agent":
+            return []
         return list(cls.ALL_SCAFFOLD_ROLES)
+
+    @classmethod
+    def _normalize_scaffold_layers(
+        cls,
+        layers: Optional[List[str]],
+        *,
+        ai_mode: str,
+        process_mode: str,
+    ) -> list[str]:
+        allowed = set(cls._derive_enabled_scaffold_layers(ai_mode, process_mode))
+        if not layers:
+            return list(allowed)
+        normalized = []
+        for layer in layers:
+            if layer in allowed and layer not in normalized:
+                normalized.append(layer)
+        return normalized
+
+    @classmethod
+    def _normalize_scaffold_roles(
+        cls,
+        roles: Optional[List[str]],
+        *,
+        ai_mode: str,
+    ) -> list[str]:
+        if ai_mode != "multi_agent":
+            return []
+        source_roles = roles or cls.ALL_SCAFFOLD_ROLES
+        normalized = []
+        for role in source_roles:
+            if role in cls.ALL_SCAFFOLD_ROLES and role not in normalized:
+                normalized.append(role)
+        return normalized
 
 
 research_config_service = ResearchConfigService()

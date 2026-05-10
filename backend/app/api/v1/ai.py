@@ -138,23 +138,32 @@ def _resolve_tutor_primary_view(
     return "资料研究员"
 
 
-def _build_tutor_ai_meta(chat_data: AIChatRequest) -> dict:
-    primary_view = _resolve_tutor_primary_view(
-        chat_data.preferred_subagent,
-        chat_data.role_id,
-        chat_data.message,
-        chat_data.current_stage,
-    )
-    rationale_summary = (
-        f"结合当前阶段与提问内容，本轮 AI 导师主要采用“{primary_view}”的学习支持视角。"
-        if chat_data.current_stage
-        else f"结合当前提问内容，本轮 AI 导师主要采用“{primary_view}”的学习支持视角。"
-    )
-    processing_summary = [
-        "正在识别当前任务阶段与提问意图",
-        f"正在从“{primary_view}”视角组织回应",
-    ]
-    processing_summary.append("正在生成面向当前任务的学习建议")
+def _build_tutor_ai_meta(chat_data: AIChatRequest, *, use_role_view: bool = True) -> dict:
+    if use_role_view:
+        primary_view = _resolve_tutor_primary_view(
+            chat_data.preferred_subagent,
+            chat_data.role_id,
+            chat_data.message,
+            chat_data.current_stage,
+        )
+        rationale_summary = (
+            f"结合当前阶段与提问内容，本轮 AI 导师主要采用“{primary_view}”的学习支持视角。"
+            if chat_data.current_stage
+            else f"结合当前提问内容，本轮 AI 导师主要采用“{primary_view}”的学习支持视角。"
+        )
+        processing_summary = [
+            "正在识别当前任务阶段与提问意图",
+            f"正在从“{primary_view}”视角组织回应",
+            "正在生成面向当前任务的学习建议",
+        ]
+    else:
+        primary_view = "AI导师"
+        rationale_summary = "结合当前任务、提问内容和协作记录生成学习支持回应。"
+        processing_summary = [
+            "正在识别当前任务阶段与提问意图",
+            "正在结合项目任务和当前协作记录生成回应",
+            "正在生成面向当前任务的学习建议",
+        ]
     return {
         "primary_view": primary_view,
         "rationale_summary": rationale_summary,
@@ -229,6 +238,12 @@ async def chat(
         chat_data=chat_data,
         base_context=context,
     )
+    experiment_version = (
+        project.experiment_version or {}
+        if getattr(project, "experiment_version", None)
+        else {}
+    )
+    use_role_view = experiment_version.get("ai_scaffold_mode") != "single_agent"
 
     # Chat with AI
     response = await ai_service.chat(
@@ -239,7 +254,7 @@ async def chat(
         conversation_id=chat_data.conversation_id,
         context=context,
         message_metadata=(
-            {"ai_meta": _build_tutor_ai_meta(chat_data)}
+            {"ai_meta": _build_tutor_ai_meta(chat_data, use_role_view=use_role_view)}
             if chat_data.role_id == "default-tutor"
             else None
         ),
@@ -384,7 +399,13 @@ async def chat_stream(
             },
         )
 
-        tutor_meta = _build_tutor_ai_meta(chat_data)
+        experiment_version = (
+            project.experiment_version or {}
+            if getattr(project, "experiment_version", None)
+            else {}
+        )
+        use_role_view = experiment_version.get("ai_scaffold_mode") != "single_agent"
+        tutor_meta = _build_tutor_ai_meta(chat_data, use_role_view=use_role_view)
         yield _sse_event("meta", {"ai_meta": tutor_meta})
 
         # Retrieve context inside the SSE generator so the client receives
@@ -442,11 +463,6 @@ async def chat_stream(
         
         full_response = ""
         try:
-            experiment_version = (
-                project.experiment_version or {}
-                if getattr(project, "experiment_version", None)
-                else {}
-            )
             if experiment_version.get("ai_scaffold_mode") == "single_agent":
                 yield _sse_event(
                     "status",

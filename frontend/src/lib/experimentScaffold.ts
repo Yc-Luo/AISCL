@@ -75,6 +75,7 @@ export function isLayerConfigured(
   layer: ScaffoldLayerKey,
 ) {
   if (!experimentVersion) return true
+  if (layer === 'multi_agent_scaffold' && experimentVersion.ai_scaffold_mode === 'single_agent') return false
   const configuredLayers = normalizeLayerKeys(experimentVersion.enabled_scaffold_layers)
   if (configuredLayers.length === 0) return true
   return configuredLayers.includes(layer)
@@ -103,6 +104,7 @@ export function isAssistantActionEnabled(
   role: ScaffoldRoleKey,
 ) {
   if (!experimentVersion) return true
+  if (experimentVersion.ai_scaffold_mode === 'single_agent') return false
   return isLayerConfigured(experimentVersion, 'multi_agent_scaffold') && isRoleConfigured(experimentVersion, role)
 }
 

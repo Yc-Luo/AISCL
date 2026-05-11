@@ -988,8 +988,14 @@ JSON Output Format:
         # Fetch actual user data to get usernames
         users = await User.find({"_id": {"$in": [bson.ObjectId(uid) for uid in user_ids if bson.ObjectId.is_valid(uid)]}}).to_list()
         user_name_map = {str(u.id): u.username or u.email.split('@')[0] for u in users}
+        user_role_map = {str(u.id): u.role for u in users}
+        student_members = [
+            member
+            for member in project.members
+            if user_role_map.get(member.get("user_id")) == "student"
+        ]
 
-        for member in project.members:
+        for member in student_members:
             uid = member["user_id"]
             nodes.append({
                 "id": uid,
@@ -1317,7 +1323,7 @@ JSON Output Format:
         summary = {
             "total_active_minutes": sum(s.active_minutes for s in daily_stats),
             "total_activity_score": sum(s.activity_score for s in daily_stats),
-            "member_count": len(network["nodes"]),
+            "member_count": len([node for node in network["nodes"] if node.get("role") != "ai"]),
             "activity_breakdown": total_breakdown
         }
         

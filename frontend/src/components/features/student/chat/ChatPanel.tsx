@@ -95,7 +95,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
         const memberIds = project.members.map((m: any) => m.user_id)
         if (memberIds.length > 0) {
           const memberUsers = await userService.getUsers(memberIds)
-          setMembers(memberUsers)
+          setMembers(memberUsers.filter((member) => member.role === 'student'))
         }
         const version = await projectService.getExperimentVersion(projectId)
         setExperimentVersion(version)

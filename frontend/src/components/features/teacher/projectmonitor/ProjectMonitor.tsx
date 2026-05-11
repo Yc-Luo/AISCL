@@ -38,6 +38,9 @@ type HelpRequest = {
     pageSource?: string | null;
 };
 
+const getLearningMemberCount = (project: Project) =>
+    (project.members || []).filter(member => member.user_id !== project.owner_id).length;
+
 type SupportHistoryItem = {
     id: string;
     projectId: string;
@@ -606,7 +609,7 @@ export default function ProjectMonitor() {
                                                                     <p className="truncate text-sm font-semibold text-slate-900">{project.name}</p>
                                                                 </div>
                                                                 <p className="mt-1 text-xs text-slate-500">
-                                                                    {project.members.length} 人 · {formatDateTime(project.updated_at)}
+                                                                    {getLearningMemberCount(project)} 人 · {formatDateTime(project.updated_at)}
                                                                 </p>
                                                             </div>
                                                             {metrics.pendingHelpCount > 0 ? (
@@ -641,7 +644,7 @@ export default function ProjectMonitor() {
                                             </Badge>
                                         </div>
                                         <p className="mt-2 text-sm text-slate-500">
-                                            {getCourseLabel(selectedCourse)} · {selectedProject.members.length} 名成员 · 最近活动 {formatDateTime(selectedProject.updated_at)}
+                                            {getCourseLabel(selectedCourse)} · {getLearningMemberCount(selectedProject)} 名成员 · 最近活动 {formatDateTime(selectedProject.updated_at)}
                                         </p>
                                         <div className="mt-3 flex flex-wrap gap-2 text-xs">
                                             <Pill label={`AI形态：${selectedProject.experiment_version?.ai_scaffold_mode || '未标记'}`} />

@@ -244,20 +244,26 @@ async def create_project(
     # Create project
     from datetime import datetime
 
+    initial_members = []
+    initial_leader_id = None
+    if current_user.role == "student":
+        initial_leader_id = str(current_user.id)
+        initial_members.append(
+            {
+                "user_id": str(current_user.id),
+                "role": "owner",
+                "joined_at": datetime.utcnow(),
+            }
+        )
+
     new_project = Project(
         name=project_data.name,
         subtitle=project_data.subtitle,
         description=project_data.description,
         course_id=project_data.course_id,
         owner_id=str(current_user.id),
-        leader_id=str(current_user.id) if current_user.role == "student" else None,
-        members=[
-            {
-                "user_id": str(current_user.id),
-                "role": "owner",
-                "joined_at": datetime.utcnow(),
-            }
-        ],
+        leader_id=initial_leader_id,
+        members=initial_members,
     )
     await new_project.insert()
 
@@ -565,12 +571,13 @@ async def add_project_member(
             detail="User not found",
         )
 
+    if target_user.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts can be added to a learning group",
+        )
+
     if current_user.role != "admin":
-        if target_user.role != "student":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only student accounts can be added to a learning group",
-            )
         if project.course_id and target_user.class_id != project.course_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -592,7 +599,21 @@ async def add_project_member(
         return {"message": "Member already exists"}
 
     # Check member limit only for truly new members.
-    if settings.MAX_PROJECT_MEMBERS > 0 and len(project.members) >= settings.MAX_PROJECT_MEMBERS:
+    student_member_count = 0
+    if project.members:
+        import bson
+
+        member_object_ids = [
+            bson.ObjectId(member.get("user_id"))
+            for member in project.members
+            if bson.ObjectId.is_valid(member.get("user_id"))
+        ]
+        if member_object_ids:
+            student_member_count = await User.find(
+                {"_id": {"$in": member_object_ids}, "role": "student"}
+            ).count()
+
+    if settings.MAX_PROJECT_MEMBERS > 0 and student_member_count >= settings.MAX_PROJECT_MEMBERS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Project can have at most {settings.MAX_PROJECT_MEMBERS} members",

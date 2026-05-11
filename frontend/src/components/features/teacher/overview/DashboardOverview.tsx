@@ -36,6 +36,9 @@ interface ProjectActivity {
     memberCount: number;
 }
 
+const getLearningMemberCount = (project: Project) =>
+    (project.members || []).filter(member => member.user_id !== project.owner_id).length;
+
 export default function DashboardOverview() {
     const navigate = useNavigate();
     const { user } = useAuthStore();
@@ -115,7 +118,7 @@ export default function DashboardOverview() {
                 id: project.id,
                 name: project.name,
                 updatedAt: project.updated_at,
-                memberCount: project.members?.length || 0
+                memberCount: getLearningMemberCount(project)
             }))
     ), [projects]);
 

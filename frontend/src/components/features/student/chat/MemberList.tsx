@@ -90,11 +90,17 @@ export default function MemberList({ projectId }: MemberListProps) {
     return onlineMembers.has(userId)
   }
 
+  const learningMembers = project.members.filter((member: any) => {
+    const memberUser = getMemberUser(member.user_id)
+    if (memberUser) return memberUser.role === 'student'
+    return member.user_id !== project.owner_id
+  })
+
   return (
     <div className="p-4 space-y-2">
       <h3 className="font-semibold text-sm mb-3">小组成员</h3>
       <div className="space-y-2">
-        {project.members.map((member: any) => {
+        {learningMembers.map((member: any) => {
           const memberUser = getMemberUser(member.user_id)
           const role = getMemberRole(member.user_id)
           const online = isOnline(member.user_id)

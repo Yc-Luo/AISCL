@@ -44,6 +44,9 @@ export default function ProjectList() {
     }
   }
 
+  const getLearningMemberCount = (project: any) =>
+    project.members.filter((member: any) => member.user_id !== project.owner_id || member.user_id === user?.id).length
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -102,7 +105,7 @@ export default function ProjectList() {
                 )}
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-gray-500">
-                    {project.members.length} 名成员
+                    {getLearningMemberCount(project)} 名成员
                   </div>
                   <div className="text-sm font-medium text-indigo-600">
                     {project.is_archived ? '已完成' : `进度: ${project.progress}%`}

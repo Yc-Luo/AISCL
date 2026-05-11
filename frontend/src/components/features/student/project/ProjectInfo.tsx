@@ -127,6 +127,11 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
     if (currentUser && userId === currentUser.id) return currentUser
     return userCache[userId] || members.find(m => m.id === userId)
   }
+  const learningMembers = project.members.filter((member: any) => {
+    const memberUser = getMemberUser(member.user_id)
+    if (memberUser) return memberUser.role === 'student'
+    return member.user_id !== project.owner_id
+  })
 
   const handleUpdateProject = async (updates: Partial<Project>) => {
     if (!projectId || isUpdating) return
@@ -407,7 +412,7 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
       )}
           <div className="flex items-center pl-1">
             <div className="flex -space-x-3 overflow-hidden">
-              {project.members.map((member: any) => {
+              {learningMembers.map((member: any) => {
                 const memberUser = getMemberUser(member.user_id)
                 const online = false // TODO: Integration with syncService for real online status
                 return (
@@ -436,7 +441,7 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-            <span className="ml-3 text-[10px] font-medium text-gray-400">{project.members.length} 位成员</span>
+            <span className="ml-3 text-[10px] font-medium text-gray-400">{learningMembers.length} 位成员</span>
           </div>
         </div>
 

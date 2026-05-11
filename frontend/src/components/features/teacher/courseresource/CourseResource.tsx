@@ -228,8 +228,16 @@ export default function CourseResource() {
                     <span className="text-sm text-slate-500">正在加载班级资源...</span>
                 </div>
             ) : resources.length > 0 ? (
-                <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
-                    <table className="w-full min-w-full">
+                <div className="overflow-x-auto rounded-3xl border border-gray-100 bg-white shadow-sm">
+                    <table className="w-full min-w-[980px] table-fixed">
+                        <colgroup>
+                            <col className="w-[46%]" />
+                            <col className="w-[13%]" />
+                            <col className="w-[13%]" />
+                            <col className="w-[9%]" />
+                            <col className="w-[11%]" />
+                            <col className="w-[8%]" />
+                        </colgroup>
                         <thead className="bg-gray-50/70">
                             <tr>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">文件名</th>
@@ -244,15 +252,15 @@ export default function CourseResource() {
                             {resources.map((resource) => (
                                 <tr key={resource.id} className="group transition-colors hover:bg-slate-50/70">
                                     <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="rounded-xl bg-indigo-50 p-2.5">
+                                        <div className="flex min-w-0 items-center gap-3">
+                                            <div className="shrink-0 rounded-xl bg-indigo-50 p-2.5">
                                                 <FileText className="h-5 w-5 text-indigo-600" />
                                             </div>
                                             <div className="min-w-0">
-                                                <div className="truncate font-bold text-slate-800" title={resource.filename}>
+                                                <div className="max-w-full truncate font-bold text-slate-800" title={resource.filename}>
                                                     {resource.filename}
                                                 </div>
-                                                <div className="mt-0.5 text-xs text-slate-400">{resource.mime_type}</div>
+                                                <div className="mt-0.5 truncate text-xs text-slate-400">{resource.mime_type}</div>
                                             </div>
                                         </div>
                                     </td>
@@ -272,7 +280,7 @@ export default function CourseResource() {
                                     <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-500">
                                         {new Date(resource.uploaded_at).toLocaleDateString()}
                                     </td>
-                                    <td className="whitespace-nowrap px-6 py-4 text-right">
+                                    <td className="sticky right-0 whitespace-nowrap bg-white px-6 py-4 text-right shadow-[-8px_0_16px_-16px_rgba(15,23,42,0.45)] transition-colors group-hover:bg-slate-50">
                                         <div className="flex justify-end gap-2">
                                             <Button
                                                 variant="ghost"

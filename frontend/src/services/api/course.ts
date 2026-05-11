@@ -69,6 +69,11 @@ export const courseService = {
         return response.data.courses // Backend returns { courses: [...] }
     },
 
+    joinCourse: async (inviteCode: string): Promise<{ message: string; course_id: string }> => {
+        const response = await api.post('/courses/join', { invite_code: inviteCode.trim().toUpperCase() })
+        return response.data
+    },
+
     getExperimentTemplates: async (): Promise<ExperimentTemplateOption[]> => {
         const response = await api.get('/courses/experiment-templates')
         return response.data.templates || []

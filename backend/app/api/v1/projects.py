@@ -1,6 +1,7 @@
 """Project management API routes."""
 
 import logging
+import secrets
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -16,6 +17,7 @@ from app.repositories.project import Project
 from app.repositories.user import User
 from app.core.schemas.project import (
     ProjectCreateRequest,
+    ProjectJoinRequest,
     ProjectListResponse,
     ProjectMemberAddRequest,
     ProjectResponse,
@@ -109,6 +111,51 @@ def _resolve_next_group_leader(project: Project) -> Optional[str]:
     return None
 
 
+def generate_group_code() -> str:
+    """Generate a short group code for student self-joining."""
+    return secrets.token_hex(3).upper()[:6]
+
+
+async def generate_unique_group_code(course_id: str) -> str:
+    """Generate a course-scoped unique group code."""
+    group_code = generate_group_code()
+    while await Project.find_one({"course_id": course_id, "group_code": group_code}):
+        group_code = generate_group_code()
+    return group_code
+
+
+def build_project_response(project: Project) -> ProjectResponse:
+    """Build a project response without repeating field mapping in each route."""
+    return ProjectResponse(
+        id=str(project.id),
+        name=project.name,
+        subtitle=project.subtitle,
+        description=project.description,
+        course_id=project.course_id,
+        group_code=project.group_code,
+        owner_id=project.owner_id,
+        leader_id=project.leader_id,
+        members=[
+            {
+                "user_id": m.get("user_id"),
+                "role": m.get("role"),
+                "joined_at": m.get("joined_at"),
+            }
+            for m in project.members
+        ],
+        progress=project.progress,
+        is_template=project.is_template,
+        is_archived=project.is_archived,
+        inherited_template_key=project.inherited_template_key,
+        inherited_template_label=project.inherited_template_label,
+        inherited_template_release_id=project.inherited_template_release_id,
+        inherited_template_source=project.inherited_template_source,
+        initial_task_document_id=project.initial_task_document_id,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+    )
+
+
 async def validate_project_leader(project: Project, leader_id: Optional[str]) -> Optional[str]:
     """Validate that a leader is a student who belongs to the project."""
     if not leader_id:
@@ -163,33 +210,7 @@ async def get_projects(
 
     return ProjectListResponse(
         projects=[
-            ProjectResponse(
-                id=str(p.id),
-                name=p.name,
-                subtitle=p.subtitle,
-                description=p.description,
-                course_id=p.course_id,
-                owner_id=p.owner_id,
-                leader_id=p.leader_id,
-                members=[
-                    {
-                        "user_id": m.get("user_id"),
-                        "role": m.get("role"),
-                        "joined_at": m.get("joined_at"),
-                    }
-                    for m in p.members
-                ],
-                progress=p.progress,
-                is_template=p.is_template,
-                is_archived=p.is_archived,
-                inherited_template_key=p.inherited_template_key,
-                inherited_template_label=p.inherited_template_label,
-                inherited_template_release_id=p.inherited_template_release_id,
-                inherited_template_source=p.inherited_template_source,
-                initial_task_document_id=p.initial_task_document_id,
-                created_at=p.created_at,
-                updated_at=p.updated_at,
-            )
+            build_project_response(p)
             for p in projects_list
         ],
         total=total,
@@ -223,6 +244,11 @@ async def create_project(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Students can only create groups inside their joined class",
             )
+    elif current_user.role == "student":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Students must create groups inside a joined class",
+        )
 
     # Check student project limit (only 1 project per student)
     if current_user.role == "student":
@@ -261,6 +287,7 @@ async def create_project(
         subtitle=project_data.subtitle,
         description=project_data.description,
         course_id=project_data.course_id,
+        group_code=await generate_unique_group_code(project_data.course_id) if project_data.course_id else None,
         owner_id=str(current_user.id),
         leader_id=initial_leader_id,
         members=initial_members,
@@ -281,33 +308,96 @@ async def create_project(
                 detail="Project initialization failed",
             )
 
-    return ProjectResponse(
-        id=str(new_project.id),
-        name=new_project.name,
-        subtitle=new_project.subtitle,
-        description=new_project.description,
-        course_id=new_project.course_id,
-        owner_id=new_project.owner_id,
-        leader_id=new_project.leader_id,
-        members=[
-            {
-                "user_id": m.get("user_id"),
-                "role": m.get("role"),
-                "joined_at": m.get("joined_at"),
-            }
-            for m in new_project.members
-        ],
-        progress=new_project.progress,
-        is_template=new_project.is_template,
-        is_archived=new_project.is_archived,
-        inherited_template_key=new_project.inherited_template_key,
-        inherited_template_label=new_project.inherited_template_label,
-        inherited_template_release_id=new_project.inherited_template_release_id,
-        inherited_template_source=new_project.inherited_template_source,
-        initial_task_document_id=new_project.initial_task_document_id,
-        created_at=new_project.created_at,
-        updated_at=new_project.updated_at,
+    return build_project_response(new_project)
+
+
+@router.post("/join", response_model=ProjectResponse)
+async def join_project_by_group_code(
+    join_data: ProjectJoinRequest,
+    current_user: User = Depends(get_current_user),
+) -> ProjectResponse:
+    """Join a course-scoped project group using its group code."""
+    if current_user.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only students can join learning groups",
+        )
+
+    course = await Course.get(join_data.course_id)
+    if not course:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Course not found",
+        )
+    if current_user.class_id != str(course.id) and str(current_user.id) not in course.students:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Students can only join groups inside their own class",
+        )
+
+    group_code = join_data.group_code.strip().upper()
+    project = await Project.find_one(
+        {
+            "course_id": str(course.id),
+            "group_code": group_code,
+            "is_archived": False,
+        }
     )
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group code is invalid for this class",
+        )
+
+    current_user_id = str(current_user.id)
+    if any(member.get("user_id") == current_user_id for member in project.members):
+        return build_project_response(project)
+
+    existing_project = await Project.find_one(
+        {
+            "$or": [
+                {"owner_id": current_user_id},
+                {"members.user_id": current_user_id},
+            ],
+            "is_archived": False,
+        }
+    )
+    if existing_project:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Students can only join 1 active project",
+        )
+
+    student_member_count = 0
+    if project.members:
+        import bson
+
+        member_object_ids = [
+            bson.ObjectId(member.get("user_id"))
+            for member in project.members
+            if bson.ObjectId.is_valid(member.get("user_id"))
+        ]
+        if member_object_ids:
+            student_member_count = await User.find(
+                {"_id": {"$in": member_object_ids}, "role": "student"}
+            ).count()
+    if settings.MAX_PROJECT_MEMBERS > 0 and student_member_count >= settings.MAX_PROJECT_MEMBERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Project can have at most {settings.MAX_PROJECT_MEMBERS} members",
+        )
+
+    from datetime import datetime
+
+    project.members.append(
+        {
+            "user_id": current_user_id,
+            "role": "editor",
+            "joined_at": datetime.utcnow(),
+        }
+    )
+    await project.save()
+    return build_project_response(project)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -326,33 +416,7 @@ async def get_project(
     # Check permission
     await ensure_project_access(current_user, project)
 
-    return ProjectResponse(
-        id=str(project.id),
-        name=project.name,
-        subtitle=project.subtitle,
-        description=project.description,
-        course_id=project.course_id,
-        owner_id=project.owner_id,
-        leader_id=project.leader_id,
-        members=[
-            {
-                "user_id": m.get("user_id"),
-                "role": m.get("role"),
-                "joined_at": m.get("joined_at"),
-            }
-            for m in project.members
-        ],
-        progress=project.progress,
-        is_template=project.is_template,
-        is_archived=project.is_archived,
-        inherited_template_key=project.inherited_template_key,
-        inherited_template_label=project.inherited_template_label,
-        inherited_template_release_id=project.inherited_template_release_id,
-        inherited_template_source=project.inherited_template_source,
-        initial_task_document_id=project.initial_task_document_id,
-        created_at=project.created_at,
-        updated_at=project.updated_at,
-    )
+    return build_project_response(project)
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
@@ -557,6 +621,31 @@ async def add_project_member(
                 detail="User with this email not found",
             )
         target_user_id = str(target_user.id)
+    elif member_data.username:
+        target_user = await User.find_one(User.username == member_data.username)
+        if not target_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User with this username not found",
+            )
+        target_user_id = str(target_user.id)
+    elif member_data.account:
+        account = member_data.account.strip()
+        target_user = await User.find_one(
+            {
+                "$or": [
+                    {"email": account},
+                    {"username": account},
+                    {"phone": account},
+                ]
+            }
+        )
+        if not target_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User with this account not found",
+            )
+        target_user_id = str(target_user.id)
     
     if not target_user_id:
         raise HTTPException(
@@ -597,6 +686,21 @@ async def add_project_member(
     # on already-existing members makes an otherwise valid save look broken.
     if any(m.get("user_id") == target_user_id for m in project.members):
         return {"message": "Member already exists"}
+
+    existing_target_project = await Project.find_one(
+        {
+            "$or": [
+                {"owner_id": target_user_id},
+                {"members.user_id": target_user_id},
+            ],
+            "is_archived": False,
+        }
+    )
+    if existing_target_project and str(existing_target_project.id) != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This student already belongs to another active project",
+        )
 
     # Check member limit only for truly new members.
     student_member_count = 0

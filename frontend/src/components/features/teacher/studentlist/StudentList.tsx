@@ -377,7 +377,7 @@ export default function StudentList() {
                 </div>
 
                 {/* Search and Filters */}
-                <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex items-center gap-4">
+                <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:gap-4">
                     <div className="relative flex-1">
                             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <Input
@@ -398,7 +398,7 @@ export default function StudentList() {
                         </div>
                     ) : students.length > 0 ? (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left">
+                            <table className="w-full min-w-[760px] text-left">
                                 <thead className="bg-slate-50/50">
                                     <tr>
                                         <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">学生信息</th>
@@ -466,8 +466,8 @@ export default function StudentList() {
 
             {/* Import Students Modal */}
             <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
-                <DialogContent className="max-w-2xl rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
-                    <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 p-8 text-white relative">
+                <DialogContent className="max-h-[90dvh] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-3xl border-none p-0 shadow-2xl sm:max-w-2xl">
+                    <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 p-5 text-white sm:p-8 relative">
                         <DialogHeader>
                             <DialogTitle className="text-2xl font-bold text-white flex items-center gap-3">
                                 <UserPlus className="w-7 h-7" />
@@ -495,7 +495,7 @@ export default function StudentList() {
                         </div>
                     </div>
 
-                    <div className="p-8">
+                    <div className="p-5 sm:p-8">
                         {importTab === 'search' ? (
                             <div className="space-y-6">
                                 <div className="relative">
@@ -516,8 +516,8 @@ export default function StudentList() {
                                         </div>
                                     ) : importFilteredUsers.length > 0 ? (
                                         importFilteredUsers.map(user => (
-                                            <div key={user.id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl hover:border-indigo-200 hover:shadow-sm transition-all group">
-                                                <div className="flex items-center gap-4">
+                                            <div key={user.id} className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-white p-4 transition-all hover:border-indigo-200 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between group">
+                                                <div className="flex min-w-0 items-center gap-4">
                                                     <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-indigo-600 font-bold border border-slate-100">
                                                         {user.username[0].toUpperCase()}
                                                     </div>
@@ -547,7 +547,7 @@ export default function StudentList() {
                             </div>
                         ) : (
                             <div className="space-y-8">
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                     <div
                                         onClick={downloadTemplate}
                                         className="p-6 bg-slate-50 rounded-3xl border border-slate-200 border-dashed hover:border-indigo-500 hover:bg-white transition-all cursor-pointer group"
@@ -629,7 +629,7 @@ export default function StudentList() {
 
             {/* Student Detail Drawer (Same as previous) */}
             {selectedStudent && (
-                <div className="fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-40 transform transition-transform duration-300 ease-in-out border-l border-slate-100 flex flex-col p-8 overflow-y-auto">
+                <div className="fixed top-0 right-0 z-40 flex h-full w-[min(400px,100vw)] flex-col overflow-y-auto border-l border-slate-100 bg-white p-5 shadow-2xl transition-transform duration-300 ease-in-out sm:p-8">
                     <div className="flex items-center justify-between mb-10">
                         <h2 className="text-xl font-bold text-slate-900 tracking-tight">学生成长档案</h2>
                         <Button variant="ghost" size="sm" onClick={() => setSelectedStudent(null)} className="bg-slate-50 rounded-full h-8 w-8 p-0">

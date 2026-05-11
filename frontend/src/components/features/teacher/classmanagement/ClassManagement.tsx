@@ -296,7 +296,7 @@ export default function ClassManagement() {
     return (
         <div className="space-y-6 animate-fadeIn pb-10">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 tracking-tight">班级管理</h1>
                     <p className="text-sm text-slate-500 mt-1">创建和维护您的教学班级，学生通过邀请码加入协作空间。</p>
@@ -359,7 +359,7 @@ export default function ClassManagement() {
             </div>
 
             {/* Actions Bar */}
-            <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex items-center gap-4">
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:gap-4">
                 <div className="relative flex-1">
                     <label htmlFor="course-search" className="sr-only">搜索班级或学期</label>
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -376,7 +376,7 @@ export default function ClassManagement() {
             {/* Table */}
             <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
+                    <table className="w-full min-w-[860px] text-left">
                         <thead className="bg-slate-50/50">
                             <tr>
                                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">班级信息</th>
@@ -473,7 +473,7 @@ export default function ClassManagement() {
 
             {/* Create Modal */}
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-                <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar rounded-3xl p-8">
+                <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto custom-scrollbar rounded-3xl p-5 sm:max-w-md sm:p-8">
                         <DialogHeader>
                             <DialogTitle className="text-2xl font-bold">创建新班级</DialogTitle>
                             <DialogDescription className="text-slate-500 mt-2">
@@ -606,7 +606,7 @@ export default function ClassManagement() {
 
             {/* Edit Modal */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar rounded-3xl p-8">
+                <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto custom-scrollbar rounded-3xl p-5 sm:max-w-md sm:p-8">
                         <DialogHeader>
                             <DialogTitle className="text-2xl font-bold">修改班级信息</DialogTitle>
                             <DialogDescription className="text-slate-500 mt-2">

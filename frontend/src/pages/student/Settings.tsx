@@ -17,9 +17,9 @@ export default function Settings() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 py-8">
+        <div className="h-[100dvh] overflow-y-auto bg-gray-50 py-6 sm:py-8">
             <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="mb-8 flex items-center justify-between">
+                <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <h1 className="text-2xl font-bold text-gray-900">个人设置</h1>
                     <button
                         onClick={() => navigate(-1)}

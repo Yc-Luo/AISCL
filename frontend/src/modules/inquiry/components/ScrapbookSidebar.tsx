@@ -27,7 +27,7 @@ export const ScrapbookSidebar: React.FC<ScrapbookSidebarProps> = ({ isVisible })
     };
 
     return (
-        <div className="w-80 h-full border-r bg-slate-50 flex flex-col">
+        <div className="absolute inset-y-0 left-0 z-30 flex h-full w-[min(20rem,88vw)] flex-col border-r bg-slate-50 shadow-2xl md:relative md:z-auto md:w-80 md:shadow-none">
             <div className="p-4 border-b bg-white flex justify-between items-start gap-3">
                 <div>
                     <h3 className="font-semibold text-slate-800">素材池</h3>

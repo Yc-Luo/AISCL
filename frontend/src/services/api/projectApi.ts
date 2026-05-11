@@ -29,6 +29,10 @@ export class ProjectApi {
         return this.client.post(API_ENDPOINTS.PROJECTS.BASE, data)
     }
 
+    async joinProject(data: { course_id: string; group_code: string }): Promise<Project> {
+        return this.client.post(`${API_ENDPOINTS.PROJECTS.BASE}/join`, data)
+    }
+
     async updateProject(id: string, data: UpdateProjectData): Promise<Project> {
         return this.client.put(`${API_ENDPOINTS.PROJECTS.BASE}/${id}`, data)
     }
@@ -37,10 +41,12 @@ export class ProjectApi {
         return this.client.delete(`${API_ENDPOINTS.PROJECTS.BASE}/${id}`)
     }
 
-    async addMember(projectId: string, data: { userId?: string, email?: string, role: string }): Promise<void> {
+    async addMember(projectId: string, data: { userId?: string, email?: string, username?: string, account?: string, role: string }): Promise<void> {
         return this.client.post(API_ENDPOINTS.PROJECTS.MEMBERS(projectId), {
             user_id: data.userId,
             email: data.email,
+            username: data.username,
+            account: data.account,
             role: data.role,
         })
     }

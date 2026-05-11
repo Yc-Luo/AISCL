@@ -10,7 +10,6 @@ import LearningDashboard from '../../components/features/student/dashboard/Learn
 import DocumentEditor from '../../components/features/student/document/DocumentEditor'
 import { InquirySpace } from '../../modules/inquiry/components/InquirySpace'
 import AITutor from '../../components/features/student/ai/AITutor'
-import AIAssistant from '../../components/features/student/ai/AIAssistant'
 import NotificationCenter from '../../components/feedback/NotificationCenter'
 import { projectService } from '../../services/api/project'
 import { documentService } from '../../services/api/document'
@@ -137,8 +136,8 @@ export default function Main() {
   const [currentProjectId, setCurrentProjectId] = useState<string | undefined>(projectId)
   const [activeTab, setActiveTab] = useState('document')
   const [currentStage, setCurrentStage] = useState<string | null>(null)
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() => {
     const savedWidth = Number(window.localStorage.getItem('aiscl:right-sidebar-width') || 380)
     return Number.isFinite(savedWidth) ? Math.min(Math.max(savedWidth, 320), 560) : 380
@@ -164,6 +163,19 @@ export default function Main() {
   const previousStageRef = useRef<string | null>(null)
   const previousGuidedStageRef = useRef<string | null>(null)
   const rightSidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 1024px)')
+    const syncSidebarState = (matches: boolean) => {
+      setLeftSidebarOpen(matches)
+      setRightSidebarOpen(matches)
+    }
+
+    syncSidebarState(mediaQuery.matches)
+    const handleChange = (event: MediaQueryListEvent) => syncSidebarState(event.matches)
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
 
   const { connectionStatus } = useSyncStore()
   const { user } = useAuthStore()
@@ -966,7 +978,6 @@ export default function Main() {
         )}
       </div>
 
-      <AIAssistant projectId={currentProjectId} experimentVersion={experimentVersion} />
       <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   )

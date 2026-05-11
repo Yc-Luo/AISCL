@@ -844,7 +844,7 @@ export default function ProjectDashboard() {
                                     )) : <span className="text-xs text-slate-400">当前未限制支架角色。</span>}
                                 </div>
                                 <p className="mt-2 text-xs text-slate-400">
-                                    当 AI 支架形态为“单AI支架”时，系统默认隐藏 AI 导师页签，仅保留浮动 AI 助手。
+                                    当 AI 支架形态为“单AI支架”时，系统默认隐藏 AI 导师页签，仅保留过程工具中的正式支架入口。
                                 </p>
                             </div>
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

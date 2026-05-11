@@ -106,13 +106,13 @@ export default function ProjectManager() {
     return (
         <div className="space-y-6 animate-fadeIn">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-2xl font-semibold text-slate-900">小组管理</h1>
                     <p className="text-sm text-slate-600 mt-1">创建、监控和管理班级中的协作小组空间。</p>
                 </div>
                 <Button
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+                    className="w-full gap-2 bg-indigo-600 text-white hover:bg-indigo-700 sm:w-auto"
                     onClick={handleCreate}
                 >
                     <FolderPlus className="w-4 h-4" />

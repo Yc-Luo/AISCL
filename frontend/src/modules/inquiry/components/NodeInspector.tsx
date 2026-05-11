@@ -76,7 +76,7 @@ export const NodeInspector: React.FC<NodeInspectorProps> = () => {
     };
 
     return (
-        <div className="absolute right-4 top-24 z-20 w-72 bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in slide-in-from-right-4">
+        <div className="absolute inset-x-3 bottom-3 z-20 max-h-[45dvh] overflow-y-auto rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-4 md:inset-x-auto md:bottom-auto md:right-4 md:top-24 md:w-72 md:max-h-[calc(100%-7rem)] md:animate-in md:slide-in-from-right-4">
             <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
                 <h3 className="text-sm font-bold text-slate-700">编辑节点</h3>
                 <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => updateNode(selectedNode.id, { selected: false })}>

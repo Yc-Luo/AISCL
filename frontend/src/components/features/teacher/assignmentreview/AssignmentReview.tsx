@@ -60,7 +60,7 @@ export default function AssignmentReview() {
 
     return (
         <div className="space-y-8 animate-fadeIn">
-            <div className="flex justify-between items-end">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                     <h2 className="text-3xl font-bold text-gray-900 tracking-tight">作业与任务评审</h2>
                     <p className="text-gray-500 mt-2">查看各小组已完成的任务并进行反馈</p>
@@ -75,7 +75,7 @@ export default function AssignmentReview() {
                 <div className="grid gap-4">
                     {submissions.map((submission) => (
                         <div key={submission.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow p-5">
-                            <div className="flex justify-between items-start">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div className="space-y-1">
                                     <div className="flex items-center gap-2">
                                         <Badge variant="secondary" className="bg-green-100 text-green-700 border-green-200">
@@ -91,7 +91,7 @@ export default function AssignmentReview() {
                                 </Button>
                             </div>
 
-                            <div className="mt-4 flex items-center gap-6 text-sm text-slate-500">
+                            <div className="mt-4 flex flex-col gap-2 text-sm text-slate-500 sm:flex-row sm:items-center sm:gap-6">
                                 <div className="flex items-center gap-2">
                                     <User className="w-4 h-4" />
                                     <span>负责人: {submission.assignees.join(', ') || '全体成员'}</span>

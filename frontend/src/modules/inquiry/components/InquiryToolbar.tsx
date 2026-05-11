@@ -45,9 +45,9 @@ export const InquiryToolbar: React.FC<InquiryToolbarProps> = ({
     const isAnyAnalyzing = analyzingType !== null;
 
     return (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 p-0.5 bg-white/95 backdrop-blur-xl rounded-full shadow-xl border border-white/20 transition-all duration-300 ring-1 ring-slate-900/5">
+        <div className="absolute left-2 right-2 top-3 z-10 flex max-w-[calc(100%-1rem)] items-center gap-1 overflow-x-auto rounded-full border border-white/20 bg-white/95 p-0.5 shadow-xl ring-1 ring-slate-900/5 backdrop-blur-xl transition-all duration-300 sm:left-1/2 sm:right-auto sm:top-4 sm:-translate-x-1/2">
             {/* View Toggle Group */}
-            <div className="flex bg-slate-200/50 p-1 rounded-full relative overflow-hidden group/toggle">
+            <div className="flex shrink-0 bg-slate-200/50 p-1 rounded-full relative overflow-hidden group/toggle">
                 <Button
                     variant="ghost"
                     size="sm"
@@ -81,7 +81,7 @@ export const InquiryToolbar: React.FC<InquiryToolbarProps> = ({
             <div className="w-px h-4 bg-slate-200 mx-0.5 shadow-sm" />
 
             {/* AI Actions Group */}
-            <div className="flex items-center gap-2 px-1">
+            <div className="flex shrink-0 items-center gap-2 px-1">
                 <Button
                     variant="ghost"
                     size="sm"
@@ -138,7 +138,7 @@ export const InquiryToolbar: React.FC<InquiryToolbarProps> = ({
             <div className="w-px h-4 bg-slate-200 mx-0.5 shadow-sm" />
 
             {/* Persistence & Status Group */}
-            <div className="flex items-center gap-1.5 px-2">
+            <div className="flex shrink-0 items-center gap-1.5 px-2">
                 <Button
                     variant="ghost"
                     size="sm"

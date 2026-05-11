@@ -29,6 +29,10 @@ export const projectService = {
     return newProjectService.createProject(data)
   },
 
+  async joinProject(data: { course_id: string; group_code: string }): Promise<Project> {
+    return newProjectService.joinProject(data)
+  },
+
   async updateProject(projectId: string, data: Partial<Project>): Promise<Project> {
     return newProjectService.updateProject(projectId, data)
   },
@@ -37,7 +41,7 @@ export const projectService = {
     return newProjectService.deleteProject(projectId)
   },
 
-  async addMember(projectId: string, data: { userId?: string, email?: string, role: string }): Promise<void> {
+  async addMember(projectId: string, data: { userId?: string, email?: string, username?: string, account?: string, role: string }): Promise<void> {
     return newProjectService.addMember(projectId, data)
   },
 

@@ -4,6 +4,7 @@ export interface Project {
     subtitle?: string
     description?: string
     course_id?: string
+    group_code?: string
     owner_id: string
     leader_id?: string | null
     members: ProjectMember[]

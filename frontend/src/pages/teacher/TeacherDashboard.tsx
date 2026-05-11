@@ -14,7 +14,9 @@ import {
   UserCircle,
   FolderOpen,
   ClipboardCheck,
-  CalendarClock
+  CalendarClock,
+  Menu,
+  X
 } from 'lucide-react'
 import { ROUTES } from '../../config/routes'
 
@@ -22,6 +24,7 @@ export default function TeacherDashboard() {
   const navigate = useNavigate()
   const location = useLocation()
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   // Helper to determine if a route is active (including sub-routes)
   const isActive = (path: string) => {
@@ -29,11 +32,76 @@ export default function TeacherDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex font-sans text-slate-900 overflow-hidden">
+    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-gray-50 font-sans text-slate-900 lg:flex-row">
+      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 shadow-sm lg:hidden">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-100">
+            <Brain className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <span className="block truncate text-base font-bold text-slate-800">AISCL</span>
+            <span className="block truncate text-xs font-medium uppercase tracking-wider text-slate-400">Teacher Console</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="rounded-xl p-2 text-slate-600 transition-colors hover:bg-slate-100"
+          aria-label="打开教师端导航"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      </header>
+
+      {isMobileMenuOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="关闭教师端导航"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-[1px] lg:hidden"
+          />
+          <div className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,86vw)] flex-col border-r border-gray-200 bg-white shadow-2xl lg:hidden">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-100">
+                  <Brain className="h-6 w-6" />
+                </div>
+                <div>
+                  <span className="block text-lg font-bold text-slate-800">AISCL</span>
+                  <span className="block text-xs font-medium uppercase tracking-wider text-slate-400">Teacher Console</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100"
+                aria-label="关闭教师端导航"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <nav className="flex-1 space-y-2 overflow-y-auto px-4 py-5">
+              <SidebarLink to={ROUTES.TEACHER.OVERVIEW} icon={LayoutDashboard} label="概览" active={isActive(ROUTES.TEACHER.OVERVIEW)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <SidebarLink to={ROUTES.TEACHER.PROJECT_MONITOR} icon={Monitor} label="小组监控" active={isActive(ROUTES.TEACHER.PROJECT_MONITOR)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <SidebarLink to={ROUTES.TEACHER.PROJECT_MANAGER} icon={Briefcase} label="小组管理" active={isActive(ROUTES.TEACHER.PROJECT_MANAGER)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <SidebarLink to={ROUTES.TEACHER.CLASS_MANAGEMENT} icon={Users} label="班级管理" active={isActive(ROUTES.TEACHER.CLASS_MANAGEMENT)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <SidebarLink to={ROUTES.TEACHER.STUDENTS} icon={UserCircle} label="学生列表" active={isActive(ROUTES.TEACHER.STUDENTS)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <div className="my-4 border-t border-gray-100 opacity-50 mx-2" />
+              <SidebarLink to={ROUTES.TEACHER.COURSE_RESOURCES} icon={FolderOpen} label="课程资源" active={isActive(ROUTES.TEACHER.COURSE_RESOURCES)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <SidebarLink to={ROUTES.TEACHER.TASK_RELEASES} icon={CalendarClock} label="任务发布" active={isActive(ROUTES.TEACHER.TASK_RELEASES)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <SidebarLink to={ROUTES.TEACHER.ASSIGNMENT_REVIEW} icon={ClipboardCheck} label="作业与任务评审" active={isActive(ROUTES.TEACHER.ASSIGNMENT_REVIEW)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <SidebarLink to={ROUTES.TEACHER.PROJECT_DASHBOARD} icon={BarChart3} label="小组仪表盘" active={isActive(ROUTES.TEACHER.PROJECT_DASHBOARD)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+              <SidebarLink to={ROUTES.TEACHER.SETTINGS} icon={Settings} label="设置" active={isActive(ROUTES.TEACHER.SETTINGS)} isCollapsed={false} onClick={() => setIsMobileMenuOpen(false)} />
+            </nav>
+          </div>
+        </>
+      )}
+
       {/* Sidebar - Adjusted to 30% as per requirements, collapsible to 80px */}
       <div className={`
         ${isCollapsed ? 'w-20' : 'w-[30%] max-w-sm'} 
-        bg-white border-r border-gray-200 flex flex-col z-20 sticky top-0 h-screen shadow-sm
+        bg-white border-r border-gray-200 hidden lg:flex flex-col z-20 sticky top-0 h-[100dvh] shadow-sm
         transition-all duration-300 ease-in-out
       `}>
         {/* Branding */}
@@ -166,7 +234,7 @@ export default function TeacherDashboard() {
       </div>
 
       {/* Main Content - Takes remaining space */}
-      <div className="w-[70%] flex-1 p-10 overflow-y-auto">
+      <div className="w-full flex-1 overflow-y-auto p-4 sm:p-6 lg:w-[70%] lg:p-10">
         <div className="max-w-6xl mx-auto">
           <Outlet />
         </div>
@@ -175,10 +243,11 @@ export default function TeacherDashboard() {
   )
 }
 
-function SidebarLink({ to, icon: Icon, label, active, isCollapsed }: { to: string, icon: any, label: string, active: boolean, isCollapsed: boolean }) {
+function SidebarLink({ to, icon: Icon, label, active, isCollapsed, onClick }: { to: string, icon: any, label: string, active: boolean, isCollapsed: boolean, onClick?: () => void }) {
   return (
     <NavLink
       to={to}
+      onClick={onClick}
       title={isCollapsed ? label : ""}
       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-150 ${isCollapsed ? 'justify-center' : ''} ${active
         ? 'bg-indigo-50 text-indigo-700'

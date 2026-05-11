@@ -48,11 +48,11 @@ async def list_users(
     search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ) -> UserListResponse:
-    """List and filter users (Admin/Teacher only)."""
-    if current_user.role not in ["admin", "teacher"]:
+    """List and filter users inside the caller's permitted scope."""
+    if current_user.role not in ["admin", "teacher", "student"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin and teacher can list users",
+            detail="You don't have permission to list users",
         )
 
     query = {}
@@ -83,6 +83,18 @@ async def list_users(
                 query["$and"] = [search_clause, scope_clause]
             else:
                 query.update(scope_clause)
+    elif current_user.role == "student":
+        if role and role != "student":
+            return UserListResponse(users=[])
+        if not current_user.class_id:
+            return UserListResponse(users=[])
+        if class_id and class_id != current_user.class_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Students can only search classmates in their own class",
+            )
+        query["role"] = "student"
+        query["class_id"] = current_user.class_id
 
     users_data = await User.find(query).to_list()
     users_response = [

@@ -22,6 +22,7 @@ class Project(Document):
     subtitle: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     course_id: Optional[str] = Field(default=None)
+    group_code: Optional[str] = Field(default=None, index=True)
     owner_id: str
     leader_id: Optional[str] = Field(default=None)
     members: List[dict] = Field(default_factory=list)  # List of ProjectMember-like dicts
@@ -45,6 +46,7 @@ class Project(Document):
             [("owner_id", 1)],
             [("leader_id", 1)],
             [("course_id", 1)],
+            [("course_id", 1), ("group_code", 1)],
             [("members.user_id", 1)],
             [("is_archived", 1)],
             [("created_at", 1)],  # For sorting projects by creation date

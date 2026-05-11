@@ -53,8 +53,8 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
+    <div className="flex h-[100dvh] items-center justify-center overflow-y-auto bg-gray-50 px-4 py-6">
+      <div className="w-full max-w-md space-y-8 rounded-lg bg-white p-5 shadow-md sm:p-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             AISCL 协作学习系统

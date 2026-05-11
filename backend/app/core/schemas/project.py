@@ -22,6 +22,7 @@ class ProjectResponse(BaseModel):
     subtitle: Optional[str] = None
     description: Optional[str] = None
     course_id: Optional[str] = None
+    group_code: Optional[str] = None
     owner_id: str
     leader_id: Optional[str] = None
     members: List[ProjectMemberResponse] = Field(default_factory=list)
@@ -68,7 +69,16 @@ class ProjectMemberAddRequest(BaseModel):
 
     user_id: Optional[str] = None
     email: Optional[str] = None
+    username: Optional[str] = None
+    account: Optional[str] = None
     role: str = Field(default="editor", pattern="^(owner|editor|viewer)$")
+
+
+class ProjectJoinRequest(BaseModel):
+    """Join a project group inside a course."""
+
+    course_id: str
+    group_code: str = Field(..., min_length=4, max_length=12)
 
 
 class ProjectListResponse(BaseModel):

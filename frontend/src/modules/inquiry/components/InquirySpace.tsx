@@ -380,10 +380,18 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
 
     return (
         <div
-            className="flex flex-1 min-h-0 min-w-0 overflow-hidden bg-white rounded-lg shadow-inner outline-none"
+            className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden bg-white rounded-lg shadow-inner outline-none"
             onPaste={onPaste}
             tabIndex={0}
         >
+            {viewMode === 'scrapbook' && (
+                <button
+                    type="button"
+                    aria-label="关闭素材池"
+                    onClick={() => setViewMode('argumentation')}
+                    className="absolute inset-0 z-20 bg-slate-900/20 backdrop-blur-[1px] md:hidden"
+                />
+            )}
             <ScrapbookSidebar isVisible={viewMode === 'scrapbook'} />
 
             <div className="relative flex-1 flex flex-col min-h-0" ref={reactFlowWrapper}>
@@ -430,7 +438,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
                 >
                     <Background color="#cbd5e1" gap={20} />
                     <Controls />
-                    <MiniMap />
+                    <MiniMap className="hidden sm:block" />
                 </ReactFlow>
             </div>
             {toast.visible && (

@@ -342,9 +342,16 @@ async def join_course(
     course.students.append(str(current_user.id))
     await course.save()
 
-    # Update user's class_id
-    current_user.class_id = str(course.id)
-    await current_user.save()
+    # The auth dependency returns a lightweight user object, so persist through
+    # the repository model instead of mutating the dependency object directly.
+    student = await User.get(str(current_user.id))
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student not found",
+        )
+    student.class_id = str(course.id)
+    await student.save()
 
     return {"message": "Successfully joined course", "course_id": str(course.id)}
 

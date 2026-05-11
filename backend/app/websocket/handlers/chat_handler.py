@@ -90,8 +90,9 @@ GROUP_AI_MEMORY_MESSAGE_CHARS = 240
 
 
 def _detect_preferred_subagent(content: str) -> str | None:
+    normalized_content = (content or "").replace("＠", "@")
     for mention, subagent in ROLE_MENTION_MAP.items():
-        if mention in content:
+        if mention in normalized_content:
             return subagent
     return None
 
@@ -916,8 +917,8 @@ async def handle_chat_op(sio, sid, data, user_id):
             from app.repositories.user import User
             from app.services.research_event_service import research_event_service
 
-            experiment_version = getattr(project, "experiment_version", None) if project else None
-            current_stage = experiment_version.get("current_stage") if experiment_version else None
+            experiment_version = (getattr(project, "experiment_version", None) or {}) if project else {}
+            current_stage = experiment_version.get("current_stage")
             experiment_version_id = (
                 experiment_version.get("version_name") or experiment_version.get("name")
                 if experiment_version
@@ -1009,8 +1010,9 @@ async def handle_chat_op(sio, sid, data, user_id):
             )
             
             # 2. Heuristic text check (for testing or direct typing)
+            normalized_content = content.replace("＠", "@")
             ai_keywords = list(ROLE_MENTION_MAP.keys()) + list(GENERAL_AI_MENTIONS)
-            if not is_ai_mentioned and any(k in content for k in ai_keywords):
+            if not is_ai_mentioned and any(k in normalized_content for k in ai_keywords):
                 is_ai_mentioned = True
 
             await research_event_service.record_batch_events(

@@ -187,16 +187,16 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
 
 
 
-  const isSingleAIMode = experimentVersion?.ai_scaffold_mode === 'single_agent'
-  const AI_AGENTS = isSingleAIMode
+  const isMultiAIMode = experimentVersion?.ai_scaffold_mode === 'multi_agent'
+  const AI_AGENTS = isMultiAIMode
     ? [
-      { id: 'ai-single', name: 'AI智能助手', description: '围绕任务提供学习支持' },
-    ]
-    : [
       { id: 'ai-research', name: '资料研究员', description: '提供资料线索与出处支持' },
       { id: 'ai-challenge', name: '观点挑战者', description: '暴露反驳与替代解释' },
       { id: 'ai-feedback', name: '反馈追问者', description: '追问证据与修订依据' },
       { id: 'ai-progress', name: '问题推进者', description: '推进任务澄清与下一步' }
+    ]
+    : [
+      { id: 'ai-single', name: 'AI智能助手', description: '围绕任务提供学习支持' },
     ]
 
   const EMOJIS = ['😊', '😂', '🥰', '😍', '🤔', '😎', '😭', '😮', '👍', '🔥', '🙌', '✨', '🎉', '💡', '✅', '❌']
@@ -399,11 +399,13 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
     if (!inputValue.trim() && !replyingTo) return
     if (!connected) return
 
+    const sendContent = inputValue.replace(/＠/g, '@')
+
     // Extract mentions...
     const mentionRegex = /@(\w+)/g
     const mentionedUsernames: string[] = []
     let match
-    while ((match = mentionRegex.exec(inputValue)) !== null) {
+    while ((match = mentionRegex.exec(sendContent)) !== null) {
       mentionedUsernames.push(match[1])
     }
 
@@ -412,8 +414,12 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
       const member = members.find(m => m.username === username)
       if (member) mentions.push(member.id)
     })
+    const isAIAddressed = AI_AGENTS.some(agent => sendContent.includes(`@${agent.name}`))
+    if (isAIAddressed && !mentions.includes('ai_assistant')) {
+      mentions.push('ai_assistant')
+    }
 
-    sendMessage(inputValue, mentions, undefined, replyingTo?.id)
+    sendMessage(sendContent, mentions, undefined, replyingTo?.id)
 
     trackingService.track({
       module: 'chat',
@@ -421,7 +427,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
       metadata: {
         projectId,
         type: 'text',
-        length: inputValue.length,
+        length: sendContent.length,
         hasMentions: mentions.length > 0,
         isReply: !!replyingTo
       }
@@ -758,7 +764,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
         {showAIMenu && (
           <div className="absolute bottom-[calc(100%-8px)] left-16 w-60 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
             <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500">
-              {isSingleAIMode ? '选择 AI 助手' : '选择智能体助手'}
+              {isMultiAIMode ? '选择智能体助手' : '选择 AI 助手'}
             </div>
             {AI_AGENTS.map((agent) => (
               <button

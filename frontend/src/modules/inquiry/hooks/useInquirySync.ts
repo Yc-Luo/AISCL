@@ -228,6 +228,9 @@ export const useInquirySync = (projectId: string) => {
 
         // 快速水合：如果 Store 里已经是当前项目的数据，直接标记为已水合
         const currentStore = useInquiryStore.getState();
+        if (currentStore.projectId !== projectId) {
+            currentStore.clearAll();
+        }
         if (currentStore.projectId === projectId && (currentStore.nodes.length > 0 || currentStore.scrapbook.length > 0)) {
             console.log('[InquirySync] 🚀 Fast-path hydration: project already in store');
             setIsHydrated(true);
@@ -276,6 +279,7 @@ export const useInquirySync = (projectId: string) => {
                 console.warn('[InquirySync] ⚠️ API request failed or project fresh:', error);
             }
 
+            useInquiryStore.getState().setFullState([], [], [], projectId);
             isHydratedRef.current = true;
             setIsHydrated(true);
         };

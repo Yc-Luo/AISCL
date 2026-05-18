@@ -37,6 +37,7 @@ interface ChatPanelProps {
 const getMessageKey = (message: ChatMessage): string => message.client_message_id || message.id
 const AI_TYPING_LABEL = 'AISCL智能助手'
 const AI_TYPING_ALIASES = ['AISCL智能助手', '智能助手', 'AI智能助手']
+const MAX_CHAT_IMAGE_BYTES = 10 * 1024 * 1024
 const compareChatMessages = (currentUserId?: string) => (a: ChatMessage, b: ChatMessage) => {
   const timeDiff = getChatTimestampMs(a.timestamp) - getChatTimestampMs(b.timestamp)
   if (timeDiff !== 0) return timeDiff
@@ -69,6 +70,8 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messageListRef = useRef<HTMLDivElement>(null)
+  const autoScrollRef = useRef(true)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
@@ -82,9 +85,16 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   const displayedMessages = [...messages].sort(compareChatMessages(user?.id))
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    if (!autoScrollRef.current) return
     window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
     })
+  }
+
+  const handleMessageListScroll = () => {
+    const el = messageListRef.current
+    if (!el) return
+    autoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96
   }
 
   // Fetch project members for mention list
@@ -307,6 +317,10 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
       setToast({ message: '请选择图片文件。', type: 'error' })
       return
     }
+    if (file.size > MAX_CHAT_IMAGE_BYTES) {
+      setToast({ message: '图片过大，请压缩到 10MB 以内后再发送。', type: 'error' })
+      return
+    }
 
     setIsUploading(true)
     try {
@@ -362,13 +376,18 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
 
   const handlePaste = async (e: React.ClipboardEvent) => {
     const items = e.clipboardData.items
+    let sawFile = false
     for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') sawFile = true
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile()
         if (file) {
           handleImageUpload(file)
         }
       }
+    }
+    if (sawFile && !Array.from(items).some((item) => item.type.includes('image'))) {
+      setToast({ message: '聊天框目前仅支持粘贴图片文件。', type: 'error' })
     }
   }
 
@@ -553,11 +572,16 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div ref={messageListRef} onScroll={handleMessageListScroll} className="flex-1 overflow-y-auto p-4 space-y-2">
+        {!connected && (
+          <div className="mb-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            聊天连接暂时中断，恢复后再发送消息。
+          </div>
+        )}
         {displayedMessages.map((msg: ChatMessage, index: number) => {
           const isOwnMessage = msg.user_id === user?.id
           const isAIMessage = msg.user_id === 'ai_assistant'
-          const isMentioned = msg.mentions.includes(user?.id || '')
+          const isMentioned = msg.mentions.includes(user?.id || '') || Boolean(user?.username && msg.content.includes(`@${user.username}`))
           const prevMsg = index > 0 ? displayedMessages[index - 1] : null
 
           // Grouping logic: hide name/time if same user and within 5 mins
@@ -597,6 +621,10 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
                   ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-100 shadow-md'
                   : msg.message_type === 'system'
                     ? 'bg-gray-100 text-gray-600 text-center mx-auto text-xs py-1 px-4 rounded-full'
+                    : isAIMessage
+                      ? 'bg-indigo-50 border border-indigo-100 text-slate-900 rounded-tl-none shadow-sm'
+                      : isMentioned
+                        ? 'bg-amber-50 border border-amber-200 text-gray-900 rounded-tl-none shadow-sm'
                     : 'bg-white border border-gray-200 text-gray-900 rounded-tl-none shadow-sm'
                   } ${isMentioned ? 'ring-2 ring-yellow-400' : ''}`}
               >
@@ -629,10 +657,20 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
 
                     {msg.ai_meta && (
                       <div className="mb-2 rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-800">
-                        <div className="font-semibold">{msg.ai_meta.primary_agent || 'AISCL智能助手'}</div>
+                        <div className="font-semibold">{msg.ai_meta.primary_agent || msg.ai_meta.primary_view || 'AISCL智能助手'}</div>
                         <div className="mt-1 text-[11px] leading-5 text-indigo-700">
-                          已结合项目任务、近期讨论与当前问题生成回应。
+                          {msg.ai_meta.rationale_summary || '已结合项目任务、近期讨论与当前问题生成回应。'}
                         </div>
+                        {(msg.ai_meta.routing_summary?.length || msg.ai_meta.processing_summary?.length) ? (
+                          <details className="mt-1">
+                            <summary className="cursor-pointer select-none text-[11px] font-medium text-indigo-600">查看本轮编排摘要</summary>
+                            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-5 text-indigo-700">
+                              {[...(msg.ai_meta.routing_summary || []), ...(msg.ai_meta.processing_summary || [])].slice(0, 6).map((item, idx) => (
+                                <li key={`${item}-${idx}`}>{item}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </div>
                     )}
 
@@ -841,7 +879,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyPress}
                 onPaste={handlePaste}
-                placeholder="输入消息，或 @ 智能体 / 成员"
+                placeholder={connected ? '输入消息，或 @ 智能体 / 成员' : '连接恢复后可继续发送消息'}
                 className="w-full px-4 py-3 bg-[#f3f4f6] border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
                 disabled={!connected}
               />

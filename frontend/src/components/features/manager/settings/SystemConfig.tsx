@@ -55,7 +55,8 @@ export default function SystemConfig() {
         storageQuota: 5,
         fileLimit: 50,
         memberLimit: 5,
-        dataRetention: 365
+        dataRetention: 365,
+        modelPricing: '{}'
     })
 
     const [customModels, setCustomModels] = useState<any[]>([])
@@ -106,6 +107,7 @@ export default function SystemConfig() {
                 if (c.key === 'file_limit') newValues.fileLimit = Number(c.value)
                 if (c.key === 'member_limit') newValues.memberLimit = Number(c.value)
                 if (c.key === 'data_retention') newValues.dataRetention = Number(c.value)
+                if (c.key === 'model_pricing') newValues.modelPricing = c.value
                 if (c.key === 'user_custom_models') {
                     try {
                         setCustomModels(JSON.parse(c.value))
@@ -235,6 +237,7 @@ export default function SystemConfig() {
                 adminService.updateConfig('file_limit', String(configValues.fileLimit), 'Single file size limit in MB'),
                 adminService.updateConfig('member_limit', String(configValues.memberLimit), 'Max members per project'),
                 adminService.updateConfig('data_retention', String(configValues.dataRetention), 'Data retention period in days'),
+                adminService.updateConfig('model_pricing', configValues.modelPricing, 'Model input/output token pricing map'),
                 adminService.updateConfig('user_custom_models', JSON.stringify(customModels), 'User defined LLM models')
             ])
             setNotice({
@@ -667,6 +670,22 @@ export default function SystemConfig() {
                             ))
                         )}
                     </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 border-b border-gray-50 pb-4">
+                        <Key className="w-5 h-5 text-indigo-600" />
+                        模型价格配置
+                    </h3>
+                    <textarea
+                        className="min-h-[160px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                        value={configValues.modelPricing}
+                        onChange={(e) => handleChange('modelPricing', e.target.value)}
+                        placeholder='{"MiniMax-M2.7":{"input_per_1k":0.001,"output_per_1k":0.002}}'
+                    />
+                    <p className="text-xs leading-relaxed text-slate-400">
+                        该字段用于后续 AI 成本统计。当前仅保存配置，不影响模型调用。
+                    </p>
                 </div>
 
                 {/* Resource Limits Group */}

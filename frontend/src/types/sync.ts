@@ -103,8 +103,12 @@ export interface ChatOperationData {
     };
     aiMeta?: {
         primary_agent?: string;
+        primary_view?: string;
         rationale_summary?: string;
         routing_summary?: string[];
+        processing_summary?: string[];
+        orchestration_mode?: string;
+        active_agents?: string[];
     };
     teacherSupport?: {
         supportType?: string;

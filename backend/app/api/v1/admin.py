@@ -373,6 +373,7 @@ async def get_system_logs(
 async def list_users(
     role: Optional[str] = None,
     search: Optional[str] = None,
+    teacher_tag: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -384,6 +385,8 @@ async def list_users(
     query = {}
     if role:
         query["role"] = role
+    if teacher_tag:
+        query["teacher_tags"] = teacher_tag
     if search:
         query["$or"] = [
             {"username": {"$regex": search, "$options": "i"}},
@@ -406,11 +409,13 @@ async def list_users(
             id=str(u.id),
             username=u.username or u.email.split('@')[0],
             email=u.email,
-            role=u.role,
-            class_id=u.class_id,
-            course_name=course_name,
-            is_active=u.is_active,
-            is_banned=u.is_banned,
+                role=u.role,
+                class_id=u.class_id,
+                course_name=course_name,
+                teacher_tags=list(u.teacher_tags or []),
+                config_permissions=u.config_permissions,
+                is_active=u.is_active,
+                is_banned=u.is_banned,
             created_at=u.created_at,
             last_active=u.updated_at  # Using updated_at as last_active fallback
         ))
@@ -436,6 +441,8 @@ async def create_user(
         password_hash=get_password_hash(user_data.password),
         role=user_data.role,
         class_id=user_data.class_id,
+        teacher_tags=user_data.teacher_tags or [],
+        config_permissions=user_data.config_permissions,
     )
     await new_user.insert()
     
@@ -445,6 +452,8 @@ async def create_user(
         email=new_user.email,
         role=new_user.role,
         class_id=new_user.class_id,
+        teacher_tags=list(new_user.teacher_tags or []),
+        config_permissions=new_user.config_permissions,
         is_active=new_user.is_active,
         is_banned=new_user.is_banned,
         created_at=new_user.created_at
@@ -478,6 +487,10 @@ async def update_user(
         user.role = user_data.role
     if user_data.class_id is not None:
         user.class_id = user_data.class_id
+    if user_data.teacher_tags is not None:
+        user.teacher_tags = [tag.strip() for tag in user_data.teacher_tags if tag.strip()]
+    if user_data.config_permissions is not None:
+        user.config_permissions = user_data.config_permissions
     if user_data.is_active is not None:
         user.is_active = user_data.is_active
     if user_data.is_banned is not None:
@@ -491,6 +504,8 @@ async def update_user(
         email=user.email,
         role=user.role,
         class_id=user.class_id,
+        teacher_tags=list(user.teacher_tags or []),
+        config_permissions=user.config_permissions,
         is_active=user.is_active,
         is_banned=user.is_banned,
         created_at=user.created_at

@@ -23,6 +23,8 @@ from app.api.v1 import (
     analytics,
     ai,
     admin,
+    admin_data,
+    admin_permissions,
     inquiry,
     wiki,
 )
@@ -182,6 +184,8 @@ app.include_router(chat.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(admin_permissions.router, prefix="/api/v1")
+app.include_router(admin_data.router, prefix="/api/v1")
 app.include_router(inquiry.router, prefix="/api/v1")
 app.include_router(wiki.router, prefix="/api/v1")
 

@@ -62,6 +62,19 @@ interface OrchestrationProfileConfig {
     tutorModel: string
 }
 
+interface ModelPoolItem {
+    id: string
+    name: string
+    provider: string
+    base_url: string
+}
+
+interface StageDefinition {
+    id: string
+    label: string
+    order: number
+}
+
 interface ResolvedExperimentVersionSnapshot {
     mode: 'research'
     version_name: string
@@ -102,6 +115,8 @@ interface ResearchReleaseRecord {
     roles?: AgentRoleConfig[]
     ruleProfiles?: RuleProfileConfig[]
     orchestration?: OrchestrationProfileConfig
+    modelPool?: ModelPoolItem[]
+    stageDefinitions?: StageDefinition[]
 }
 
 const DEFAULT_TEMPLATES: ExperimentTemplateConfig[] = [
@@ -112,7 +127,7 @@ const DEFAULT_TEMPLATES: ExperimentTemplateConfig[] = [
         aiMode: 'single_agent',
         processMode: 'on',
         ruleSet: 'research-default',
-        stageSequence: ['orientation', 'planning', 'inquiry', 'argumentation', 'revision'],
+        stageSequence: ['problem_construction', 'meaning_exploration', 'explanation_integration', 'application_solution'],
         teacherSummary: '单AI条件下保留过程支架，用于基础实验组。',
         published: true,
     },
@@ -123,7 +138,7 @@ const DEFAULT_TEMPLATES: ExperimentTemplateConfig[] = [
         aiMode: 'multi_agent',
         processMode: 'on',
         ruleSet: 'research-default+group-chat-live',
-        stageSequence: ['orientation', 'planning', 'inquiry', 'argumentation', 'revision'],
+        stageSequence: ['problem_construction', 'meaning_exploration', 'explanation_integration', 'application_solution'],
         teacherSummary: '多智能体与过程支架同时开启，用于核心实验组。',
         published: true,
     },
@@ -134,7 +149,7 @@ const DEFAULT_TEMPLATES: ExperimentTemplateConfig[] = [
         aiMode: 'single_agent',
         processMode: 'off',
         ruleSet: 'research-default',
-        stageSequence: ['orientation', 'planning', 'inquiry', 'argumentation', 'revision'],
+        stageSequence: ['problem_construction', 'meaning_exploration', 'explanation_integration', 'application_solution'],
         teacherSummary: '用于较弱支架条件对照，不启用过程支架。',
         published: false,
     },
@@ -145,7 +160,7 @@ const DEFAULT_TEMPLATES: ExperimentTemplateConfig[] = [
         aiMode: 'multi_agent',
         processMode: 'off',
         ruleSet: 'research-default',
-        stageSequence: ['orientation', 'planning', 'inquiry', 'argumentation', 'revision'],
+        stageSequence: ['problem_construction', 'meaning_exploration', 'explanation_integration', 'application_solution'],
         teacherSummary: '用于检验多智能体本身的作用，关闭过程支架以形成完整 2×2 条件。',
         published: false,
     },
@@ -206,7 +221,7 @@ const DEFAULT_RULE_PROFILES: RuleProfileConfig[] = [
 ]
 
 const DEFAULT_ORCHESTRATION: OrchestrationProfileConfig = {
-    graphVersion: 'research-graph-v2',
+    graphVersion: 'research-graph-v3-stage-aware',
     preferredSubagentPolicy: '命中 preferred_subagent 时采用明确路由约束，不再仅作优先参考。',
     groupChatRouting: '小组群聊先做 graph 路由与子代理选择，再决定是否进入角色内 RAG。',
     tutorRouting: 'AI 导师根据学习者提问意图选择主要视角，并生成可折叠处理摘要。',
@@ -215,6 +230,22 @@ const DEFAULT_ORCHESTRATION: OrchestrationProfileConfig = {
     groupChatModel: 'follow_system_default',
     tutorModel: 'follow_system_default',
 }
+
+const DEFAULT_MODEL_POOL: ModelPoolItem[] = [
+    {
+        id: 'follow_system_default',
+        name: '跟随系统默认模型',
+        provider: 'system',
+        base_url: '',
+    },
+]
+
+const DEFAULT_STAGE_DEFINITIONS: StageDefinition[] = [
+    { id: 'problem_construction', label: '问题构建', order: 1 },
+    { id: 'meaning_exploration', label: '意义探索', order: 2 },
+    { id: 'explanation_integration', label: '解释整合', order: 3 },
+    { id: 'application_solution', label: '应用解决', order: 4 },
+]
 
 type NoticeState = {
     type: 'success' | 'error'
@@ -227,6 +258,8 @@ type ResearchConfigKey =
     | 'research_rule_profiles'
     | 'research_orchestration_profile'
     | 'research_release_history'
+    | 'research_model_pool'
+    | 'research_stage_definitions'
 
 type ConfigMeta = Partial<Record<ResearchConfigKey, Pick<Config, 'updated_at' | 'updated_by' | 'description'>>>
 
@@ -235,6 +268,7 @@ const textareaClassName =
 
 export default function ResearchConfig() {
     const user = useAuthStore((state) => state.user)
+    const [activeSection, setActiveSection] = useState<'library' | 'templates' | 'orchestration' | 'release'>('library')
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
     const [notice, setNotice] = useState<NoticeState>(null)
@@ -242,10 +276,12 @@ export default function ResearchConfig() {
     const [roles, setRoles] = useState<AgentRoleConfig[]>(DEFAULT_ROLES)
     const [ruleProfiles, setRuleProfiles] = useState<RuleProfileConfig[]>(DEFAULT_RULE_PROFILES)
     const [orchestration, setOrchestration] = useState<OrchestrationProfileConfig>(DEFAULT_ORCHESTRATION)
+    const [modelPool, setModelPool] = useState<ModelPoolItem[]>(DEFAULT_MODEL_POOL)
+    const [stageDefinitions, setStageDefinitions] = useState<StageDefinition[]>(DEFAULT_STAGE_DEFINITIONS)
     const [releaseHistory, setReleaseHistory] = useState<ResearchReleaseRecord[]>([])
     const [releaseNote, setReleaseNote] = useState('')
     const [configMeta, setConfigMeta] = useState<ConfigMeta>({})
-    const validationIssues = collectValidationIssues(templates, roles, ruleProfiles, orchestration)
+    const validationIssues = collectValidationIssues(templates, roles, ruleProfiles, orchestration, modelPool, stageDefinitions)
 
     useEffect(() => {
         void fetchConfigs()
@@ -260,6 +296,8 @@ export default function ResearchConfig() {
             const roleConfig = configs.find((item) => item.key === 'research_agent_roles')
             const ruleConfig = configs.find((item) => item.key === 'research_rule_profiles')
             const orchestrationConfig = configs.find((item) => item.key === 'research_orchestration_profile')
+            const modelPoolConfig = configs.find((item) => item.key === 'research_model_pool')
+            const stageConfig = configs.find((item) => item.key === 'research_stage_definitions')
             const releaseHistoryConfig = configs.find((item) => item.key === 'research_release_history')
 
             setConfigMeta(extractConfigMeta(configs))
@@ -267,6 +305,8 @@ export default function ResearchConfig() {
             setRoles(parseConfigValue(roleConfig?.value, DEFAULT_ROLES))
             setRuleProfiles(parseConfigValue(ruleConfig?.value, DEFAULT_RULE_PROFILES))
             setOrchestration(parseConfigValue(orchestrationConfig?.value, DEFAULT_ORCHESTRATION))
+            setModelPool(parseConfigValue(modelPoolConfig?.value, DEFAULT_MODEL_POOL))
+            setStageDefinitions(parseConfigValue(stageConfig?.value, DEFAULT_STAGE_DEFINITIONS))
             setReleaseHistory(parseConfigValue(releaseHistoryConfig?.value, [] as ResearchReleaseRecord[]))
         } catch (error) {
             console.error('Failed to fetch research configs:', error)
@@ -275,6 +315,8 @@ export default function ResearchConfig() {
             setRoles(DEFAULT_ROLES)
             setRuleProfiles(DEFAULT_RULE_PROFILES)
             setOrchestration(DEFAULT_ORCHESTRATION)
+            setModelPool(DEFAULT_MODEL_POOL)
+            setStageDefinitions(DEFAULT_STAGE_DEFINITIONS)
             setReleaseHistory([])
         } finally {
             setIsLoading(false)
@@ -302,6 +344,16 @@ export default function ResearchConfig() {
                 'research_orchestration_profile',
                 JSON.stringify(orchestration, null, 2),
                 'Graph orchestration, routing, RAG, and model strategy for research mode'
+            ),
+            adminService.updateConfig(
+                'research_model_pool',
+                JSON.stringify(modelPool, null, 2),
+                'LLM model pool for research templates and teacher permissions'
+            ),
+            adminService.updateConfig(
+                'research_stage_definitions',
+                JSON.stringify(stageDefinitions, null, 2),
+                'Reusable stage definitions for research template builder'
             ),
         ])
 
@@ -368,6 +420,8 @@ export default function ResearchConfig() {
                 roles: roles.map((role) => ({ ...role })),
                 ruleProfiles: ruleProfiles.map((rule) => ({ ...rule })),
                 orchestration: { ...orchestration },
+                modelPool: modelPool.map((model) => ({ ...model })),
+                stageDefinitions: stageDefinitions.map((stage) => ({ ...stage })),
             }
             const nextReleaseHistory = [releaseRecord, ...releaseHistory].slice(0, 30)
             const releaseHistoryConfig = await adminService.updateConfig(
@@ -424,6 +478,39 @@ export default function ResearchConfig() {
         value: OrchestrationProfileConfig[K]
     ) => {
         setOrchestration((previous) => ({ ...previous, [key]: value }))
+    }
+
+    const updateModel = <K extends keyof ModelPoolItem>(index: number, key: K, value: ModelPoolItem[K]) => {
+        setModelPool((previous) => previous.map((model, currentIndex) => currentIndex === index ? { ...model, [key]: value } : model))
+    }
+
+    const addModel = () => {
+        const nextIndex = modelPool.length + 1
+        setModelPool((previous) => [...previous, { id: `model-${Date.now()}`, name: `新增模型 ${nextIndex}`, provider: 'openai_compatible', base_url: '' }])
+    }
+
+    const removeModel = (index: number) => {
+        setModelPool((previous) => previous.filter((_, currentIndex) => currentIndex !== index))
+    }
+
+    const updateStage = <K extends keyof StageDefinition>(index: number, key: K, value: StageDefinition[K]) => {
+        setStageDefinitions((previous) => previous.map((stage, currentIndex) => currentIndex === index ? { ...stage, [key]: value } : stage))
+    }
+
+    const addStage = () => {
+        const nextIndex = stageDefinitions.length + 1
+        setStageDefinitions((previous) => [...previous, { id: `stage-${Date.now()}`, label: `新增阶段 ${nextIndex}`, order: nextIndex }])
+    }
+
+    const removeStage = (index: number) => {
+        const stageId = stageDefinitions[index]?.id
+        setStageDefinitions((previous) => previous.filter((_, currentIndex) => currentIndex !== index))
+        if (stageId) {
+            setTemplates((previous) => previous.map((template) => ({
+                ...template,
+                stageSequence: template.stageSequence.filter((item) => item !== stageId),
+            })))
+        }
     }
 
     const addTemplate = () => {
@@ -578,7 +665,27 @@ export default function ResearchConfig() {
                 </div>
             ) : null}
 
-            <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-100 bg-white p-2 shadow-sm">
+                {[
+                    ['library', '基础组件库'],
+                    ['templates', '模板构建器'],
+                    ['orchestration', '编排策略'],
+                    ['release', '发布快照'],
+                ].map(([id, label]) => (
+                    <button
+                        key={id}
+                        type="button"
+                        onClick={() => setActiveSection(id as typeof activeSection)}
+                        className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                            activeSection === id ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            <section className={`space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm ${activeSection === 'release' ? '' : 'hidden'}`}>
                 <div className="border-b border-slate-100 pb-4">
                     <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
                         <History className="h-5 w-5 text-indigo-600" />
@@ -650,8 +757,8 @@ export default function ResearchConfig() {
                 </div>
             </section>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-                <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div className={activeSection === 'templates' ? 'grid grid-cols-1 gap-6' : 'block'}>
+                <section className={`space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm ${activeSection === 'templates' ? '' : 'hidden'}`}>
                     <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                         <div>
                             <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
@@ -724,27 +831,40 @@ export default function ResearchConfig() {
                                         </select>
                                     </Field>
                                     <Field label="规则集">
-                                        <Input
+                                        <select
+                                            className={selectClassName}
                                             value={template.ruleSet}
                                             onChange={(event) => updateTemplate(index, 'ruleSet', event.target.value)}
-                                        />
+                                        >
+                                            {ruleProfiles.map((rule) => (
+                                                <option key={rule.id} value={rule.id}>{rule.label}</option>
+                                            ))}
+                                        </select>
                                     </Field>
                                 </div>
 
-                                <Field label="阶段序列（逗号分隔）">
-                                    <Input
-                                        value={template.stageSequence.join(', ')}
-                                        onChange={(event) =>
-                                            updateTemplate(
-                                                index,
-                                                'stageSequence',
-                                                event.target.value
-                                                    .split(',')
-                                                    .map((item) => item.trim())
-                                                    .filter(Boolean)
-                                            )
-                                        }
-                                    />
+                                <Field label="阶段序列（来自阶段定义，可多选）">
+                                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                        {stageDefinitions
+                                            .slice()
+                                            .sort((a, b) => a.order - b.order)
+                                            .map((stage) => (
+                                                <label key={stage.id} className="flex items-center gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2 text-sm text-slate-600">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={template.stageSequence.includes(stage.id)}
+                                                        onChange={(event) => {
+                                                            const nextStages = event.target.checked
+                                                                ? [...template.stageSequence, stage.id]
+                                                                : template.stageSequence.filter((item) => item !== stage.id)
+                                                            updateTemplate(index, 'stageSequence', nextStages)
+                                                        }}
+                                                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                    />
+                                                    <span>{stage.order}. {stage.label}</span>
+                                                </label>
+                                            ))}
+                                    </div>
                                 </Field>
 
                                 <Field label="面向教师的模板摘要">
@@ -770,7 +890,66 @@ export default function ResearchConfig() {
                     </div>
                 </section>
 
-                <div className="space-y-6">
+                <div className={`space-y-6 ${activeSection === 'library' ? '' : 'hidden'}`}>
+                    <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                            <div>
+                                <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+                                    <Cpu className="h-5 w-5 text-indigo-600" />
+                                    模型池
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500">供模板、编排策略与教师权限共同引用。</p>
+                                <SectionMeta meta={configMeta.research_model_pool} configKey="research_model_pool" />
+                            </div>
+                            <Button variant="outline" className="gap-2" onClick={addModel}>
+                                <Plus className="h-4 w-4" />
+                                新增模型
+                            </Button>
+                        </div>
+                        <div className="space-y-3">
+                            {modelPool.map((model, index) => (
+                                <div key={`${model.id}-${index}`} className="grid gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 lg:grid-cols-[1fr_1fr_1fr_1.2fr_auto]">
+                                    <Input value={model.id} onChange={(event) => updateModel(index, 'id', event.target.value)} placeholder="模型 ID" />
+                                    <Input value={model.name} onChange={(event) => updateModel(index, 'name', event.target.value)} placeholder="显示名称" />
+                                    <Input value={model.provider} onChange={(event) => updateModel(index, 'provider', event.target.value)} placeholder="provider" />
+                                    <Input value={model.base_url} onChange={(event) => updateModel(index, 'base_url', event.target.value)} placeholder="Base URL" />
+                                    <Button variant="outline" className="text-rose-600 hover:bg-rose-50" onClick={() => removeModel(index)}>
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                            <div>
+                                <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+                                    <BookOpen className="h-5 w-5 text-indigo-600" />
+                                    阶段定义
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500">模板构建器从这里选择任务阶段。</p>
+                                <SectionMeta meta={configMeta.research_stage_definitions} configKey="research_stage_definitions" />
+                            </div>
+                            <Button variant="outline" className="gap-2" onClick={addStage}>
+                                <Plus className="h-4 w-4" />
+                                新增阶段
+                            </Button>
+                        </div>
+                        <div className="space-y-3">
+                            {stageDefinitions.map((stage, index) => (
+                                <div key={`${stage.id}-${index}`} className="grid gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 md:grid-cols-[120px_1fr_100px_auto]">
+                                    <Input value={stage.id} onChange={(event) => updateStage(index, 'id', event.target.value)} placeholder="阶段 ID" />
+                                    <Input value={stage.label} onChange={(event) => updateStage(index, 'label', event.target.value)} placeholder="阶段名称" />
+                                    <Input type="number" value={stage.order} onChange={(event) => updateStage(index, 'order', Number(event.target.value))} />
+                                    <Button variant="outline" className="text-rose-600 hover:bg-rose-50" onClick={() => removeStage(index)}>
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
                     <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
                         <div className="border-b border-slate-100 pb-4">
                             <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
@@ -906,7 +1085,7 @@ export default function ResearchConfig() {
                 </div>
             </div>
 
-            <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <section className={`space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm ${activeSection === 'orchestration' ? '' : 'hidden'}`}>
                 <div className="border-b border-slate-100 pb-4">
                     <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
                         <SlidersHorizontal className="h-5 w-5 text-indigo-600" />
@@ -963,21 +1142,25 @@ export default function ResearchConfig() {
                     <Field label="群聊默认模型">
                         <div className="relative">
                             <Cpu className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <Input
+                            <select
+                                className={`${selectClassName} pl-9`}
                                 value={orchestration.groupChatModel}
                                 onChange={(event) => updateOrchestration('groupChatModel', event.target.value)}
-                                className="pl-9"
-                            />
+                            >
+                                {modelPool.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}
+                            </select>
                         </div>
                     </Field>
                     <Field label="AI 导师默认模型">
                         <div className="relative">
                             <Cpu className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <Input
+                            <select
+                                className={`${selectClassName} pl-9`}
                                 value={orchestration.tutorModel}
                                 onChange={(event) => updateOrchestration('tutorModel', event.target.value)}
-                                className="pl-9"
-                            />
+                            >
+                                {modelPool.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}
+                            </select>
                         </div>
                     </Field>
                 </div>
@@ -1056,15 +1239,15 @@ function buildResolvedExperimentVersionSnapshot(
     template: ExperimentTemplateConfig,
     orchestration: OrchestrationProfileConfig
 ): ResolvedExperimentVersionSnapshot {
-    const enabledScaffoldLayers = ['multi_agent_scaffold']
+    const enabledScaffoldLayers = template.aiMode === 'multi_agent' ? ['multi_agent_scaffold'] : []
     if (template.processMode === 'on') {
         enabledScaffoldLayers.push('process_scaffold')
     }
 
     const enabledScaffoldRoles =
-        template.aiMode === 'single_agent' && template.processMode === 'off'
-            ? ['cognitive_support']
-            : ['cognitive_support', 'viewpoint_challenge', 'feedback_prompting', 'problem_progression']
+        template.aiMode === 'multi_agent'
+            ? ['cognitive_support', 'viewpoint_challenge', 'feedback_prompting', 'problem_progression']
+            : []
 
     return {
         mode: 'research',
@@ -1083,7 +1266,7 @@ function buildResolvedExperimentVersionSnapshot(
         template_key: template.id.trim(),
         template_label: template.label.trim() || template.id.trim(),
         template_source: 'admin_release',
-        graph_version: orchestration.graphVersion.trim() || 'research-graph-v2',
+        graph_version: orchestration.graphVersion.trim() || 'research-graph-v3-stage-aware',
     }
 }
 
@@ -1091,13 +1274,17 @@ function collectValidationIssues(
     templates: ExperimentTemplateConfig[],
     roles: AgentRoleConfig[],
     ruleProfiles: RuleProfileConfig[],
-    orchestration: OrchestrationProfileConfig
+    orchestration: OrchestrationProfileConfig,
+    modelPool: ModelPoolItem[],
+    stageDefinitions: StageDefinition[]
 ) {
     const issues: string[] = []
     const templateIds = new Set<string>()
     const roleNames = new Set<string>()
     const ruleIds = new Set<string>()
     const availableRuleIds = new Set(ruleProfiles.map((rule) => rule.id.trim()).filter(Boolean))
+    const modelIds = new Set<string>()
+    const stageIds = new Set(stageDefinitions.map((stage) => stage.id.trim()).filter(Boolean))
 
     templates.forEach((template, index) => {
         const displayIndex = index + 1
@@ -1111,6 +1298,11 @@ function collectValidationIssues(
         if (!template.label.trim()) issues.push(`模板 ${displayIndex} 缺少显示名称。`)
         if (!template.groupCondition.trim()) issues.push(`模板 ${displayIndex} 缺少组别条件。`)
         if (template.stageSequence.length === 0) issues.push(`模板 ${displayIndex} 至少需要 1 个阶段。`)
+        template.stageSequence.forEach((stageId) => {
+            if (!stageIds.has(stageId)) {
+                issues.push(`模板 ${displayIndex} 引用了不存在的阶段 ${stageId}。`)
+            }
+        })
         if (!template.teacherSummary.trim()) issues.push(`模板 ${displayIndex} 缺少教师摘要。`)
         if (!availableRuleIds.has(template.ruleSet.trim())) {
             issues.push(`模板 ${displayIndex} 引用了不存在的规则集 ${template.ruleSet || '(空)'}。`)
@@ -1154,6 +1346,26 @@ function collectValidationIssues(
         if (!rule.summary.trim()) issues.push(`规则集 ${displayIndex} 缺少摘要说明。`)
     })
 
+    modelPool.forEach((model, index) => {
+        const displayIndex = index + 1
+        if (!model.id.trim()) issues.push(`模型 ${displayIndex} 缺少模型 ID。`)
+        if (model.id.trim()) {
+            if (modelIds.has(model.id.trim())) {
+                issues.push(`模型 ID ${model.id.trim()} 重复。`)
+            }
+            modelIds.add(model.id.trim())
+        }
+        if (!model.name.trim()) issues.push(`模型 ${displayIndex} 缺少显示名称。`)
+        if (!model.provider.trim()) issues.push(`模型 ${displayIndex} 缺少 provider。`)
+    })
+
+    stageDefinitions.forEach((stage, index) => {
+        const displayIndex = index + 1
+        if (!stage.id.trim()) issues.push(`阶段 ${displayIndex} 缺少阶段 ID。`)
+        if (!stage.label.trim()) issues.push(`阶段 ${displayIndex} 缺少阶段名称。`)
+        if (!Number.isFinite(stage.order)) issues.push(`阶段 ${displayIndex} 缺少有效排序值。`)
+    })
+
     if (!orchestration.graphVersion.trim()) issues.push('编排配置缺少 graph 版本。')
     if (!orchestration.preferredSubagentPolicy.trim()) issues.push('编排配置缺少 preferred_subagent 约束说明。')
     if (!orchestration.groupChatRouting.trim()) issues.push('编排配置缺少群聊路由策略。')
@@ -1162,6 +1374,12 @@ function collectValidationIssues(
     if (!orchestration.retrievalSource.trim()) issues.push('编排配置缺少检索源说明。')
     if (!orchestration.groupChatModel.trim()) issues.push('编排配置缺少群聊默认模型。')
     if (!orchestration.tutorModel.trim()) issues.push('编排配置缺少 AI 导师默认模型。')
+    if (orchestration.groupChatModel.trim() && !modelIds.has(orchestration.groupChatModel.trim())) {
+        issues.push(`群聊默认模型 ${orchestration.groupChatModel} 不在模型池中。`)
+    }
+    if (orchestration.tutorModel.trim() && !modelIds.has(orchestration.tutorModel.trim())) {
+        issues.push(`AI 导师默认模型 ${orchestration.tutorModel} 不在模型池中。`)
+    }
 
     return issues
 }
@@ -1174,7 +1392,9 @@ function extractConfigMeta(configs: Config[]): ConfigMeta {
             config.key === 'research_agent_roles' ||
             config.key === 'research_rule_profiles' ||
             config.key === 'research_orchestration_profile' ||
-            config.key === 'research_release_history'
+            config.key === 'research_release_history' ||
+            config.key === 'research_model_pool' ||
+            config.key === 'research_stage_definitions'
         ) {
             metadata[config.key] = {
                 updated_at: config.updated_at,

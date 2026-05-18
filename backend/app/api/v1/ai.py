@@ -518,6 +518,7 @@ async def chat_stream(
                     if experiment_version
                     else None
                 ),
+                "graph_version": experiment_version.get("graph_version"),
                 "current_stage": chat_data.current_stage,
                 "enabled_rule_set": chat_data.enabled_rule_set,
                 "enabled_scaffold_roles": chat_data.enabled_scaffold_roles,
@@ -546,15 +547,62 @@ async def chat_stream(
                     "message": "正在生成面向当前任务的回应。",
                 },
             )
-            async for chunk in agent_service.chat_stream(
+            final_event_meta = {}
+            stream_message = (
+                chat_data.message
+                if experiment_version.get("graph_version") == "research-graph-v3-stage-aware"
+                else final_message
+            )
+            async for event in agent_service.chat_stream(
                 persona_key=chat_data.role_id, # Passed but currently ignored by Supervisor logic
-                message=final_message,
+                message=stream_message,
                 session_id=str(conversation.id),
                 subject="General", # Could be retrieved from Project domain
                 context=graph_context,
             ):
-                full_response += chunk
-                yield _sse_event("delta", chunk)
+                if isinstance(event, str):
+                    full_response += event
+                    yield _sse_event("delta", event)
+                    continue
+
+                event_type = event.get("type")
+                if event_type == "routing":
+                    meta = event.get("ai_meta") or {}
+                    tutor_meta.update({
+                        "primary_view": meta.get("primary_view") or meta.get("primary_agent") or tutor_meta.get("primary_view"),
+                        "rationale_summary": meta.get("rationale_summary") or tutor_meta.get("rationale_summary"),
+                        "processing_summary": meta.get("processing_summary") or tutor_meta.get("processing_summary", []),
+                    })
+                    yield _sse_event("meta", {"ai_meta": tutor_meta, "citation_count": event.get("citation_count", 0)})
+                    continue
+                if event_type in {"status"}:
+                    yield _sse_event("status", {"message": event.get("message", ""), "detail": event.get("detail")})
+                    continue
+                if event_type in {"thinking_start", "thinking", "thinking_end"}:
+                    if event_type == "thinking" and event.get("content"):
+                        summary = f"{event.get('label', 'AI导师')}: {event.get('content')}"
+                        existing = tutor_meta.get("processing_summary", [])
+                        if summary not in existing:
+                            tutor_meta["processing_summary"] = [*existing, summary]
+                    yield _sse_event("thinking", event)
+                    continue
+                if event_type == "output":
+                    chunk = event.get("content", "")
+                    full_response += chunk
+                    yield _sse_event("delta", chunk)
+                    continue
+                if event_type == "done":
+                    final_event_meta = event
+                    if event.get("final_content"):
+                        full_response = event["final_content"]
+                    if event.get("ai_meta"):
+                        meta = event["ai_meta"]
+                        tutor_meta.update({
+                            "primary_view": meta.get("primary_view") or meta.get("primary_agent") or tutor_meta.get("primary_view"),
+                            "rationale_summary": meta.get("rationale_summary") or tutor_meta.get("rationale_summary"),
+                            "processing_summary": meta.get("processing_summary") or tutor_meta.get("processing_summary", []),
+                        })
+                    continue
 
             ai_message = AIMessage(
                 conversation_id=str(conversation.id),
@@ -576,7 +624,8 @@ async def chat_stream(
                 {
                     "conversation_id": str(conversation.id),
                     "message_id": str(ai_message.id),
-                    "citation_count": len(context.get("citations", [])) if context else 0,
+                    "citation_count": final_event_meta.get("citation_count", len(context.get("citations", [])) if context else 0),
+                    "ai_meta": tutor_meta,
                 },
             )
         except Exception as e:

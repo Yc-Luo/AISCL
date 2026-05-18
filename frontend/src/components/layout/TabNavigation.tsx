@@ -1,14 +1,15 @@
 
 
 import { trackingService } from '../../services/tracking/TrackingService'
+import { getTabLabel } from '../../lib/stageModel'
 
 const tabs = [
-  { id: 'document', label: '文档' },
-  { id: 'inquiry', label: '深度探究' },
-  { id: 'resources', label: '资源库' },
-  { id: 'wiki', label: '项目 Wiki' },
-  { id: 'ai', label: 'AI 导师' },
-  { id: 'dashboard', label: '仪表盘' },
+  { id: 'document' },
+  { id: 'inquiry' },
+  { id: 'resources' },
+  { id: 'wiki' },
+  { id: 'ai' },
+  { id: 'dashboard' },
 ]
 
 interface TabNavigationProps {
@@ -83,7 +84,7 @@ export default function TabNavigation({
             `}
           >
             <span className="inline-flex items-center gap-1">
-              {tab.label}
+              {getTabLabel(tab.id)}
               {isRecommended && (
                 <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
                   建议

@@ -7,12 +7,38 @@ export interface User {
     email: string
     role: 'student' | 'teacher' | 'admin'
     class_id?: string | null
+    teacher_tags?: string[]
+    config_permissions?: ConfigPermissions | null
     status: 'active' | 'suspended' | 'banned'
     is_active: boolean
     is_banned?: boolean
     created_at: string
     last_active?: string
     course_name?: string
+}
+
+export interface ConfigPermissions {
+    allowed_template_ids?: string[]
+    allowed_rule_profile_ids?: string[]
+    allowed_model_ids?: string[]
+}
+
+export interface PermissionOption {
+    id?: string
+    key?: string
+    label?: string
+    name?: string
+    rule_set?: string
+    provider?: string
+    base_url?: string
+    summary?: string
+}
+
+export interface ConfigPermissionOptions {
+    templates: PermissionOption[]
+    rule_profiles: PermissionOption[]
+    models: PermissionOption[]
+    teacher_tags: string[]
 }
 
 export interface SystemStats {
@@ -60,9 +86,9 @@ export interface ActivityLog {
 }
 
 export const adminService = {
-    getUsers: async (page = 1, limit = 10, role?: string, search?: string): Promise<{ items: User[], total: number }> => {
+    getUsers: async (page = 1, limit = 10, role?: string, search?: string, teacher_tag?: string): Promise<{ items: User[], total: number }> => {
         const response = await api.get(API_ENDPOINTS.ADMIN.USERS, {
-            params: { page, limit, role, search }
+            params: { page, limit, role, search, teacher_tag }
         })
         return response.data
     },
@@ -164,6 +190,103 @@ export const adminService = {
             return
         }
         const response = await api.get(API_ENDPOINTS.ADMIN.BEHAVIOR_LOGS_EXPORT, { params })
+        return response.data
+    },
+
+    getTeacherPermissions: async (params: {
+        page?: number,
+        limit?: number,
+        search?: string,
+        tag?: string
+    }): Promise<{ items: User[], total: number }> => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.CONFIG_PERMISSION_TEACHERS, { params })
+        return response.data
+    },
+
+    updateTeacherPermissions: async (teacherId: string, data: {
+        teacher_tags?: string[],
+        config_permissions?: ConfigPermissions | null
+    }): Promise<User> => {
+        const response = await api.put(API_ENDPOINTS.ADMIN.CONFIG_PERMISSION_TEACHER(teacherId), data)
+        return response.data
+    },
+
+    batchUpdateTeacherPermissions: async (data: {
+        teacher_ids: string[],
+        teacher_tags?: string[],
+        config_permissions?: ConfigPermissions | null,
+        replace_tags?: boolean
+    }): Promise<{ updated: number }> => {
+        const response = await api.put(API_ENDPOINTS.ADMIN.CONFIG_PERMISSION_BATCH, data)
+        return response.data
+    },
+
+    getConfigPermissionOptions: async (): Promise<ConfigPermissionOptions> => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.CONFIG_PERMISSION_OPTIONS)
+        return response.data
+    },
+
+    getDataStorageOverview: async () => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_STORAGE_OVERVIEW)
+        return response.data
+    },
+
+    getDataStorageByProject: async (limit = 50) => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_STORAGE_BY_PROJECT, { params: { limit } })
+        return response.data
+    },
+
+    getDataRetentionPreview: async (older_than_days = 90) => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_RETENTION_PREVIEW, { params: { older_than_days } })
+        return response.data
+    },
+
+    runDataRetentionCleanup: async (data: { collections: string[], older_than_days: number, confirm_operational_only?: boolean }) => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.DATA_RETENTION_CLEANUP, data)
+        return response.data
+    },
+
+    getDataProjects: async (params: { page?: number, limit?: number, search?: string, archived?: boolean }) => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_PROJECTS, { params })
+        return response.data
+    },
+
+    archiveDataProject: async (projectId: string) => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.DATA_PROJECT_ARCHIVE(projectId))
+        return response.data
+    },
+
+    unarchiveDataProject: async (projectId: string) => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.DATA_PROJECT_UNARCHIVE(projectId))
+        return response.data
+    },
+
+    exportResearchData: async (params: { project_id?: string, format?: 'json' | 'csv' }) => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.DATA_EXPORT, undefined, {
+            params,
+            responseType: params.format === 'csv' ? 'blob' : 'json'
+        })
+        if (params.format === 'csv') {
+            const url = window.URL.createObjectURL(new Blob([response.data]))
+            const link = document.createElement('a')
+            link.href = url
+            link.setAttribute('download', `aiscl_research_export_${new Date().toISOString().slice(0, 10)}.csv`)
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            window.URL.revokeObjectURL(url)
+            return
+        }
+        return response.data
+    },
+
+    backupConfigs: async () => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_BACKUP_CONFIG)
+        return response.data
+    },
+
+    restoreConfigs: async (configs: any[]) => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.DATA_RESTORE_CONFIG, { configs })
         return response.data
     }
 }

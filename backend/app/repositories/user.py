@@ -1,7 +1,7 @@
 """User model."""
 
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from beanie import Document
 from pydantic import Field
@@ -25,6 +25,8 @@ class User(Document):
     avatar_url: Optional[str] = None
     role: str = Field(default="student", pattern="^(student|teacher|admin)$")
     settings: Dict = Field(default_factory=dict)
+    teacher_tags: List[str] = Field(default_factory=list)
+    config_permissions: Optional[Dict] = None
     class_id: Optional[str] = None  # For students, link to course
     is_active: bool = True
     is_banned: bool = False
@@ -41,6 +43,7 @@ class User(Document):
             [("phone", 1)],
             [("class_id", 1)],
             [("role", 1)],  # For role-based queries
+            [("teacher_tags", 1)],
             [("is_active", 1)],  # For filtering active users
             [("created_at", 1)],  # For user sorting
             [("class_id", 1), ("role", 1)],  # For class-based role queries

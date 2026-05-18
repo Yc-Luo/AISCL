@@ -4,6 +4,8 @@ import { Task } from '../../../../types'
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import { CheckCircle, Circle, PlayCircle, Plus, AlertCircle, ChevronDown, ListTodo, Clock, Trash2, ChevronRight, ChevronLeft } from 'lucide-react'
 import { Toast } from '../../../ui/Toast'
+import { ConfirmDialog } from '../../../ui'
+import { useAuthStore } from '../../../../stores/authStore'
 
 interface TaskKanbanProps {
   projectId: string
@@ -25,6 +27,8 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
   const [editingTitle, setEditingTitle] = useState('')
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null)
+  const [pendingDeleteTask, setPendingDeleteTask] = useState<Task | null>(null)
+  const { user } = useAuthStore()
 
   useEffect(() => {
     const fetchTasks = async () => {
@@ -94,7 +98,8 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
       const newTask = await taskService.createTask(projectId, {
         title,
         column: 'todo',
-        priority: 'medium'
+        priority: 'medium',
+        assignees: user?.id ? [user.id] : [],
       })
       trackingService.track({
         module: 'task',
@@ -149,8 +154,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
     }
   }
 
-  const handleDeleteTask = async (e: React.MouseEvent, taskId: string) => {
-    e.stopPropagation()
+  const deleteTask = async (taskId: string) => {
 
     // Save current state for potential rollback
     const previousTasks = [...tasks]
@@ -170,6 +174,16 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
       setTasks(previousTasks)
       setToast({ message: `无法删除任务：${error.response?.data?.detail || error.message}`, type: 'error' })
     }
+  }
+
+  const handleDeleteTask = async (e: React.MouseEvent, task: Task) => {
+    e.stopPropagation()
+    const primaryAssignee = task.assignees?.[0]
+    if (primaryAssignee && primaryAssignee !== user?.id) {
+      setPendingDeleteTask(task)
+      return
+    }
+    await deleteTask(task.id)
   }
 
   const handleCyclePriority = async (task: Task) => {
@@ -419,7 +433,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                             )}
 
                             <button
-                              onClick={(e) => handleDeleteTask(e, task.id)}
+                              onClick={(e) => handleDeleteTask(e, task)}
                               className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-all"
                               title="删除任务"
                             >
@@ -431,7 +445,12 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                             <div className="flex items-center gap-2">
                               {task.source_type === 'course_task_release' && (
                                 <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${getSubmissionBadgeClass(task)}`}>
-                                  {getSubmissionLabel(task)}
+                                  全组共同任务 · {getSubmissionLabel(task)}
+                                </span>
+                              )}
+                              {task.source_type !== 'course_task_release' && task.assignees?.[0] && (
+                                <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-black text-indigo-600">
+                                  {task.assignees[0] === user?.id ? '我负责' : '成员负责'}
                                 </span>
                               )}
                               {task.priority === 'high' && col !== 'done' && (
@@ -516,6 +535,21 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           onClose={() => setToast(null)}
         />
       )}
+      <ConfirmDialog
+        open={Boolean(pendingDeleteTask)}
+        title="删除他人负责的任务"
+        description={`“${pendingDeleteTask?.title || ''}”已有其他成员负责。确定删除后，小组成员的分工记录也会被移除。`}
+        confirmLabel="确认删除"
+        tone="danger"
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteTask(null)
+        }}
+        onConfirm={async () => {
+          const taskId = pendingDeleteTask?.id
+          setPendingDeleteTask(null)
+          if (taskId) await deleteTask(taskId)
+        }}
+      />
     </div>
   )
 }

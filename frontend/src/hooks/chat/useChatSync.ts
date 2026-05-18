@@ -7,6 +7,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { ChatAdapter } from '../../modules/chat/ChatAdapter';
 import { ChatPersistence, ChatMessage, getChatTimestampMs } from '../../modules/chat/ChatPersistence';
 import { useAuthStore } from '../../stores/authStore';
+import { useSyncStore } from '../../stores/syncStore';
 
 import { syncService } from '../../services/sync/SyncService';
 
@@ -19,6 +20,7 @@ interface UseChatSyncProps {
 
 export function useChatSync({ projectId, onMessage }: UseChatSyncProps) {
     const { user } = useAuthStore();
+    const connectionStatus = useSyncStore(state => state.connectionStatus);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [adapter, setAdapter] = useState<ChatAdapter | null>(null);
     const roomId = `project:${projectId}`; // 假设房间 ID 规则
@@ -117,6 +119,6 @@ export function useChatSync({ projectId, onMessage }: UseChatSyncProps) {
         messages,
         setMessages,
         sendMessage,
-        connected: true
+        connected: connectionStatus === 'connected'
     };
 }

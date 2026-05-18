@@ -1,6 +1,7 @@
 """Inquiry space snapshot model."""
 
 from datetime import datetime
+from typing import Optional
 from beanie import Document
 from pydantic import Field
 
@@ -13,6 +14,7 @@ class InquirySnapshot(Document):
     snapshot_version: int = Field(default=1)
     snapshot_type: str = Field(default="inquiry")
     compressed: bool = Field(default=False)
+    created_by: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Settings:

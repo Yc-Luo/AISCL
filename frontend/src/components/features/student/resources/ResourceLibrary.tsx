@@ -21,6 +21,8 @@ interface ResourceLibraryProps {
   projectId: string
 }
 
+const MAX_RESOURCE_BYTES = 50 * 1024 * 1024
+
 export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
   const [resources, setResources] = useState<Resource[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,6 +63,10 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
       setUploading(true)
 
       for (const file of acceptedFiles) {
+        if (file.size > MAX_RESOURCE_BYTES) {
+          setToast({ message: `${file.name} 超过 50MB，请压缩后再上传。`, visible: true, type: 'error' })
+          continue
+        }
         try {
           setUploadProgress((prev) => ({ ...prev, [file.name]: 15 }))
 

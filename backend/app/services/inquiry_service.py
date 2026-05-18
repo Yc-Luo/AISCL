@@ -26,6 +26,8 @@ class InquiryService:
         project_id: str,
         snapshot_data: bytes,
         compress: bool = True,
+        base_version: Optional[int] = None,
+        created_by: Optional[str] = None,
     ) -> str:
         """Save inquiry space snapshot."""
         if not project_id:
@@ -54,12 +56,15 @@ class InquiryService:
             )
             latest = latest_snapshots[0] if latest_snapshots else None
             next_version = (latest.snapshot_version + 1) if latest else 1
+            if base_version is not None and latest and base_version < latest.snapshot_version:
+                raise ValueError(f"snapshot_conflict:{latest.snapshot_version}")
 
             snapshot = InquirySnapshot(
                 project_id=project_id,
                 data=data_to_save,
                 snapshot_version=next_version,
                 compressed=is_compressed,
+                created_by=created_by,
             )
             await snapshot.insert()
             
@@ -95,5 +100,22 @@ class InquiryService:
         except Exception as e:
             logger.error(f"Failed to load inquiry snapshot: {str(e)}")
             raise
+
+    @classmethod
+    async def load_latest_snapshot_record(cls, project_id: str) -> Optional[InquirySnapshot]:
+        snapshots = (
+            await InquirySnapshot.find({"project_id": project_id})
+            .sort("-snapshot_version")
+            .limit(1)
+            .to_list()
+        )
+        return snapshots[0] if snapshots else None
+
+    @classmethod
+    def decode_snapshot_data(cls, snapshot: InquirySnapshot) -> bytes:
+        data = snapshot.data
+        if getattr(snapshot, "compressed", False):
+            data = zlib.decompress(data)
+        return data
 
 inquiry_service = InquiryService()

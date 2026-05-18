@@ -40,6 +40,8 @@ import {
 import { Button } from "../../../ui/button"
 import { ExperimentVersion } from '../../../../types'
 
+const MAX_UPLOAD_IMAGE_BYTES = 10 * 1024 * 1024
+
 interface DocumentEditorProps {
   documentId?: string
   projectId?: string
@@ -124,6 +126,12 @@ export default function DocumentEditor({
 
     if (!file.type.startsWith('image/')) {
       setToastMessage('请选择图片文件')
+      setShowToast(true)
+      return
+    }
+
+    if (file.size > MAX_UPLOAD_IMAGE_BYTES) {
+      setToastMessage('图片过大，请压缩到 10MB 以内后再上传')
       setShowToast(true)
       return
     }
@@ -273,7 +281,7 @@ export default function DocumentEditor({
     loadDocument()
   }, [documentId, projectId, reloadToken])
 
-  const { provider, ydoc, isSynced } = useDocumentSync({
+  const { provider, ydoc, isSynced, syncError } = useDocumentSync({
     documentId: documentId || document?.id || '',
   })
 
@@ -947,6 +955,11 @@ export default function DocumentEditor({
       )}
 
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        {syncError && (
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
+            {syncError}
+          </div>
+        )}
         {editor && (
           <EditorToolbar
             editor={editor}

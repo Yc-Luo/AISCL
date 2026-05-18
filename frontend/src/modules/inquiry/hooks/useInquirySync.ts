@@ -68,11 +68,14 @@ export const useInquirySync = (projectId: string) => {
     const store = useInquiryStore();
     const { user } = useAuthStore();
     const [isHydrated, setIsHydrated] = useState(false);
+    const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const isHydratedRef = useRef(false);
     const isSyncingRef = useRef(false);
     const lastSyncTimeRef = useRef(0);
     const pendingBroadcastRef = useRef(false);
     const hasLocalMutationRef = useRef(false);
+    const snapshotVersionRef = useRef<number | undefined>(undefined);
     const syncUnlockTimerRef = useRef<number | null>(null);
 
     // 唯一的 session ID，用于识别自己发送的操作
@@ -177,7 +180,10 @@ export const useInquirySync = (projectId: string) => {
 
         const stateData = serializeState(nodes, edges, scrapbook);
         const base64Data = encodeBase64(stateData);
-        await inquiryService.saveSnapshot(projectId, base64Data);
+        const result = await inquiryService.saveSnapshot(projectId, base64Data, snapshotVersionRef.current);
+        snapshotVersionRef.current = result.version;
+        setLastSavedAt(result.updated_at || new Date().toISOString());
+        setSaveError(null);
         hasLocalMutationRef.current = false;
         console.log('[InquirySync] Snapshot persisted:', {
             reason,
@@ -251,6 +257,8 @@ export const useInquirySync = (projectId: string) => {
                     const decoded = decodeBase64(response.data);
                     const parsed = deserializeState(decoded);
                     if (parsed) {
+                        snapshotVersionRef.current = response.version;
+                        setLastSavedAt(response.updated_at || null);
                         console.log('[InquirySync] ✅ Parsed initial state:', {
                             nodes: parsed.nodes.length,
                             edges: parsed.edges.length,
@@ -534,6 +542,10 @@ export const useInquirySync = (projectId: string) => {
             await persistStateToBackend(nodes, edges, scrapbook, 'manual_or_auto_save');
         } catch (error) {
             console.error('[InquirySync] Save failed:', error);
+            setSaveError((error as any)?.response?.status === 409
+                ? '探究空间已被其他成员更新，请刷新后再继续编辑。'
+                : '探究空间保存失败，请检查网络后重试。'
+            );
         }
     }, [projectId, persistStateToBackend]);
 
@@ -541,16 +553,20 @@ export const useInquirySync = (projectId: string) => {
     useEffect(() => {
         if (!isHydrated) return;
 
-        // 每 10 秒自动保存
+        // 每 5 秒自动保存，减少刷新或关闭页面导致的丢失风险。
         const timer = setInterval(() => {
             saveToBackend();
-        }, 10000);
+        }, 5000);
 
         // 页面关闭/刷新前保存 - 移除 sendBeacon，因为它不带 Auth Token，会返回 401
         // 依赖组件卸载时的 saveToBackend()
-        const handleBeforeUnload = () => {
-            // 这里可以加一个提示提示用户正在保存（可选）
-            console.log('[InquirySync] Page unloading...');
+        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+            if (hasLocalMutationRef.current) {
+                event.preventDefault();
+                event.returnValue = '探究空间仍有未保存内容，确定要离开吗？';
+                return event.returnValue;
+            }
+            return undefined;
         };
 
         window.addEventListener('beforeunload', handleBeforeUnload);
@@ -580,6 +596,8 @@ export const useInquirySync = (projectId: string) => {
         deleteEdge,
         saveToBackend,
         isConnected: true,
-        isHydrated
+        isHydrated,
+        lastSavedAt,
+        saveError,
     };
 };

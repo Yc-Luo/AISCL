@@ -539,61 +539,12 @@ export default function ClassManagement() {
                                 className="rounded-xl bg-slate-50 border-none"
                             />
                         </div>
-                        <div className="space-y-4">
-                            <div>
-                                <label htmlFor="create-task-background" className="text-sm font-bold text-slate-800">任务背景</label>
-                                <textarea
-                                    id="create-task-background"
-                                    value={taskTemplate.background}
-                                    onChange={e => updateTaskTemplate('background', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                    placeholder="说明本次任务的主题情境、学习目标与基本问题。"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="create-task-core" className="text-sm font-bold text-slate-800">核心问题</label>
-                                <textarea
-                                    id="create-task-core"
-                                    value={taskTemplate.coreQuestions}
-                                    onChange={e => updateTaskTemplate('coreQuestions', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                    placeholder="列出本组需要重点解决或回应的开放性问题。"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="create-task-collaboration" className="text-sm font-bold text-slate-800">协作要求</label>
-                                <textarea
-                                    id="create-task-collaboration"
-                                    value={taskTemplate.collaborationRequirements}
-                                    onChange={e => updateTaskTemplate('collaborationRequirements', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                    placeholder="说明小组如何组织讨论、资料检索、证据比较与观点协商。"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="create-task-deliverables" className="text-sm font-bold text-slate-800">提交成果</label>
-                                <textarea
-                                    id="create-task-deliverables"
-                                    value={taskTemplate.deliverables}
-                                    onChange={e => updateTaskTemplate('deliverables', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                    placeholder="说明本组需要提交的成果形式和最低完成要求。"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="create-task-evaluation" className="text-sm font-bold text-slate-800">评价要点</label>
-                                <textarea
-                                    id="create-task-evaluation"
-                                    value={taskTemplate.evaluationCriteria}
-                                    onChange={e => updateTaskTemplate('evaluationCriteria', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                    placeholder="说明教师或小组自评时关注的核心评价标准。"
-                                />
-                            </div>
-                            <p className="text-xs leading-5 text-slate-500">
-                                这些内容会自动组合成学生端小组文档中的“项目说明”页面，作为进入任务前的前置支架。
-                            </p>
-                        </div>
+                        <TaskTemplateAccordion
+                            sections={taskTemplate}
+                            onChange={updateTaskTemplate}
+                            defaultOpenKey="background"
+                            hint="这些内容会自动组合成学生端小组文档中的“项目说明”页面，作为进入任务前的前置支架。"
+                        />
                         <DialogFooter className="pt-4">
                             <Button type="button" variant="ghost" onClick={() => setIsCreateOpen(false)} className="rounded-xl">取消</Button>
                             <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-8 shadow-lg shadow-indigo-100">
@@ -610,7 +561,7 @@ export default function ClassManagement() {
                         <DialogHeader>
                             <DialogTitle className="text-2xl font-bold">修改班级信息</DialogTitle>
                             <DialogDescription className="text-slate-500 mt-2">
-                            更新班级名称、实验模板以及项目说明内容。项目说明会作为学生端小组文档中的任务导入页。
+                            更新班级名称、实验模板以及项目说明内容。项目说明会同步到学生端小组文档，作为任务理解与问题构建的起点。
                             </DialogDescription>
                         </DialogHeader>
                     <form onSubmit={handleUpdate} className="space-y-6 mt-6">
@@ -656,56 +607,12 @@ export default function ClassManagement() {
                                 className="rounded-xl bg-slate-50 border-none"
                             />
                         </div>
-                        <div className="space-y-4">
-                            <div>
-                                <label htmlFor="edit-task-background" className="text-sm font-bold text-slate-800">任务背景</label>
-                                <textarea
-                                    id="edit-task-background"
-                                    value={taskTemplate.background}
-                                    onChange={e => updateTaskTemplate('background', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="edit-task-core" className="text-sm font-bold text-slate-800">核心问题</label>
-                                <textarea
-                                    id="edit-task-core"
-                                    value={taskTemplate.coreQuestions}
-                                    onChange={e => updateTaskTemplate('coreQuestions', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="edit-task-collaboration" className="text-sm font-bold text-slate-800">协作要求</label>
-                                <textarea
-                                    id="edit-task-collaboration"
-                                    value={taskTemplate.collaborationRequirements}
-                                    onChange={e => updateTaskTemplate('collaborationRequirements', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="edit-task-deliverables" className="text-sm font-bold text-slate-800">提交成果</label>
-                                <textarea
-                                    id="edit-task-deliverables"
-                                    value={taskTemplate.deliverables}
-                                    onChange={e => updateTaskTemplate('deliverables', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="edit-task-evaluation" className="text-sm font-bold text-slate-800">评价要点</label>
-                                <textarea
-                                    id="edit-task-evaluation"
-                                    value={taskTemplate.evaluationCriteria}
-                                    onChange={e => updateTaskTemplate('evaluationCriteria', e.target.value)}
-                                    className="mt-2 w-full px-3 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                                />
-                            </div>
-                            <p className="text-xs leading-5 text-slate-500">
-                                这些内容会自动组合成学生端小组文档中的“项目说明”页面。
-                            </p>
-                        </div>
+                        <TaskTemplateAccordion
+                            sections={taskTemplate}
+                            onChange={updateTaskTemplate}
+                            defaultOpenKey="background"
+                            hint="这些内容会自动组合成学生端小组文档中的“项目说明”页面。"
+                        />
                         <DialogFooter className="pt-4">
                             <Button type="button" variant="ghost" onClick={() => setIsEditOpen(false)} className="rounded-xl">取消</Button>
                             <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-8 shadow-lg shadow-indigo-100">
@@ -726,6 +633,66 @@ export default function ClassManagement() {
                 loading={deletingCourse}
                 onConfirm={confirmDeleteCourse}
             />
+        </div>
+    );
+}
+
+const TASK_TEMPLATE_FIELDS: Array<{
+    key: keyof TaskTemplateSections;
+    label: string;
+    placeholder: string;
+}> = [
+    { key: 'background', label: '任务背景', placeholder: '说明本次任务的主题情境、学习目标与基本问题。' },
+    { key: 'coreQuestions', label: '核心问题', placeholder: '列出本组需要重点解决或回应的开放性问题。' },
+    { key: 'collaborationRequirements', label: '协作要求', placeholder: '说明小组如何组织讨论、资料检索、证据比较与观点协商。' },
+    { key: 'deliverables', label: '提交成果', placeholder: '说明本组需要提交的成果形式和最低完成要求。' },
+    { key: 'evaluationCriteria', label: '评价要点', placeholder: '说明教师或小组自评时关注的核心评价标准。' },
+];
+
+function TaskTemplateAccordion({
+    sections,
+    onChange,
+    defaultOpenKey,
+    hint,
+}: {
+    sections: TaskTemplateSections;
+    onChange: (key: keyof TaskTemplateSections, value: string) => void;
+    defaultOpenKey: keyof TaskTemplateSections;
+    hint: string;
+}) {
+    const [openKey, setOpenKey] = useState<keyof TaskTemplateSections>(defaultOpenKey);
+
+    return (
+        <div className="space-y-3">
+            {TASK_TEMPLATE_FIELDS.map((field) => {
+                const value = sections[field.key] || '';
+                const isOpen = openKey === field.key;
+                return (
+                    <div key={field.key} className="rounded-2xl border border-slate-100 bg-slate-50/70">
+                        <button
+                            type="button"
+                            onClick={() => setOpenKey(isOpen ? defaultOpenKey : field.key)}
+                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                        >
+                            <span className="text-sm font-bold text-slate-800">{isOpen ? '▼' : '▶'} {field.label}</span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${value.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-white text-slate-400'}`}>
+                                {value.trim() ? `已填写，${value.trim().length} 字` : '未填写'}
+                            </span>
+                        </button>
+                        {isOpen && (
+                            <div className="border-t border-slate-100 px-4 pb-4">
+                                <textarea
+                                    value={value}
+                                    onChange={e => onChange(field.key, e.target.value)}
+                                    className="mt-3 h-28 w-full rounded-xl border-none bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                    placeholder={field.placeholder}
+                                />
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+            <p className="text-xs leading-5 text-slate-500">{hint}</p>
         </div>
     );
 }

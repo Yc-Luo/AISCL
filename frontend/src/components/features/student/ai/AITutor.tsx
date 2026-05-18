@@ -8,6 +8,9 @@ import { useScrapbookActions } from '../../../../modules/inquiry/hooks/useScrapb
 import { Image as ImageIcon, Lightbulb, Loader2, X } from 'lucide-react'
 import { Toast } from '../../../ui/Toast'
 import { ExperimentVersion } from '../../../../types'
+import { normalizeStageId } from '../../../../lib/stageModel'
+
+const MAX_TUTOR_IMAGE_BYTES = 10 * 1024 * 1024
 import { useContextStore } from '../../../../stores/contextStore'
 import { useScaffoldRecommendationStore } from '../../../../stores/scaffoldRecommendationStore'
 import { roleKeyToPreferredSubagent, type ScaffoldRoleKey } from '../../../../lib/experimentScaffold'
@@ -88,10 +91,10 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
     const isSingleAIMode = experimentVersion?.ai_scaffold_mode === 'single_agent'
 
     const getStageDefaultRole = (stage?: string | null): ScaffoldRoleKey => {
-        if (!stage) return 'problem_progression'
-        if (/(argumentation|论证|协商)/.test(stage)) return 'viewpoint_challenge'
-        if (/(revision|reflection|修订|反思)/.test(stage)) return 'feedback_prompting'
-        if (/(inquiry|evidence|证据|探究)/.test(stage)) return 'cognitive_support'
+        const normalizedStage = normalizeStageId(stage)
+        if (normalizedStage === 'meaning_exploration') return 'cognitive_support'
+        if (normalizedStage === 'explanation_integration') return 'viewpoint_challenge'
+        if (normalizedStage === 'application_solution') return 'feedback_prompting'
         return 'problem_progression'
     }
 
@@ -505,7 +508,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             ].filter((item, index, array) => item && array.indexOf(item) === index)
 
                             updateAssistantProcessing(mergedSteps, {
-                                primaryView: meta.ai_meta.primary_view,
+                                primaryView: meta.ai_meta.primary_view || meta.ai_meta.primary_agent,
                                 rationaleSummary: meta.ai_meta.rationale_summary,
                             })
                         },
@@ -649,6 +652,11 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
         if (!projectId) return
         if (!file.type.startsWith('image/')) {
             setToastMessage('请选择图片文件')
+            setShowToast(true)
+            return
+        }
+        if (file.size > MAX_TUTOR_IMAGE_BYTES) {
+            setToastMessage('图片过大，请压缩到 10MB 以内后再上传')
             setShowToast(true)
             return
         }

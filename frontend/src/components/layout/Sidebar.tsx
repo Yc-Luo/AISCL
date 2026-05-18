@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import ProjectInfo from '../features/student/project/ProjectInfo'
-import CalendarView from '../features/student/project/CalendarView'
 import TaskKanban from '../features/student/project/TaskKanban'
 import { trackingService } from '../../services/tracking/TrackingService'
-import { Folder, CheckSquare, Calendar } from 'lucide-react'
+import { Folder, CheckSquare } from 'lucide-react'
 
 interface SidebarProps {
   projectId?: string
@@ -11,9 +10,9 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ projectId, canSubmitCourseTask = true }: SidebarProps) {
-  const [activeSection, setActiveSection] = useState<'info' | 'tasks' | 'calendar'>('info')
+  const [activeSection, setActiveSection] = useState<'info' | 'tasks'>('info')
 
-  const handleSectionChange = (section: 'info' | 'tasks' | 'calendar') => {
+  const handleSectionChange = (section: 'info' | 'tasks') => {
     trackingService.track({
       module: 'dashboard',
       action: 'sidebar_section_change',
@@ -53,27 +52,10 @@ export default function Sidebar({ projectId, canSubmitCourseTask = true }: Sideb
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
           )}
         </button>
-        <button
-          onClick={() => handleSectionChange('calendar')}
-          title="小组日历"
-          className={`flex-1 py-3 text-sm font-medium transition-colors relative flex items-center justify-center gap-2 ${activeSection === 'calendar'
-            ? 'text-indigo-600'
-            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
-        >
-          <Calendar className="w-4 h-4" />
-          <span>日历</span>
-          {activeSection === 'calendar' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
-          )}
-        </button>
       </div>
       <div className="flex-1 overflow-y-auto block">
         {activeSection === 'info' && projectId && (
           <ProjectInfo projectId={projectId} />
-        )}
-        {activeSection === 'calendar' && projectId && (
-          <CalendarView projectId={projectId} />
         )}
         {activeSection === 'tasks' && projectId && (
           <TaskKanban projectId={projectId} canSubmitCourseTask={canSubmitCourseTask} />

@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from app.repositories.course import Course
 from app.repositories.system_config import SystemConfig
+from app.repositories.user import User
+from app.services.config_permission_service import config_permission_service
 
 
 class ResearchConfigService:
@@ -32,7 +34,7 @@ class ResearchConfigService:
             "aiMode": "single_agent",
             "processMode": "on",
             "ruleSet": "research-default",
-            "stageSequence": ["orientation", "planning", "inquiry", "argumentation", "revision"],
+            "stageSequence": ["problem_construction", "meaning_exploration", "explanation_integration", "application_solution"],
         },
         "exp-multi-process-v1": {
             "label": "多智能体 + 过程支架",
@@ -40,7 +42,7 @@ class ResearchConfigService:
             "aiMode": "multi_agent",
             "processMode": "on",
             "ruleSet": "research-default",
-            "stageSequence": ["orientation", "planning", "inquiry", "argumentation", "revision"],
+            "stageSequence": ["problem_construction", "meaning_exploration", "explanation_integration", "application_solution"],
         },
         "exp-single-process-off-v1": {
             "label": "单AI + 无过程支架",
@@ -48,7 +50,7 @@ class ResearchConfigService:
             "aiMode": "single_agent",
             "processMode": "off",
             "ruleSet": "evidence-focus",
-            "stageSequence": ["orientation", "planning", "inquiry", "argumentation", "revision"],
+            "stageSequence": ["problem_construction", "meaning_exploration", "explanation_integration", "application_solution"],
         },
         "exp-multi-process-off-v1": {
             "label": "多智能体 + 无过程支架",
@@ -56,12 +58,12 @@ class ResearchConfigService:
             "aiMode": "multi_agent",
             "processMode": "off",
             "ruleSet": "research-default",
-            "stageSequence": ["orientation", "planning", "inquiry", "argumentation", "revision"],
+            "stageSequence": ["problem_construction", "meaning_exploration", "explanation_integration", "application_solution"],
         },
     }
 
     @classmethod
-    async def list_available_template_options(cls) -> List[Dict[str, Any]]:
+    async def list_available_template_options(cls, current_user: Optional[User] = None) -> List[Dict[str, Any]]:
         """Return experiment templates that teachers can bind to classes.
 
         Admin release snapshots take precedence. Published working-copy templates
@@ -136,10 +138,14 @@ class ResearchConfigService:
         for template_key, template in cls.LEGACY_PRESETS.items():
             add_template({"id": template_key, **template}, source="legacy_builtin")
 
-        return options
+        return config_permission_service.filter_templates(current_user, options)
 
     @classmethod
-    async def resolve_template_binding(cls, template_key: Optional[str]) -> Optional[Dict[str, Any]]:
+    async def resolve_template_binding(
+        cls,
+        template_key: Optional[str],
+        current_user: Optional[User] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Resolve a class-level template binding from admin release history or fallback presets."""
         if not template_key:
             return None
@@ -152,7 +158,7 @@ class ResearchConfigService:
                 resolved_snapshot = template.get("resolvedExperimentVersion") or template.get("experimentVersion")
                 if not isinstance(resolved_snapshot, dict):
                     continue
-                return {
+                binding = {
                     "template_key": template_key,
                     "template_label": template.get("label") or resolved_snapshot.get("template_label") or template_key,
                     "template_release_id": release.get("id"),
@@ -169,13 +175,14 @@ class ResearchConfigService:
                         or (release.get("orchestration") or {}).get("graphVersion"),
                     ),
                 }
+                return cls._binding_if_allowed(binding, current_user)
 
         working_templates = await cls._load_json_config(cls.TEMPLATE_CONFIG_KEY, [])
         working_orchestration = await cls._load_json_config(cls.ORCHESTRATION_CONFIG_KEY, {})
         for template in working_templates:
             if template.get("id") != template_key:
                 continue
-            return {
+            binding = {
                 "template_key": template_key,
                 "template_label": template.get("label") or template_key,
                 "template_release_id": None,
@@ -187,10 +194,11 @@ class ResearchConfigService:
                     template_source="admin_working_copy",
                 ),
             }
+            return cls._binding_if_allowed(binding, current_user)
 
         legacy_template = cls.LEGACY_PRESETS.get(template_key)
         if legacy_template:
-            return {
+            binding = {
                 "template_key": template_key,
                 "template_label": legacy_template.get("label") or template_key,
                 "template_release_id": None,
@@ -202,7 +210,23 @@ class ResearchConfigService:
                     template_source="legacy_builtin",
                 ),
             }
+            return cls._binding_if_allowed(binding, current_user)
 
+        return None
+
+    @classmethod
+    def _binding_if_allowed(
+        cls,
+        binding: Dict[str, Any],
+        current_user: Optional[User],
+    ) -> Optional[Dict[str, Any]]:
+        snapshot = binding.get("template_snapshot") or {}
+        option = {
+            "key": binding.get("template_key"),
+            "rule_set": snapshot.get("enabled_rule_set"),
+        }
+        if config_permission_service.template_is_allowed(current_user, option):
+            return binding
         return None
 
     @classmethod

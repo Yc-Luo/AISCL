@@ -15,6 +15,13 @@ from typing import TypedDict, Annotated
 import operator
 import json
 
+from app.services.agents.orchestration_planner import (
+    KNOWLEDGE_CONSTRUCT_LABELS,
+    REGULATION_CONSTRUCT_LABELS,
+    ROLE_TO_SUBAGENT,
+    OrchestrationPlanner,
+)
+
 
 def _match_subagent_name(subagents: List[Dict[str, Any]], keywords: List[str], default: str) -> str:
     """Infer a target sub-agent name from descriptions to avoid hard-coded role names."""
@@ -36,29 +43,6 @@ def _match_subagent_name(subagents: List[Dict[str, Any]], keywords: List[str], d
         if any(keyword in combined for keyword in lowered_keywords):
             return subagent["name"]
     return default
-
-
-ROLE_TO_SUBAGENT = {
-    "cognitive_support": "evidence_researcher",
-    "viewpoint_challenge": "viewpoint_challenger",
-    "feedback_prompting": "feedback_prompter",
-    "problem_progression": "problem_progressor",
-}
-
-
-KNOWLEDGE_CONSTRUCT_LABELS = {
-    "problem_construction": "问题构建",
-    "meaning_exploration": "意义探索",
-    "explanation_integration": "解释整合",
-    "application_solution": "应用解决",
-}
-
-REGULATION_CONSTRUCT_LABELS = {
-    "goal_regulation": "目标调节",
-    "process_monitoring": "过程监控",
-    "strategy_coordination": "策略协同",
-    "emotion_coordination": "情绪协调",
-}
 
 
 def _contains_any(text: str, keywords: List[str]) -> bool:
@@ -216,6 +200,15 @@ def derive_routing_decision_from_context(
     enabled_scaffold_roles = context.get("enabled_scaffold_roles", []) or []
     enabled_subagents = context.get("enabled_subagents", []) or []
 
+    planner_decision = OrchestrationPlanner.plan(
+        message=current_message,
+        current_stage=current_stage,
+        rule_type=rule_type or None,
+        preferred_subagent=preferred_subagent or None,
+        enabled_subagents=enabled_subagents,
+        enabled_scaffold_roles=enabled_scaffold_roles,
+    )
+
     evidence_agent_name = _match_subagent_name(
         subagents,
         ["资料", "证据", "知识", "research", "evidence"],
@@ -241,15 +234,15 @@ def derive_routing_decision_from_context(
         enabled_subagents=enabled_subagents,
         enabled_scaffold_roles=enabled_scaffold_roles,
     )
-    collaboration_diagnosis = _diagnose_collaboration_state(
-        message=current_message,
-        current_stage=current_stage,
-        rule_type=rule_type,
-        evidence_agent_name=evidence_agent_name,
-        challenger_agent_name=challenger_agent_name,
-        feedback_agent_name=feedback_agent_name,
-        progress_agent_name=progress_agent_name,
-    )
+    collaboration_diagnosis = {
+        "knowledge_construct": planner_decision["knowledge_construct"],
+        "knowledge_construct_label": planner_decision["knowledge_construct_label"],
+        "regulation_construct": planner_decision["regulation_construct"],
+        "regulation_construct_label": planner_decision["regulation_construct_label"],
+        "support_need": planner_decision["support_need"],
+        "primary_subagent": planner_decision["selected_subagent"],
+        "answer_policy": planner_decision["answer_policy"],
+    }
 
     def _classify_intervention_mode(target_agent: str) -> str:
         if target_agent in {feedback_agent_name, progress_agent_name}:
@@ -258,7 +251,7 @@ def derive_routing_decision_from_context(
             return "evidence_argument_support"
         return "general_support"
 
-    constrained_target = _select_constrained_subagent(
+    constrained_target = planner_decision.get("selected_subagent") or _select_constrained_subagent(
         preferred_subagent=preferred_subagent,
         rule_type=rule_type,
         current_stage=current_stage,
@@ -274,11 +267,7 @@ def derive_routing_decision_from_context(
 
     return {
         "selected_subagent": constrained_target,
-        "routing_source": (
-            "preferred_subagent"
-            if preferred_subagent and constrained_target == preferred_subagent
-            else "rule_or_stage_constraint"
-        ),
+        "routing_source": planner_decision.get("routing_source") or "stage_intent_matrix",
         "constrained": True,
         "fallback_applied": False,
         "intervention_mode": _classify_intervention_mode(constrained_target),
@@ -286,6 +275,11 @@ def derive_routing_decision_from_context(
         "rule_type": rule_type or None,
         "current_stage": current_stage or None,
         "enabled_subagents": effective_enabled_subagents,
+        "orchestration_mode": planner_decision.get("orchestration_mode"),
+        "active_agents": planner_decision.get("active_agents"),
+        "intent": planner_decision.get("intent"),
+        "normalized_stage": planner_decision.get("normalized_stage"),
+        "decision_source": planner_decision.get("decision_source"),
         "collaboration_diagnosis": collaboration_diagnosis,
         **collaboration_diagnosis,
     }

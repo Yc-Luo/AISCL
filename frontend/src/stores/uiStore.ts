@@ -5,6 +5,7 @@ interface Notification {
     message: string
     type: 'info' | 'success' | 'warning' | 'error'
     timestamp: string
+    duration?: number
 }
 
 interface UiState {
@@ -20,7 +21,7 @@ interface UiActions {
     closeModal: (modalId: string) => void
     toggleModal: (modalId: string) => void
 
-    addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => void
+    addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => string
     removeNotification: (id: string) => void
     clearNotifications: () => void
 
@@ -48,13 +49,17 @@ export const useUiStore = create<UiState & UiActions>((set) => ({
         modals: { ...state.modals, [modalId]: !state.modals[modalId] }
     })),
 
-    addNotification: (notification) => set((state) => ({
-        notifications: [...state.notifications, {
+    addNotification: (notification) => {
+        const id = Date.now().toString()
+        set((state) => ({
+            notifications: [...state.notifications, {
             ...notification,
-            id: Date.now().toString(),
+            id,
             timestamp: new Date().toISOString()
         }]
-    })),
+        }))
+        return id
+    },
 
     removeNotification: (id) => set((state) => ({
         notifications: state.notifications.filter(n => n.id !== id)

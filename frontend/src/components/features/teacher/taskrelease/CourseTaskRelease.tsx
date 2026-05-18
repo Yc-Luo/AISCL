@@ -286,7 +286,7 @@ export default function CourseTaskRelease() {
                 <TextAreaField
                   label="协作要求"
                   value={form.collaboration_requirements}
-                  placeholder="说明资料检索、讨论、证据比较、论证协商等过程要求。"
+                  placeholder="说明意义探索、解释整合、应用解决等协作过程要求。"
                   onChange={(value) => updateForm('collaboration_requirements', value)}
                 />
                 <TextAreaField

@@ -19,6 +19,7 @@ import { ResearchProjectHealth, analyticsService } from '../../../../services/ap
 import { ExperimentVersion, Project } from '../../../../types';
 import { trackingService } from '../../../../services/tracking/TrackingService';
 import { buildReadableResearchEventRow, getResearchEventCodebook } from '../../../../lib/researchEventLabels';
+import { CANONICAL_STAGES, formatStageLabel } from '../../../../lib/stageModel';
 
 const parseCsvList = (value: string): string[] =>
     Array.from(
@@ -57,6 +58,21 @@ const RULE_SET_OPTIONS = [
         hint: '优先启用修订推进与修改理由相关规则。',
     },
 ];
+
+const SCAFFOLD_LAYER_LABELS: Record<string, string> = {
+    multi_agent_scaffold: 'AI 角色支持',
+    process_scaffold: '协作过程提示',
+};
+
+const SCAFFOLD_ROLE_LABELS: Record<string, string> = {
+    cognitive_support: '资料与认知支持',
+    viewpoint_challenge: '观点挑战支持',
+    feedback_prompting: '反馈追问支持',
+    problem_progression: '问题推进支持',
+};
+
+const formatScaffoldLayerLabel = (value: string): string => SCAFFOLD_LAYER_LABELS[value] || value;
+const formatScaffoldRoleLabel = (value: string): string => SCAFFOLD_ROLE_LABELS[value] || value;
 
 const toFileSafeName = (value: string | null | undefined): string =>
     (value || 'unknown')
@@ -602,7 +618,7 @@ export default function ProjectDashboard() {
         minutes: item.active_minutes
     })) || [];
     const selectedProject = projects.find((project) => project.id === selectedProjectId) || null;
-    const stageSequenceInput = experimentDraft?.stage_sequence.join(', ') || '';
+    const stageSequenceInput = experimentDraft?.stage_sequence.join(', ') || CANONICAL_STAGES.join(', ');
     const scaffoldLayersInput = experimentDraft?.enabled_scaffold_layers.join(', ') || '';
     const scaffoldRolesInput = experimentDraft?.enabled_scaffold_roles.join(', ') || '';
 
@@ -762,8 +778,8 @@ export default function ProjectDashboard() {
                                         onChange={(e) => handleDraftChange('ai_scaffold_mode', e.target.value as ExperimentVersion['ai_scaffold_mode'])}
                                         className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
                                     >
-                                        <option value="multi_agent">多智能体支架</option>
-                                        <option value="single_agent">单AI支架</option>
+                                        <option value="multi_agent">多角色 AI 支持</option>
+                                        <option value="single_agent">通用 AI 支持</option>
                                     </select>
                                 </div>
                                 <div>
@@ -794,7 +810,7 @@ export default function ProjectDashboard() {
                                         });
                                     }}
                                     className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
-                                    placeholder="orientation, planning, inquiry, argumentation, revision"
+                                    placeholder="problem_construction, meaning_exploration, explanation_integration, application_solution"
                                 />
                             </div>
                             <div>
@@ -806,7 +822,7 @@ export default function ProjectDashboard() {
                                 >
                                     <option value="">未指定</option>
                                     {experimentDraft.stage_sequence.map((stage) => (
-                                        <option key={stage} value={stage}>{stage}</option>
+                                        <option key={stage} value={stage}>{formatStageLabel(stage)}</option>
                                     ))}
                                 </select>
                             </div>
@@ -819,11 +835,11 @@ export default function ProjectDashboard() {
                                     value={scaffoldLayersInput}
                                     onChange={(e) => handleDraftChange('enabled_scaffold_layers', parseCsvList(e.target.value))}
                                     className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
-                                    placeholder="multi_agent_scaffold, process_scaffold"
+                                    placeholder="AI 角色支持, 协作过程提示"
                                 />
                                 <div className="mt-2 flex flex-wrap gap-2">
                                     {experimentDraft.enabled_scaffold_layers.length > 0 ? experimentDraft.enabled_scaffold_layers.map((layer) => (
-                                        <Badge key={layer} variant="secondary" className="bg-indigo-50 text-indigo-700 border-0">{layer}</Badge>
+                                        <Badge key={layer} variant="secondary" className="bg-indigo-50 text-indigo-700 border-0">{formatScaffoldLayerLabel(layer)}</Badge>
                                     )) : <span className="text-xs text-slate-400">当前未限制支架层。</span>}
                                 </div>
                                 <p className="mt-2 text-xs text-slate-400">
@@ -836,15 +852,15 @@ export default function ProjectDashboard() {
                                     value={scaffoldRolesInput}
                                     onChange={(e) => handleDraftChange('enabled_scaffold_roles', parseCsvList(e.target.value))}
                                     className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
-                                    placeholder="cognitive_support, viewpoint_challenge, feedback_prompting, problem_progression"
+                                    placeholder="资料与认知支持, 观点挑战支持, 反馈追问支持, 问题推进支持"
                                 />
                                 <div className="mt-2 flex flex-wrap gap-2">
                                     {experimentDraft.enabled_scaffold_roles.length > 0 ? experimentDraft.enabled_scaffold_roles.map((role) => (
-                                        <Badge key={role} variant="secondary" className="bg-violet-50 text-violet-700 border-0">{role}</Badge>
+                                        <Badge key={role} variant="secondary" className="bg-violet-50 text-violet-700 border-0">{formatScaffoldRoleLabel(role)}</Badge>
                                     )) : <span className="text-xs text-slate-400">当前未限制支架角色。</span>}
                                 </div>
                                 <p className="mt-2 text-xs text-slate-400">
-                                    当 AI 支架形态为“单AI支架”时，系统默认隐藏 AI 导师页签，仅保留过程工具中的正式支架入口。
+                                    采用通用 AI 支持时，学生端只保留统一 AI 入口；采用多角色 AI 支持时，系统按任务阶段和学习问题选择合适视角。
                                 </p>
                             </div>
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

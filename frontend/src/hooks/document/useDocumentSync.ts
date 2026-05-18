@@ -3,7 +3,7 @@
  * 用于初始化和管理文档模块的同步提供者
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as Y from 'yjs';
 import { SyncServiceYjsProvider } from '../../services/sync/SyncServiceYjsProvider';
 import { syncService } from '../../services/sync/SyncService';
@@ -18,9 +18,10 @@ interface UseDocumentSyncProps {
 
 export function useDocumentSync({ documentId, initialData, onMount }: UseDocumentSyncProps) {
     const { user } = useAuthStore();
-    const [ydoc] = useState(() => new Y.Doc());
+    const ydoc = useMemo(() => new Y.Doc(), [documentId]);
     const [provider, setProvider] = useState<SyncServiceYjsProvider | null>(null);
     const [isSynced, setIsSynced] = useState(false);
+    const [syncError, setSyncError] = useState<string | null>(null);
 
     // 确保 SyncService 已初始化
     useEffect(() => {
@@ -48,6 +49,9 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
         if (!documentId) return;
 
         console.log('[useDocumentSync] Initializing for document:', documentId);
+
+        setIsSynced(false);
+        setSyncError(null);
 
         // 1. 创建 Provider
         // 使用 documentId 作为 roomId，前缀 'doc:'
@@ -92,14 +96,16 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
                 Y.applyUpdate(ydoc, initialData);
             }
 
-            // 加入房间以启动实时同步
-            syncService.joinRoom(roomId, 'document').catch((error) => {
-                console.warn('[useDocumentSync] Failed to join document room, editor will stay in local mode:', error);
-            });
-
-            // 连接 Provider
-            newProvider.connect();
-            setIsSynced(true);
+            try {
+                await syncService.init();
+                await syncService.joinRoom(roomId, 'document');
+                newProvider.connect();
+                setIsSynced(true);
+            } catch (error) {
+                console.warn('[useDocumentSync] Failed to join document room:', error);
+                setSyncError('文档协作连接失败。请先不要继续编辑，系统正在等待重新连接。');
+                setIsSynced(false);
+            }
 
             if (onMount) onMount();
         };
@@ -118,14 +124,14 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
             newProvider.disconnect();
             syncService.leaveRoom(roomId, 'document');
             newProvider.destroy();
-            // 在 key 重启机制下，此处不销毁 ydoc 也可以，但为了严谨可留
             ydoc.destroy();
             setProvider(null);
             setIsSynced(false);
+            setSyncError(null);
         };
-    }, [documentId]);
+    }, [documentId, initialData, onMount, ydoc]);
 
-    return { provider, ydoc, isSynced };
+    return { provider, ydoc, isSynced, syncError };
 }
 
 // 辅助函数：生成颜色

@@ -97,7 +97,7 @@ async def get_experiment_templates(
         )
 
     return {
-        "templates": await research_config_service.list_available_template_options()
+        "templates": await research_config_service.list_available_template_options(current_user)
     }
 
 
@@ -131,11 +131,11 @@ async def create_course(
         initial_task_document_content=course_data.initial_task_document_content,
     )
     if course_data.experiment_template_key:
-        binding = await research_config_service.resolve_template_binding(course_data.experiment_template_key)
+        binding = await research_config_service.resolve_template_binding(course_data.experiment_template_key, current_user)
         if not binding:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Experiment template key is not available in admin releases or legacy presets",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Experiment template is unavailable or not assigned to this teacher",
             )
         research_config_service.apply_binding_to_course(new_course, binding)
     await new_course.insert()
@@ -237,11 +237,11 @@ async def update_course(
         course.description = course_data.description
     if "experiment_template_key" in course_data.model_fields_set:
         if course_data.experiment_template_key:
-            binding = await research_config_service.resolve_template_binding(course_data.experiment_template_key)
+            binding = await research_config_service.resolve_template_binding(course_data.experiment_template_key, current_user)
             if not binding:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Experiment template key is not available in admin releases or legacy presets",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Experiment template is unavailable or not assigned to this teacher",
                 )
             research_config_service.apply_binding_to_course(course, binding)
         else:

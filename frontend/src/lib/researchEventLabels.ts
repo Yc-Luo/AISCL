@@ -1,4 +1,5 @@
 import type { ResearchEventRow } from '../services/api/analytics'
+import { formatStageLabel, STAGE_LABELS as CANONICAL_STAGE_LABELS } from './stageModel'
 
 type ResearchPayload = Record<string, unknown>
 
@@ -27,17 +28,18 @@ const ACTOR_LABELS: Record<string, string> = {
 }
 
 const STAGE_LABELS: Record<string, string> = {
-  orientation: '任务导入',
-  planning: '问题规划',
-  inquiry: '证据探究',
-  argumentation: '论证协商',
-  revision: '反思修订',
-  summary: '成果整合',
-  reflection: '总结反思',
-  task_import: '任务导入',
-  problem_planning: '问题规划',
-  evidence_exploration: '证据探究',
-  reflection_revision: '反思修订',
+  ...CANONICAL_STAGE_LABELS,
+  orientation: '问题构建',
+  planning: '问题构建',
+  inquiry: '意义探索',
+  argumentation: '解释整合',
+  revision: '应用解决',
+  summary: '应用解决',
+  reflection: '应用解决',
+  task_import: '问题构建',
+  problem_planning: '问题构建',
+  evidence_exploration: '意义探索',
+  reflection_revision: '应用解决',
 }
 
 const SUBAGENT_LABELS: Record<string, string> = {
@@ -508,7 +510,7 @@ export const buildReadableResearchEventRow = (event: ResearchEventRow): Record<s
     event_description: buildDescription(event, meta.description, detailLabel, targetAgentLabel, ruleTypeLabel),
     analysis_category: meta.analysisCategory,
     stage_id: event.stage_id,
-    stage_label: event.stage_id ? STAGE_LABELS[event.stage_id] || fallbackLabel(event.stage_id) : '',
+    stage_label: event.stage_id ? formatStageLabel(event.stage_id) : '',
     sequence_index: event.sequence_index,
     event_time: event.event_time,
     is_ai_mention: containsAiMention,

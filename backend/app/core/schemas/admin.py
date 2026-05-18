@@ -1,7 +1,7 @@
 """Admin schemas for API requests and responses."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -70,6 +70,8 @@ class UserResponse(BaseModel):
     role: str
     class_id: Optional[str] = None
     course_name: Optional[str] = None
+    teacher_tags: List[str] = Field(default_factory=list)
+    config_permissions: Optional[Dict] = None
     is_active: bool
     is_banned: bool
     created_at: datetime
@@ -91,6 +93,8 @@ class UserCreateRequest(BaseModel):
     password: str = Field(..., min_length=6)
     role: str = Field(..., pattern="^(student|teacher|admin)$")
     class_id: Optional[str] = None
+    teacher_tags: List[str] = Field(default_factory=list)
+    config_permissions: Optional[Dict] = None
 
 
 class UserUpdateRequest(BaseModel):
@@ -100,6 +104,8 @@ class UserUpdateRequest(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     class_id: Optional[str] = None
+    teacher_tags: Optional[List[str]] = None
+    config_permissions: Optional[Dict] = None
     is_active: Optional[bool] = None
     is_banned: Optional[bool] = None
 

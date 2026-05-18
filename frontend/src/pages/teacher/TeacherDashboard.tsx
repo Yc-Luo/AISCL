@@ -98,9 +98,9 @@ export default function TeacherDashboard() {
         </>
       )}
 
-      {/* Sidebar - Adjusted to 30% as per requirements, collapsible to 80px */}
+      {/* Sidebar */}
       <div className={`
-        ${isCollapsed ? 'w-20' : 'w-[30%] max-w-sm'} 
+        ${isCollapsed ? 'w-20' : 'w-[260px]'} 
         bg-white border-r border-gray-200 hidden lg:flex flex-col z-20 sticky top-0 h-[100dvh] shadow-sm
         transition-all duration-300 ease-in-out
       `}>
@@ -129,25 +129,12 @@ export default function TeacherDashboard() {
 
         {/* Navigation */}
         <nav className={`flex-1 ${isCollapsed ? 'px-2' : 'px-4'} py-8 space-y-2 overflow-y-auto`}>
+          {!isCollapsed && <SidebarGroupTitle label="教学运营" />}
           <SidebarLink
             to={ROUTES.TEACHER.OVERVIEW}
             icon={LayoutDashboard}
             label="概览"
             active={isActive(ROUTES.TEACHER.OVERVIEW)}
-            isCollapsed={isCollapsed}
-          />
-          <SidebarLink
-            to={ROUTES.TEACHER.PROJECT_MONITOR}
-            icon={Monitor}
-            label="小组监控"
-            active={isActive(ROUTES.TEACHER.PROJECT_MONITOR)}
-            isCollapsed={isCollapsed}
-          />
-          <SidebarLink
-            to={ROUTES.TEACHER.PROJECT_MANAGER}
-            icon={Briefcase}
-            label="小组管理"
-            active={isActive(ROUTES.TEACHER.PROJECT_MANAGER)}
             isCollapsed={isCollapsed}
           />
           <SidebarLink
@@ -165,6 +152,30 @@ export default function TeacherDashboard() {
             isCollapsed={isCollapsed}
           />
           <div className="my-4 border-t border-gray-100 opacity-50 mx-2" />
+          {!isCollapsed && <SidebarGroupTitle label="实验操作" />}
+          <SidebarLink
+            to={ROUTES.TEACHER.PROJECT_MANAGER}
+            icon={Briefcase}
+            label="小组管理"
+            active={isActive(ROUTES.TEACHER.PROJECT_MANAGER)}
+            isCollapsed={isCollapsed}
+          />
+          <SidebarLink
+            to={ROUTES.TEACHER.PROJECT_MONITOR}
+            icon={Monitor}
+            label="小组监控"
+            active={isActive(ROUTES.TEACHER.PROJECT_MONITOR)}
+            isCollapsed={isCollapsed}
+          />
+          <SidebarLink
+            to={ROUTES.TEACHER.PROJECT_DASHBOARD}
+            icon={BarChart3}
+            label="小组仪表盘"
+            active={isActive(ROUTES.TEACHER.PROJECT_DASHBOARD)}
+            isCollapsed={isCollapsed}
+          />
+          <div className="my-4 border-t border-gray-100 opacity-50 mx-2" />
+          {!isCollapsed && <SidebarGroupTitle label="内容与评审" />}
           <SidebarLink
             to={ROUTES.TEACHER.COURSE_RESOURCES}
             icon={FolderOpen}
@@ -184,13 +195,6 @@ export default function TeacherDashboard() {
             icon={ClipboardCheck}
             label="作业与任务评审"
             active={isActive(ROUTES.TEACHER.ASSIGNMENT_REVIEW)}
-            isCollapsed={isCollapsed}
-          />
-          <SidebarLink
-            to={ROUTES.TEACHER.PROJECT_DASHBOARD}
-            icon={BarChart3}
-            label="小组仪表盘"
-            active={isActive(ROUTES.TEACHER.PROJECT_DASHBOARD)}
             isCollapsed={isCollapsed}
           />
           <SidebarLink
@@ -234,12 +238,20 @@ export default function TeacherDashboard() {
       </div>
 
       {/* Main Content - Takes remaining space */}
-      <div className="w-full flex-1 overflow-y-auto p-4 sm:p-6 lg:w-[70%] lg:p-10">
+      <div className="w-full flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10">
         <div className="max-w-6xl mx-auto">
           <Outlet />
         </div>
       </div>
     </div>
+  )
+}
+
+function SidebarGroupTitle({ label }: { label: string }) {
+  return (
+    <p className="px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+      {label}
+    </p>
   )
 }
 

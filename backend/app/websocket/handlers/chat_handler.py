@@ -636,6 +636,7 @@ async def _process_ai_reply(
             "group_memory_message_count": group_memory.get("message_count", 0),
             "group_peer_message_count": group_memory.get("peer_message_count", 0),
             "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
+            "graph_version": experiment_version.get("graph_version"),
         }
         ai_user_id = "ai_assistant"
         message_id = str(uuid.uuid4())
@@ -772,12 +773,32 @@ async def _process_ai_reply(
                 f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",
             ])
 
-            async for chunk in agent_service.chat_stream(
+            async for event in agent_service.chat_stream(
                 persona_key="supervisor", # Entry point
                 message=user_content,
                 session_id=session_id,
                 context=graph_context,
             ):
+                if isinstance(event, dict):
+                    event_type = event.get("type")
+                    if event_type == "routing":
+                        routing_decision = event.get("routing_decision") or routing_decision
+                        if event.get("ai_meta"):
+                            ai_meta = {**ai_meta, **event["ai_meta"]}
+                        continue
+                    if event_type in {"thinking_start", "thinking", "thinking_end", "output_start", "output_end", "status"}:
+                        continue
+                    if event_type == "done":
+                        if event.get("ai_meta"):
+                            ai_meta = {**ai_meta, **event["ai_meta"]}
+                        if event.get("final_content"):
+                            full_response = event["final_content"]
+                        continue
+                    if event_type != "output":
+                        continue
+                    chunk = event.get("content", "")
+                else:
+                    chunk = event
                 full_response += chunk
                 candidate_display = _sanitize_stream_display_content(full_response)
                 now = time.monotonic()

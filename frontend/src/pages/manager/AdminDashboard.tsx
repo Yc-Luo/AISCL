@@ -18,9 +18,11 @@ import UserManager from '../../components/features/manager/usermanagement/UserMa
 import SystemConfig from '../../components/features/manager/settings/SystemConfig'
 import BehaviorLogs from '../../components/features/manager/behavior/BehaviorLogs'
 import ResearchConfig from '../../components/features/manager/research/ResearchConfig'
+import ConfigPermissions from '../../components/features/manager/configpermissions/ConfigPermissions'
+import DataManager from '../../components/features/manager/datamanagement/DataManager'
 
 // Types
-type TabType = 'users' | 'research' | 'system' | 'behavior'
+type TabType = 'users' | 'research' | 'system' | 'behavior' | 'permissions' | 'data'
 
 interface NavItem {
   id: TabType
@@ -67,6 +69,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'research', label: '研究配置', icon: GitBranch, description: 'Research Config' },
   { id: 'system', label: '系统配置', icon: SettingsIcon, description: 'System Config' },
   { id: 'behavior', label: '行为数据', icon: Activity, description: 'Behavior Logs' },
+  { id: 'permissions', label: '配置权限', icon: Shield, description: 'Config Permissions' },
+  { id: 'data', label: '数据管理', icon: Database, description: 'Data Management' },
 ]
 
 export default function AdminDashboard() {
@@ -235,8 +239,12 @@ export default function AdminDashboard() {
                 <ResearchConfig />
               ) : activeTab === 'system' ? (
                 <SystemConfig />
-              ) : (
+              ) : activeTab === 'behavior' ? (
                 <BehaviorLogs />
+              ) : activeTab === 'permissions' ? (
+                <ConfigPermissions />
+              ) : (
+                <DataManager />
               )}
             </div>
           </div>

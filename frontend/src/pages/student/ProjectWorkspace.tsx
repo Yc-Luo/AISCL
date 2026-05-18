@@ -23,25 +23,8 @@ import { useActivityTracking } from '../../hooks/common/useActivityTracking'
 import { useContextStore } from '../../stores/contextStore'
 import { trackingService } from '../../services/tracking/TrackingService'
 import { isProcessScaffoldActive, isTutorTabEnabled } from '../../lib/experimentScaffold'
-
-const DEFAULT_STAGE_LABELS: Record<string, string> = {
-  orientation: '任务导入',
-  planning: '问题规划',
-  inquiry: '证据探究',
-  argumentation: '论证协商',
-  revision: '反思修订',
-  summary: '成果整合',
-  reflection: '总结反思',
-}
-
-const formatStageLabel = (stageId: string) => {
-  if (DEFAULT_STAGE_LABELS[stageId]) return DEFAULT_STAGE_LABELS[stageId]
-  return stageId
-    .split(/[_-]/g)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(' ')
-}
+import { formatStageLabel, getStageToolGuidance, getTabLabel } from '../../lib/stageModel'
+import { ConfirmDialog, useToast } from '../../components/ui'
 
 const getExperimentVersionSignature = (version: ExperimentVersion | null) => {
   if (!version) return 'null'
@@ -63,67 +46,6 @@ const getExperimentVersionSignature = (version: ExperimentVersion | null) => {
 }
 
 const ALL_NAV_TABS = ['document', 'inquiry', 'resources', 'wiki', 'ai', 'dashboard']
-
-const STAGE_TOOL_GUIDANCE: Record<
-  string,
-  {
-    primaryTab: string
-    recommendedTabs: string[]
-    guidance: string
-  }
-> = {
-  orientation: {
-    primaryTab: 'document',
-    recommendedTabs: ['document', 'resources', 'wiki', 'ai'],
-    guidance: '先阅读任务说明并明确目标，必要时借助资源库和 AI 导师完成任务理解。',
-  },
-  planning: {
-    primaryTab: 'document',
-    recommendedTabs: ['document', 'resources', 'wiki', 'ai'],
-    guidance: '优先形成问题清单和初步方案，文档区用于记录计划，资源库与项目 Wiki 用于补充信息。',
-  },
-  inquiry: {
-    primaryTab: 'inquiry',
-    recommendedTabs: ['inquiry', 'resources', 'wiki', 'ai', 'document'],
-    guidance: '以深度探究空间为主，围绕证据收集、来源核验和材料组织展开探究。',
-  },
-  argumentation: {
-    primaryTab: 'inquiry',
-    recommendedTabs: ['inquiry', 'document', 'wiki', 'ai'],
-    guidance: '重点围绕主张、证据和反驳开展论证协商，深度探究空间和文档区应协同使用。',
-  },
-  revision: {
-    primaryTab: 'document',
-    recommendedTabs: ['document', 'inquiry', 'wiki', 'ai'],
-    guidance: '优先回到文档和探究记录进行修订，对照证据和反驳结果完善最终表达。',
-  },
-  summary: {
-    primaryTab: 'document',
-    recommendedTabs: ['document', 'inquiry', 'wiki', 'ai'],
-    guidance: '以文档整合为主，梳理最终结论和证据链，形成阶段性成果。',
-  },
-  reflection: {
-    primaryTab: 'document',
-    recommendedTabs: ['document', 'wiki', 'ai', 'dashboard'],
-    guidance: '围绕过程反思和经验总结展开记录，可借助 AI 导师回顾关键决策与修订节点。',
-  },
-}
-
-const getStageToolGuidance = (stageId: string | null) => {
-  if (!stageId) {
-    return {
-      primaryTab: 'document',
-      recommendedTabs: [],
-      guidance: '当前未配置任务阶段，按任务需要自主选择工具。',
-    }
-  }
-
-  return STAGE_TOOL_GUIDANCE[stageId] || {
-    primaryTab: 'document',
-    recommendedTabs: ['document', 'inquiry', 'resources', 'wiki', 'ai'],
-    guidance: '当前阶段未预设专属工具规则，建议优先使用文档与探究空间。',
-  }
-}
 
 const getVisiblePrimaryTabForStage = (stageId: string | null, version: ExperimentVersion | null) => {
   const primaryTab = getStageToolGuidance(stageId).primaryTab
@@ -154,6 +76,7 @@ export default function Main() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [showStageDetails, setShowStageDetails] = useState(false)
   const [stageChanging, setStageChanging] = useState(false)
+  const [stageConfirmTarget, setStageConfirmTarget] = useState<string | null>(null)
   const [stageUpdateNotice, setStageUpdateNotice] = useState<{
     stageId: string
     versionName?: string | null
@@ -163,6 +86,7 @@ export default function Main() {
   const previousStageRef = useRef<string | null>(null)
   const previousGuidedStageRef = useRef<string | null>(null)
   const rightSidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const toast = useToast()
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)')
@@ -582,7 +506,7 @@ export default function Main() {
   // reload stage-scoped state without requiring a full page refresh.
   const stageRenderKey = `${currentProjectId || 'no-project'}:${currentStage || 'no-stage'}`
 
-  const handleStageSelect = async (stageId: string) => {
+  const handleStageSelect = (stageId: string) => {
     if (!currentProjectId || !experimentVersion || stageId === currentStage) return
 
     if (!isGroupLeader) {
@@ -603,9 +527,17 @@ export default function Main() {
       return
     }
 
+    setStageConfirmTarget(stageId)
+  }
+
+  const performStageSelect = async () => {
+    const stageId = stageConfirmTarget
+    if (!stageId || !currentProjectId || !experimentVersion || stageId === currentStage) return
+
     try {
       setStageChanging(true)
       setStageActionNotice(null)
+      setStageConfirmTarget(null)
       const nextVersion = await projectService.updateExperimentVersion(currentProjectId, {
         current_stage: stageId,
       })
@@ -636,6 +568,7 @@ export default function Main() {
     } catch (error) {
       console.error('Failed to update current stage:', error)
       setStageActionNotice('阶段切换失败。请刷新页面后重试，或联系教师确认小组组长权限。')
+      toast.error('阶段切换失败，请刷新页面后重试。')
     } finally {
       setStageChanging(false)
     }
@@ -709,6 +642,18 @@ export default function Main() {
         {leftSidebarOpen && (
           <div className="absolute inset-y-0 left-0 z-40 w-[min(18rem,86vw)] flex-shrink-0 shadow-2xl transition-all duration-300 lg:relative lg:z-auto lg:w-auto lg:shadow-none">
             <Sidebar projectId={currentProjectId} canSubmitCourseTask={isGroupLeader} />
+          </div>
+        )}
+        {!leftSidebarOpen && (
+          <div className="hidden w-12 shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col lg:items-center lg:py-3">
+            <button
+              type="button"
+              onClick={() => setLeftSidebarOpen(true)}
+              className="relative rounded-xl p-2 text-indigo-600 transition hover:bg-indigo-50"
+              title="展开任务看板"
+            >
+              📋
+            </button>
           </div>
         )}
 
@@ -790,7 +735,7 @@ export default function Main() {
                     <button
                       key={stageId}
                       type="button"
-                      onClick={() => void handleStageSelect(stageId)}
+                      onClick={() => handleStageSelect(stageId)}
                       disabled={isStageButtonDisabled}
                       className={`whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-all ${isActive
                           ? 'border-indigo-500 bg-indigo-600 text-white shadow-sm'
@@ -830,17 +775,7 @@ export default function Main() {
                               : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
                             }`}
                         >
-                          {tabId === 'document'
-                            ? '文档'
-                            : tabId === 'inquiry'
-                              ? '深度探究'
-                              : tabId === 'resources'
-                                ? '资源库'
-                                : tabId === 'wiki'
-                                  ? '项目 Wiki'
-                                  : tabId === 'ai'
-                                    ? 'AI 导师'
-                                    : '仪表盘'}
+                          {getTabLabel(tabId)}
                         </button>
                       ))}
                     </div>
@@ -976,9 +911,36 @@ export default function Main() {
             <RightSidebar projectId={currentProjectId} />
           </div>
         )}
+        {!rightSidebarOpen && (
+          <div className="hidden w-12 shrink-0 border-l border-slate-200 bg-white lg:flex lg:flex-col lg:items-center lg:gap-3 lg:py-3">
+            <button type="button" onClick={() => setRightSidebarOpen(true)} className="rounded-xl p-2 transition hover:bg-indigo-50" title="通知中心">
+              🔔
+            </button>
+            <button type="button" onClick={() => setRightSidebarOpen(true)} className="rounded-xl p-2 transition hover:bg-indigo-50" title="群组聊天">
+              💬
+            </button>
+            <button type="button" onClick={() => setRightSidebarOpen(true)} className="rounded-xl p-2 transition hover:bg-indigo-50" title="教师支持">
+              🆘
+            </button>
+            <button type="button" onClick={() => setIsSettingsOpen(true)} className="rounded-xl p-2 transition hover:bg-indigo-50" title="个人设置">
+              👤
+            </button>
+          </div>
+        )}
       </div>
 
       <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <ConfirmDialog
+        open={Boolean(stageConfirmTarget)}
+        title="确认切换任务阶段"
+        description={`确定要将小组任务阶段从「${formatStageLabel(currentStage)}」切换到「${formatStageLabel(stageConfirmTarget)}」吗？切换后全组成员都会按新阶段继续协作。`}
+        confirmLabel="确认切换"
+        loading={stageChanging}
+        onOpenChange={(open) => {
+          if (!open) setStageConfirmTarget(null)
+        }}
+        onConfirm={performStageSelect}
+      />
     </div>
   )
 }

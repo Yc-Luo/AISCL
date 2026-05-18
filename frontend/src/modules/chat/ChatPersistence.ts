@@ -34,8 +34,12 @@ export interface ChatMessage {
     isPending?: boolean;
     ai_meta?: {
         primary_agent?: string;
+        primary_view?: string;
         rationale_summary?: string;
         routing_summary?: string[];
+        processing_summary?: string[];
+        orchestration_mode?: string;
+        active_agents?: string[];
     };
     teacher_support?: {
         support_type?: string;

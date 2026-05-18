@@ -15,12 +15,14 @@ import {
     Sparkles,
 } from 'lucide-react';
 import { Button, Input, Badge } from '../../../ui';
+import { useToast } from '../../../ui/Toast';
 import { courseService, Course } from '../../../../services/api/course';
 import { projectService } from '../../../../services/api/project';
 import { analyticsService } from '../../../../services/api/analytics';
 import { chatService } from '../../../../services/api/chat';
 import { Project } from '../../../../types';
 import { trackingService } from '../../../../services/tracking/TrackingService';
+import { formatStageLabel } from '../../../../lib/stageModel';
 
 type GroupStatus = 'normal' | 'attention' | 'help' | 'inactive';
 
@@ -197,7 +199,9 @@ export default function ProjectMonitor() {
     const [supportHistory, setSupportHistory] = useState<Record<string, SupportHistoryItem[]>>({});
     const [helpRequests, setHelpRequests] = useState<HelpRequest[]>(emptyHelpRequests);
     const [supportPublicReply, setSupportPublicReply] = useState(false);
+    const [lastHelpRefreshAt, setLastHelpRefreshAt] = useState<string | null>(null);
     const dashboardViewTrackedRef = useRef(false);
+    const toast = useToast();
 
     useEffect(() => {
         const fetchOverviewData = async () => {
@@ -405,6 +409,7 @@ export default function ProjectMonitor() {
                     ...previous.filter((request) => request.projectId !== selectedProject.id),
                     ...nextRequests,
                 ]);
+                setLastHelpRefreshAt(new Date().toISOString());
             } catch (error) {
                 console.error('Failed to refresh selected help requests:', selectedProject.id, error);
             }
@@ -476,9 +481,11 @@ export default function ProjectMonitor() {
                         : '已私下回复学生，并记录为教师支持事件。'
                     : '已发送到小组聊天，并记录为教师支持事件。'
             );
+            toast.success(primaryHelpRequest ? '教师支持回复已发送。' : '教师支持已发送到小组聊天。');
         } catch (error) {
             console.error('Failed to send teacher support:', error);
             setSupportFeedback('发送失败，请检查权限或网络后重试。');
+            toast.error('教师支持发送失败，请检查权限或网络。');
         } finally {
             setSupportSending(false);
         }
@@ -492,19 +499,16 @@ export default function ProjectMonitor() {
                     request.id === requestId ? { ...request, status: 'resolved' } : request
                 )
             );
+            toast.success('已标记为解决。');
         } catch (error) {
             console.error('Failed to resolve help request:', error);
             setSupportFeedback('求助状态更新失败，请稍后重试。');
+            toast.error('求助状态更新失败。');
         }
     };
 
     if (loading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                <span className="ml-3 text-slate-500">加载小组监控数据中...</span>
-            </div>
-        );
+        return <ProjectMonitorSkeleton />;
     }
 
     return (
@@ -598,7 +602,7 @@ export default function ProjectMonitor() {
                                                         type="button"
                                                         onClick={() => setSelectedProjectId(project.id)}
                                                         className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${selected
-                                                            ? 'border-indigo-200 bg-indigo-50 shadow-sm'
+                                                            ? 'border-indigo-200 bg-indigo-50 shadow-sm ring-1 ring-indigo-100 [box-shadow:inset_3px_0_0_#4f46e5]'
                                                             : 'border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50'
                                                             }`}
                                                     >
@@ -647,9 +651,8 @@ export default function ProjectMonitor() {
                                             {getCourseLabel(selectedCourse)} · {getLearningMemberCount(selectedProject)} 名成员 · 最近活动 {formatDateTime(selectedProject.updated_at)}
                                         </p>
                                         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                                            <Pill label={`AI形态：${selectedProject.experiment_version?.ai_scaffold_mode || '未标记'}`} />
-                                            <Pill label={`过程支架：${selectedProject.experiment_version?.process_scaffold_mode || '未标记'}`} />
-                                            <Pill label={`阶段：${selectedProject.experiment_version?.current_stage || '未设置'}`} />
+                                            <Pill label={`任务阶段：${formatStageLabel(selectedProject.experiment_version?.current_stage)}`} />
+                                            <Pill label="支持方式：按班级方案执行" />
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
@@ -788,9 +791,14 @@ export default function ProjectMonitor() {
 
                     <div className="min-h-0 flex-1 space-y-4 overflow-visible p-4 lg:overflow-y-auto">
                         <section>
-                            <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-800">
+                            <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-bold text-slate-800">
                                 <Inbox className="h-4 w-4 text-indigo-500" />
-                                待回复求助
+                                <span>待回复求助</span>
+                                {lastHelpRefreshAt ? (
+                                    <span className="text-[11px] font-medium text-slate-400">
+                                        上次刷新：{new Date(lastHelpRefreshAt).toLocaleTimeString('zh-CN', { hour12: false })}
+                                    </span>
+                                ) : null}
                             </div>
                             {selectedHelpRequests.length > 0 ? (
                                 <div className="space-y-2">
@@ -800,7 +808,7 @@ export default function ProjectMonitor() {
                                             <p className="mt-1 text-sm text-slate-700">{request.content}</p>
                                             <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                                                 <span className="rounded-full bg-white px-2 py-0.5 text-slate-500">
-                                                    {request.stageId || '未配置阶段'}
+                                                    {formatStageLabel(request.stageId)}
                                                 </span>
                                                 <span className="rounded-full bg-white px-2 py-0.5 text-slate-500">
                                                     来源：{request.pageSource || '未知页面'}
@@ -1009,6 +1017,51 @@ function EmptyMonitorState() {
                 <CheckCircle2 className="mx-auto h-12 w-12 text-slate-300" />
                 <h3 className="mt-4 text-lg font-bold text-slate-900">暂无可监控小组</h3>
                 <p className="mt-2 text-sm text-slate-500">请先在小组管理中创建并绑定班级小组。</p>
+            </div>
+        </div>
+    );
+}
+
+function ProjectMonitorSkeleton() {
+    return (
+        <div className="animate-pulse space-y-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div className="space-y-2">
+                    <div className="h-7 w-32 rounded-lg bg-slate-200" />
+                    <div className="h-4 w-72 rounded bg-slate-100" />
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                    {[0, 1, 2, 3].map((item) => (
+                        <div key={item} className="h-14 w-20 rounded-xl bg-slate-100" />
+                    ))}
+                </div>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[260px_minmax(0,1fr)_340px]">
+                <div className="h-[520px] rounded-2xl bg-white p-4 shadow-sm">
+                    <div className="mb-4 h-10 rounded-xl bg-slate-100" />
+                    <div className="space-y-2">
+                        {[0, 1, 2, 3, 4, 5].map((item) => (
+                            <div key={item} className="h-16 rounded-xl bg-slate-100" />
+                        ))}
+                    </div>
+                </div>
+                <div className="h-[520px] rounded-2xl bg-white p-5 shadow-sm">
+                    <div className="mb-5 h-24 rounded-2xl bg-slate-100" />
+                    <div className="grid grid-cols-4 gap-3">
+                        {[0, 1, 2, 3].map((item) => (
+                            <div key={item} className="h-24 rounded-2xl bg-slate-100" />
+                        ))}
+                    </div>
+                    <div className="mt-5 h-64 rounded-2xl bg-slate-100" />
+                </div>
+                <div className="h-[520px] rounded-2xl bg-white p-4 shadow-sm">
+                    <div className="mb-4 h-16 rounded-2xl bg-slate-100" />
+                    <div className="space-y-3">
+                        {[0, 1, 2].map((item) => (
+                            <div key={item} className="h-24 rounded-xl bg-slate-100" />
+                        ))}
+                    </div>
+                </div>
             </div>
         </div>
     );

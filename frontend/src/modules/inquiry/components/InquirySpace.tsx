@@ -45,6 +45,8 @@ const edgeTypes = {
     argument: ArgumentEdge,
 };
 
+const MAX_INQUIRY_IMAGE_BYTES = 10 * 1024 * 1024;
+
 const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentVersion }) => {
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
@@ -73,6 +75,8 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
         saveToBackend,
         isConnected,
         isHydrated,
+        lastSavedAt,
+        saveError,
         trackInquiryResearchEvent
     } = useInquiryActions();
     const experimentVersionId = experimentVersion?.version_name || undefined;
@@ -302,6 +306,10 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
             if (item.type.indexOf('image') !== -1) {
                 const file = item.getAsFile();
                 if (!file) continue;
+                if (file.size > MAX_INQUIRY_IMAGE_BYTES) {
+                    setToast({ message: '图片过大，请压缩到 10MB 以内后再粘贴', visible: true });
+                    break;
+                }
 
                 setToast({ message: '正在上传图片...', visible: true });
                 try {
@@ -417,6 +425,16 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
                     isSaving={isSaving}
                     isConnected={isConnected}
                 />
+                <div className="flex items-center justify-between border-b border-slate-100 bg-white/90 px-4 py-1.5 text-[11px] text-slate-500">
+                    <span>
+                        {saveError
+                            ? saveError
+                            : lastSavedAt
+                                ? `上次保存：${new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour12: false })}`
+                                : '尚未形成云端保存记录'}
+                    </span>
+                    <span>{isConnected ? '协作连接正常' : '协作连接中断'}</span>
+                </div>
                 <NodeInspector />
 
                 <ReactFlow

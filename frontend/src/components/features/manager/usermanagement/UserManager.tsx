@@ -33,6 +33,7 @@ export default function UserManager() {
     const [isLoading, setIsLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
     const [filterRole, setFilterRole] = useState<string>('all')
+    const [teacherTagFilter, setTeacherTagFilter] = useState('')
     const [currentPage, setCurrentPage] = useState(1)
     const [pageSize, setPageSize] = useState(20)
     const [totalUsers, setTotalUsers] = useState(0)
@@ -46,7 +47,8 @@ export default function UserManager() {
         email: '',
         password: '',
         role: 'student' as 'student' | 'teacher' | 'admin',
-        class_id: ''
+        class_id: '',
+        teacher_tags: ''
     })
 
     const [editFormData, setEditFormData] = useState({
@@ -54,6 +56,7 @@ export default function UserManager() {
         email: '',
         role: 'student' as 'student' | 'teacher' | 'admin',
         class_id: '',
+        teacher_tags: '',
         is_active: true,
         is_banned: false
     })
@@ -83,7 +86,7 @@ export default function UserManager() {
             void fetchUsers()
         }, 250)
         return () => window.clearTimeout(timer)
-    }, [filterRole, currentPage, pageSize, searchQuery])
+    }, [filterRole, currentPage, pageSize, searchQuery, teacherTagFilter])
 
     const fetchUsers = async (page = currentPage) => {
         try {
@@ -92,7 +95,8 @@ export default function UserManager() {
                 page,
                 pageSize,
                 filterRole === 'all' ? undefined : filterRole,
-                searchQuery.trim() || undefined
+                searchQuery.trim() || undefined,
+                teacherTagFilter.trim() || undefined
             )
             if (data.items.length === 0 && data.total > 0 && page > 1) {
                 setCurrentPage(page - 1)
@@ -127,11 +131,12 @@ export default function UserManager() {
                 role: formData.role,
                 class_id: formData.role === 'student' && formData.class_id.trim()
                     ? formData.class_id.trim()
-                    : undefined
+                    : undefined,
+                teacher_tags: formData.role === 'teacher' ? splitTags(formData.teacher_tags) : []
             }
             await adminService.createUser(payload)
             setIsCreateModalOpen(false)
-            setFormData({ username: '', email: '', password: '', role: 'student', class_id: '' })
+            setFormData({ username: '', email: '', password: '', role: 'student', class_id: '', teacher_tags: '' })
             setCurrentPage(1)
             await fetchUsers(1)
             setNotice({
@@ -161,6 +166,7 @@ export default function UserManager() {
             email: user.email || '',
             role: user.role,
             class_id: user.role === 'student' ? user.class_id || '' : '',
+            teacher_tags: (user.teacher_tags || []).join(', '),
             is_active: user.is_active,
             is_banned: Boolean(user.is_banned)
         })
@@ -184,6 +190,7 @@ export default function UserManager() {
                 class_id: editFormData.role === 'student' && editFormData.class_id.trim()
                     ? editFormData.class_id.trim()
                     : '',
+                teacher_tags: editFormData.role === 'teacher' ? splitTags(editFormData.teacher_tags) : [],
                 is_active: editFormData.is_active,
                 is_banned: editFormData.is_banned
             })
@@ -300,6 +307,15 @@ export default function UserManager() {
                         <option value="teacher">教师 (Teacher)</option>
                         <option value="admin">管理员 (Admin)</option>
                     </select>
+                    <Input
+                        className="w-44"
+                        placeholder="教师标签筛选"
+                        value={teacherTagFilter}
+                        onChange={(e) => {
+                            setTeacherTagFilter(e.target.value)
+                            setCurrentPage(1)
+                        }}
+                    />
                     <Button variant="outline" className="gap-2" onClick={() => void fetchUsers()}>
                         <Filter className="w-4 h-4" />
                         刷新
@@ -345,6 +361,13 @@ export default function UserManager() {
                                             <div className="min-w-0">
                                                 <div className="text-sm font-semibold text-slate-800 truncate">{user.username || user.email.split('@')[0]}</div>
                                                 <div className="text-xs text-slate-400 font-mono truncate">{user.email}</div>
+                                                {user.role === 'teacher' && (user.teacher_tags || []).length > 0 ? (
+                                                    <div className="mt-1 flex flex-wrap gap-1">
+                                                        {(user.teacher_tags || []).map((tag) => (
+                                                            <Badge key={tag} variant="secondary" className="bg-indigo-50 text-indigo-700">{tag}</Badge>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
                                             </div>
                                         </div>
                                     </td>
@@ -559,6 +582,19 @@ export default function UserManager() {
                                             </p>
                                         </div>
                                     )}
+                                    {formData.role === 'teacher' && (
+                                        <div className="space-y-1.5 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                                            <label className="text-xs font-bold text-slate-600 ml-1">教师标签</label>
+                                            <Input
+                                                value={formData.teacher_tags}
+                                                onChange={e => setFormData({ ...formData, teacher_tags: e.target.value })}
+                                                placeholder="例如：实验组, 2026春季"
+                                            />
+                                            <p className="text-[11px] leading-relaxed text-slate-400">
+                                                标签用于管理员端按教师批量分配实验模板、规则集和模型权限。
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             </div>
@@ -666,6 +702,17 @@ export default function UserManager() {
                                     </div>
                                 )}
 
+                                {editFormData.role === 'teacher' && (
+                                    <div className="space-y-1.5 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                                        <label className="ml-1 text-xs font-bold text-slate-600">教师标签</label>
+                                        <Input
+                                            value={editFormData.teacher_tags}
+                                            onChange={e => setEditFormData({ ...editFormData, teacher_tags: e.target.value })}
+                                            placeholder="例如：实验组, 2026春季"
+                                        />
+                                    </div>
+                                )}
+
                                 <div className="grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 sm:grid-cols-2">
                                     <label className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
                                         账号启用
@@ -750,4 +797,8 @@ export default function UserManager() {
             </Dialog>
         </div>
     )
+}
+
+function splitTags(value: string) {
+    return value.split(/[，,]/).map((item) => item.trim()).filter(Boolean)
 }

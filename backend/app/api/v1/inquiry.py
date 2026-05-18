@@ -17,6 +17,7 @@ router = APIRouter(prefix="/inquiry", tags=["inquiry"])
 class SnapshotRequest(BaseModel):
     """Request model for manual snapshot creation."""
     data: str = Field(..., description="Base64-encoded binary snapshot data from Y.js")
+    base_version: Optional[int] = Field(default=None, description="Client-side latest snapshot version")
 
 @router.get(
     "/projects/{project_id}/snapshot",
@@ -40,16 +41,21 @@ async def get_inquiry_snapshot(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission")
 
     try:
-        snapshot_data = await inquiry_service.load_latest_snapshot(project_id)
+        snapshot = await inquiry_service.load_latest_snapshot_record(project_id)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-    if not snapshot_data:
+    if not snapshot:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No snapshot found")
+
+    snapshot_data = inquiry_service.decode_snapshot_data(snapshot)
 
     return {
         "project_id": project_id,
         "data": base64.b64encode(snapshot_data).decode("utf-8"),
+        "version": snapshot.snapshot_version,
+        "updated_at": snapshot.created_at.isoformat(),
+        "updated_by": snapshot.created_by,
     }
 
 @router.post(
@@ -78,7 +84,21 @@ async def save_inquiry_snapshot(
     except Exception:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid base64")
 
-    snapshot_id = await inquiry_service.save_snapshot(project_id, binary_data)
+    try:
+        snapshot_id = await inquiry_service.save_snapshot(
+            project_id,
+            binary_data,
+            base_version=request.base_version,
+            created_by=str(current_user.id),
+        )
+    except ValueError as error:
+        if str(error).startswith("snapshot_conflict:"):
+            latest_version = int(str(error).split(":", 1)[1])
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"message": "Inquiry snapshot has been updated by another member", "latest_version": latest_version},
+            )
+        raise
 
     await activity_service.log_activity(
         project_id=project_id,
@@ -88,4 +108,11 @@ async def save_inquiry_snapshot(
         target_id=project_id
     )
 
-    return {"message": "Saved", "snapshot_id": snapshot_id}
+    latest = await inquiry_service.load_latest_snapshot_record(project_id)
+    return {
+        "message": "Saved",
+        "snapshot_id": snapshot_id,
+        "version": latest.snapshot_version if latest else None,
+        "updated_at": latest.created_at.isoformat() if latest else None,
+        "updated_by": latest.created_by if latest else None,
+    }

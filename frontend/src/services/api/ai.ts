@@ -58,9 +58,13 @@ export interface AIStreamStatus {
 
 export interface AIStreamMeta {
     ai_meta?: {
+        primary_agent?: string
         primary_view?: string
         rationale_summary?: string
         processing_summary?: string[]
+        routing_summary?: string[]
+        orchestration_mode?: string
+        active_agents?: string[]
     }
     citations?: Array<Record<string, unknown>>
     conversation_id?: string
@@ -209,11 +213,29 @@ export const aiService = {
                 return
             }
             if (event === 'done') {
-                handlers?.onDone?.(parseJsonPayload<AIStreamMeta>(data, {}))
+                const payload = parseJsonPayload<AIStreamMeta>(data, {})
+                if (payload.ai_meta) handlers?.onMeta?.(payload)
+                handlers?.onDone?.(payload)
                 return
             }
             if (event === 'error') {
                 handlers?.onError?.(parseJsonPayload<AIStreamStatus>(data, { message: data }))
+                return
+            }
+            if (event === 'thinking') {
+                const payload = parseJsonPayload<Record<string, unknown>>(data, {})
+                const label = typeof payload.label === 'string' ? payload.label : 'AI导师'
+                const content = typeof payload.content === 'string' ? payload.content.trim() : ''
+                if (content) {
+                    handlers?.onStatus?.({ message: `${label}: ${content}` })
+                }
+                return
+            }
+            if (event === 'output') {
+                const payload = parseJsonPayload<Record<string, unknown>>(data, {})
+                const content = typeof payload.content === 'string' ? payload.content : data
+                fullText += content
+                handlers?.onChunk?.(content, fullText)
                 return
             }
 

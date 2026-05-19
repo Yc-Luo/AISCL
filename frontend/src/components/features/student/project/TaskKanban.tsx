@@ -28,6 +28,8 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null)
   const [pendingDeleteTask, setPendingDeleteTask] = useState<Task | null>(null)
+  const [pendingSubmitTask, setPendingSubmitTask] = useState<Task | null>(null)
+  const [submissionNote, setSubmissionNote] = useState('')
   const { user } = useAuthStore()
 
   useEffect(() => {
@@ -281,11 +283,11 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
     return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
   }
 
-  const handleSubmitTask = async (task: Task) => {
+  const handleSubmitTask = async (task: Task, note?: string) => {
     if (!task.course_task_release_id || submittingTaskId) return
     try {
       setSubmittingTaskId(task.id)
-      const updated = await taskService.submitTask(task.id)
+      const updated = await taskService.submitTask(task.id, note)
       setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
       setToast({
         message: updated.submission_status === 'late_submitted' ? '任务已逾期提交。' : '任务已提交。',
@@ -299,6 +301,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           taskId: task.id,
           courseTaskReleaseId: task.course_task_release_id,
           submissionStatus: updated.submission_status,
+          noteLength: note?.trim().length || 0,
         }
       })
     } catch (error: any) {
@@ -502,7 +505,10 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                                   || task.submission_status === 'submitted'
                                   || !canSubmitCourseTask
                                 }
-                                onClick={() => void handleSubmitTask(task)}
+                                onClick={() => {
+                                  setPendingSubmitTask(task)
+                                  setSubmissionNote('')
+                                }}
                                 title={canSubmitCourseTask ? '提交小组任务' : '当前仅组长可提交小组任务'}
                                 className="shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                               >
@@ -550,6 +556,40 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           if (taskId) await deleteTask(taskId)
         }}
       />
+      <ConfirmDialog
+        open={Boolean(pendingSubmitTask)}
+        title="提交小组任务"
+        description={`确认提交“${pendingSubmitTask?.title || ''}”？提交后会记录提交人、提交时间和当前小组任务状态。`}
+        confirmLabel="确认提交"
+        loading={Boolean(submittingTaskId)}
+        onOpenChange={(open) => {
+          if (!open && !submittingTaskId) {
+            setPendingSubmitTask(null)
+            setSubmissionNote('')
+          }
+        }}
+        onConfirm={async () => {
+          const task = pendingSubmitTask
+          if (!task) return
+          await handleSubmitTask(task, submissionNote.trim() || undefined)
+          setPendingSubmitTask(null)
+          setSubmissionNote('')
+        }}
+      >
+        <label className="block">
+          <span className="mb-2 block text-xs font-bold text-slate-500">提交说明（可选）</span>
+          <textarea
+            value={submissionNote}
+            onChange={(event) => setSubmissionNote(event.target.value.slice(0, 2000))}
+            rows={4}
+            placeholder="可以说明本次提交对应的成果位置、尚未解决的问题或需要教师关注的地方。"
+            className="w-full resize-y rounded-2xl border border-slate-200 px-3 py-2 text-sm leading-6 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          />
+          <span className="mt-1 block text-right text-[10px] font-semibold text-slate-400">
+            {submissionNote.length}/2000
+          </span>
+        </label>
+      </ConfirmDialog>
     </div>
   )
 }

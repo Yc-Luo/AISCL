@@ -1,3 +1,4 @@
+import type React from 'react'
 import {
     AlertTriangle,
     Loader2,
@@ -17,6 +18,7 @@ interface ConfirmDialogProps {
     open: boolean
     title: string
     description: string
+    children?: React.ReactNode
     confirmLabel?: string
     cancelLabel?: string
     tone?: 'default' | 'danger'
@@ -29,6 +31,7 @@ export default function ConfirmDialog({
     open,
     title,
     description,
+    children,
     confirmLabel = '确认',
     cancelLabel = '取消',
     tone = 'default',
@@ -56,6 +59,11 @@ export default function ConfirmDialog({
                             {description}
                         </DialogDescription>
                     </DialogHeader>
+                    {children && (
+                        <div className="mt-5">
+                            {children}
+                        </div>
+                    )}
                     <DialogFooter className="mt-8 gap-3 sm:gap-0">
                         <Button
                             type="button"

@@ -61,12 +61,24 @@ interface DashboardData {
         title: string
         content: string
         type: 'critical' | 'important' | 'normal' | 'info'
+        suggestion_category?: string
+        target_construct?: string
+        evidence_items?: Array<{ label: string; value: number }>
+        algorithm_version?: string
     }>
     four_c_evidence?: {
         window_days?: number
         method?: string
         group?: Record<string, any>
         personal?: Record<string, any>
+    }
+    class_four_c_baseline?: {
+        course_id?: string | null
+        algorithm_version: string
+        project_count: number
+        class_average: Record<string, number>
+        group_deviation: Record<string, number>
+        last_updated?: string | null
     }
     stats: {
         total_tasks: number
@@ -91,7 +103,13 @@ export default function LearningDashboard() {
                 if (!dashboardData) setLoading(true)
 
                 // Fetch project analytics dashboard data
-                const apiData = await analyticsService.getDashboardData(projectId)
+                const [apiData, classBaseline] = await Promise.all([
+                    analyticsService.getDashboardData(projectId),
+                    analyticsService.getClassFourCBaseline(projectId).catch((error) => {
+                        console.error('Failed to fetch class 4C baseline:', error)
+                        return undefined
+                    }),
+                ])
                 if (!isMounted) return;
 
                 const data: DashboardData = {
@@ -115,6 +133,7 @@ export default function LearningDashboard() {
                     interaction_network: apiData.interaction_network || { nodes: [], links: [] },
                     learning_suggestions: apiData.learning_suggestions || [],
                     four_c_evidence: apiData.four_c_evidence,
+                    class_four_c_baseline: classBaseline,
                     personal_four_c: apiData.personal_four_c ? {
                         communication: apiData.personal_four_c.communication ?? 0,
                         collaboration: apiData.personal_four_c.collaboration ?? 0,
@@ -199,6 +218,7 @@ export default function LearningDashboard() {
         },
     ]
     const evidenceSource = dashboardData.four_c_evidence?.personal || dashboardData.four_c_evidence?.group
+    const classBaseline = dashboardData.class_four_c_baseline
     const evidenceItems = [
         { key: 'communication', title: '沟通', color: 'indigo' },
         { key: 'collaboration', title: '协作', color: 'emerald' },
@@ -247,6 +267,7 @@ export default function LearningDashboard() {
                             <h3 className="text-lg font-semibold">4C 核心能力模型</h3>
                             <p className="text-xs text-slate-500 mt-1">
                                 基于近 {dashboardData.four_c_evidence?.window_days || 7} 天真实协作过程数据生成，绿色为个人水平，紫色为小组平均。
+                                {classBaseline?.project_count ? ` 班级基准来自 ${classBaseline.project_count} 个小组。` : ''}
                             </p>
                         </div>
                     </div>
@@ -379,6 +400,41 @@ export default function LearningDashboard() {
                         </ComposedChart>
                     </ResponsiveContainer>
                 </div>
+
+                {classBaseline?.project_count ? (
+                    <div className="bg-white rounded-lg shadow p-6 h-full">
+                        <h3 className="text-lg font-semibold mb-2">班级 4C 基准线</h3>
+                        <p className="text-xs text-slate-500 mb-4">
+                            用于帮助小组判断当前协作状态与同班其他小组的相对位置。
+                        </p>
+                        <div className="space-y-3">
+                            {[
+                                ['communication', '沟通'],
+                                ['collaboration', '协作'],
+                                ['critical_thinking', '批判性思维'],
+                                ['creativity', '创造力'],
+                            ].map(([key, label]) => {
+                                const groupScore = dashboardData.fourC[key as keyof DashboardData['fourC']] || 0
+                                const classScore = classBaseline.class_average[key] || 0
+                                const deviation = classBaseline.group_deviation[key] || 0
+                                return (
+                                    <div key={key} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                                        <div className="flex items-center justify-between text-sm">
+                                            <span className="font-semibold text-slate-700">{label}</span>
+                                            <span className={`font-bold ${deviation >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                {deviation >= 0 ? '+' : ''}{Math.round(deviation)}
+                                            </span>
+                                        </div>
+                                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-500">
+                                            <div>本组：<span className="font-semibold text-slate-700">{Math.round(groupScore)}</span></div>
+                                            <div>班级均值：<span className="font-semibold text-slate-700">{Math.round(classScore)}</span></div>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                ) : null}
 
                 {/* Knowledge Graph */}
                 <KnowledgeGraph data={dashboardData.knowledge_graph} />

@@ -64,6 +64,7 @@ export const API_ENDPOINTS = {
         HEARTBEAT: '/analytics/heartbeat',
         ACTIVITY_LOGS: (id: string) => `/analytics/projects/${id}/activity-logs`,
         DASHBOARD: (id: string) => `/analytics/projects/${id}/dashboard`,
+        CLASS_4C_BASELINE: (id: string) => `/analytics/projects/${id}/class-4c-baseline`,
         BEHAVIOR_STREAM: (id: string) => `/analytics/projects/${id}/behavior`,
         EXPORT: (id: string) => `/analytics/projects/${id}/export`,
         RESEARCH_EVENTS: (id: string) => `/analytics/projects/${id}/research-events`,

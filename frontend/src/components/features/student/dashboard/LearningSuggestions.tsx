@@ -5,6 +5,10 @@ interface Suggestion {
     title: string
     content: string
     type: 'critical' | 'important' | 'normal' | 'info'
+    suggestion_category?: string
+    target_construct?: string
+    evidence_items?: Array<{ label: string; value: number }>
+    algorithm_version?: string
 }
 
 interface LearningSuggestionsProps {
@@ -45,8 +49,32 @@ export default function LearningSuggestions({ suggestions }: LearningSuggestions
                         key={item.id}
                         className={`p-4 rounded-r-lg border-l-4 ${getBorderColor(item.type)}`}
                     >
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                            {item.suggestion_category ? (
+                                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+                                    {item.suggestion_category}
+                                </span>
+                            ) : null}
+                            {item.target_construct ? (
+                                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] text-slate-500">
+                                    目标构念：{item.target_construct}
+                                </span>
+                            ) : null}
+                        </div>
                         <h4 className="font-bold text-gray-800 mb-1">{item.title}</h4>
                         <p className="text-sm text-gray-600">{item.content}</p>
+                        {item.evidence_items && item.evidence_items.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                                {item.evidence_items.map((evidence) => (
+                                    <span key={evidence.label} className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] text-slate-500">
+                                        {evidence.label}: {evidence.value}
+                                    </span>
+                                ))}
+                            </div>
+                        ) : null}
+                        {item.algorithm_version ? (
+                            <div className="mt-2 text-[10px] text-slate-400">算法版本：{item.algorithm_version}</div>
+                        ) : null}
                     </div>
                 ))}
             </div>

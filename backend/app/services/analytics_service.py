@@ -1149,6 +1149,20 @@ JSON Output Format:
                 return "important"
             return "normal"
 
+        def suggestion_category(score: float, dimension: str) -> str:
+            if score < 50:
+                return "立即行动"
+            if dimension in {"collaboration", "critical_thinking"}:
+                return "阶段任务"
+            return "反思提醒"
+
+        def evidence_items(dimension: str) -> List[Dict[str, Any]]:
+            counts = evidence.get(dimension, {}).get("counts", {}) if evidence else {}
+            return [
+                {"label": label, "value": value}
+                for label, value in list(counts.items())[:5]
+            ]
+
         dimensions = [
             ("communication", "沟通表达", scores.get("communication", 0)),
             ("collaboration", "协作推进", scores.get("collaboration", 0)),
@@ -1173,6 +1187,10 @@ JSON Output Format:
                     ),
                     "type": suggestion_type(score),
                     "source": "four_c_evidence",
+                    "suggestion_category": suggestion_category(score, key),
+                    "target_construct": "communication",
+                    "evidence_items": evidence_items(key),
+                    "algorithm_version": "4c_evidence_v1",
                 })
             elif key == "collaboration":
                 structure_count = count_sum("collaboration", ["共享文档提交", "探究节点/连线", "资源/Wiki操作"])
@@ -1185,6 +1203,10 @@ JSON Output Format:
                     ),
                     "type": suggestion_type(score),
                     "source": "four_c_evidence",
+                    "suggestion_category": suggestion_category(score, key),
+                    "target_construct": "collaboration",
+                    "evidence_items": evidence_items(key),
+                    "algorithm_version": "4c_evidence_v1",
                 })
             elif key == "critical_thinking":
                 evidence_count = count_sum("critical_thinking", ["证据/引用"])
@@ -1199,6 +1221,10 @@ JSON Output Format:
                     ),
                     "type": suggestion_type(score),
                     "source": "four_c_evidence",
+                    "suggestion_category": suggestion_category(score, key),
+                    "target_construct": "critical_thinking",
+                    "evidence_items": evidence_items(key),
+                    "algorithm_version": "4c_evidence_v1",
                 })
             elif key == "creativity":
                 idea_count = count_sum("creativity", ["新想法/探究节点"])
@@ -1212,6 +1238,10 @@ JSON Output Format:
                     ),
                     "type": suggestion_type(score),
                     "source": "four_c_evidence",
+                    "suggestion_category": suggestion_category(score, key),
+                    "target_construct": "creativity",
+                    "evidence_items": evidence_items(key),
+                    "algorithm_version": "4c_evidence_v1",
                 })
             if len(suggestions) >= 3:
                 break
@@ -1226,6 +1256,10 @@ JSON Output Format:
                 ),
                 "type": "info",
                 "source": "four_c_evidence",
+                "suggestion_category": "反思提醒",
+                "target_construct": "balanced_4c",
+                "evidence_items": [],
+                "algorithm_version": "4c_evidence_v1",
             })
 
         return suggestions
@@ -1480,6 +1514,71 @@ JSON Output Format:
             )
             
         return result
+
+    @classmethod
+    async def get_class_four_c_baseline(cls, project_id: str) -> Dict[str, Any]:
+        """Return class-level 4C averages for the course that owns a project."""
+        project = await Project.get(project_id)
+        if not project or not project.course_id:
+            return {
+                "course_id": None,
+                "algorithm_version": "4c_evidence_v1",
+                "project_count": 0,
+                "class_average": {},
+                "group_deviation": {},
+                "last_updated": None,
+            }
+
+        course_projects = await Project.find({
+            "course_id": project.course_id,
+            "is_archived": False,
+        }).to_list()
+        project_ids = [str(item.id) for item in course_projects]
+        if not project_ids:
+            return {
+                "course_id": project.course_id,
+                "algorithm_version": "4c_evidence_v1",
+                "project_count": 0,
+                "class_average": {},
+                "group_deviation": {},
+                "last_updated": None,
+            }
+
+        snapshots = await DashboardSnapshot.find({"project_id": {"$in": project_ids}}).to_list()
+        if not snapshots:
+            current_snapshot = await cls.create_project_dashboard_snapshot(project_id)
+            snapshots = [current_snapshot] if current_snapshot else []
+
+        dimensions = ["communication", "collaboration", "critical_thinking", "creativity"]
+        valid_snapshots = [snapshot for snapshot in snapshots if snapshot and snapshot.four_c]
+        class_average = {}
+        for dimension in dimensions:
+            values = [
+                float(snapshot.four_c.get(dimension, 0) or 0)
+                for snapshot in valid_snapshots
+            ]
+            class_average[dimension] = round(sum(values) / len(values), 2) if values else 0
+
+        current_snapshot = next((snapshot for snapshot in valid_snapshots if snapshot.project_id == project_id), None)
+        if current_snapshot is None:
+            current_snapshot = await DashboardSnapshot.find_one({"project_id": project_id})
+        current_four_c = current_snapshot.four_c if current_snapshot else {}
+        group_deviation = {
+            dimension: round(float(current_four_c.get(dimension, 0) or 0) - class_average.get(dimension, 0), 2)
+            for dimension in dimensions
+        }
+        last_updated_values = [
+            snapshot.updated_at for snapshot in valid_snapshots if snapshot.updated_at
+        ]
+
+        return {
+            "course_id": project.course_id,
+            "algorithm_version": "4c_evidence_v1",
+            "project_count": len(valid_snapshots),
+            "class_average": class_average,
+            "group_deviation": group_deviation,
+            "last_updated": max(last_updated_values).isoformat() if last_updated_values else None,
+        }
 
     @classmethod
     async def update_all_dashboard_snapshots(cls):

@@ -549,6 +549,25 @@ async def get_dashboard_data(
     return dashboard_data
 
 
+@router.get("/projects/{project_id}/class-4c-baseline")
+async def get_class_four_c_baseline(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Get course-level 4C baseline for student self-regulation feedback."""
+    from app.services.analytics_service import analytics_service
+
+    project = await Project.get(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    await ensure_project_access(current_user, project)
+    return await analytics_service.get_class_four_c_baseline(project_id)
+
+
 @router.get("/projects/{project_id}/behavior")
 async def get_behavior_stream(
     project_id: str,

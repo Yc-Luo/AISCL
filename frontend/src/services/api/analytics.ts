@@ -159,6 +159,15 @@ export interface ResearchEventListResponse {
   total: number
 }
 
+export interface ClassFourCBaseline {
+  course_id?: string | null
+  algorithm_version: string
+  project_count: number
+  class_average: Record<string, number>
+  group_deviation: Record<string, number>
+  last_updated?: string | null
+}
+
 export const analyticsService = {
   async sendBehavior(data: BehaviorData): Promise<void> {
     await api.post(API_ENDPOINTS.ANALYTICS.BEHAVIOR, data)
@@ -202,6 +211,13 @@ export const analyticsService = {
     const response = await api.get(
       API_ENDPOINTS.ANALYTICS.DASHBOARD(projectId),
       { params }
+    )
+    return response.data
+  },
+
+  async getClassFourCBaseline(projectId: string): Promise<ClassFourCBaseline> {
+    const response = await api.get(
+      API_ENDPOINTS.ANALYTICS.CLASS_4C_BASELINE(projectId)
     )
     return response.data
   },

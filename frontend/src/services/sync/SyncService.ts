@@ -571,6 +571,20 @@ export class SyncService extends EventEmitter {
         this.connectionManager.setToken(token);
     }
 
+    async reconnect(): Promise<void> {
+        const token = localStorage.getItem('access_token');
+        if (token) {
+            this.connectionManager.setToken(token);
+        }
+
+        if (!this.initialized) {
+            await this.init();
+            return;
+        }
+
+        await this.connectionManager.reconnect();
+    }
+
     /**
      * 重置服务 (用于登出)
      */

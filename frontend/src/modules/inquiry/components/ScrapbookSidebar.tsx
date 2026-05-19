@@ -32,7 +32,7 @@ export const ScrapbookSidebar: React.FC<ScrapbookSidebarProps> = ({ isVisible })
                 <div>
                     <h3 className="font-semibold text-slate-800">素材池</h3>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
-                        暂存文本、图片和 AI 建议；拖入论证画布后再转化为证据节点。
+                        暂存文本、图片和 AI 建议；拖入中间区域后可转化为证据节点。
                     </p>
                 </div>
                 <Button

@@ -27,6 +27,7 @@ import { trackingService } from '../../services/tracking/TrackingService'
 import { isProcessScaffoldActive, isTutorTabEnabled } from '../../lib/experimentScaffold'
 import { formatStageLabel, getStageToolGuidance, getTabLabel } from '../../lib/stageModel'
 import { ConfirmDialog, useToast } from '../../components/ui'
+import { ClipboardList, MessagesSquare, PanelLeftOpen } from 'lucide-react'
 
 const getExperimentVersionSignature = (version: ExperimentVersion | null) => {
   if (!version) return 'null'
@@ -725,13 +726,13 @@ export default function Main() {
   }
 
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col bg-gray-100">
+    <div className="relative h-[100dvh] min-h-0 flex flex-col bg-gray-100">
       {/* Connection Status Banner */}
       <ConnectionStatusBanner
         yjsConnected={connectionStatus === 'connected'}
         socketioConnected={connectionStatus === 'connected'}
         aggregatedState={connectionStatus === 'connected' ? 'full' : 'offline'}
-        onReconnect={() => syncService.init()}
+        onReconnect={() => void syncService.reconnect()}
       />
 
       {/* Main Content Area */}
@@ -740,15 +741,17 @@ export default function Main() {
           <button
             type="button"
             onClick={() => setLeftSidebarOpen(true)}
-            className="pointer-events-auto rounded-full border border-indigo-100 bg-white/95 px-3 py-1.5 text-xs font-bold text-indigo-600 shadow-sm backdrop-blur"
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-indigo-100 bg-white/95 px-3 py-1.5 text-xs font-bold text-indigo-600 shadow-sm backdrop-blur"
           >
+            <ClipboardList className="h-3.5 w-3.5" />
             任务
           </button>
           <button
             type="button"
             onClick={() => openRightPanel(rightSidebarPanel)}
-            className="pointer-events-auto rounded-full border border-indigo-100 bg-white/95 px-3 py-1.5 text-xs font-bold text-indigo-600 shadow-sm backdrop-blur"
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-indigo-100 bg-white/95 px-3 py-1.5 text-xs font-bold text-indigo-600 shadow-sm backdrop-blur"
           >
+            <MessagesSquare className="h-3.5 w-3.5" />
             聊天/支持
           </button>
         </div>
@@ -786,7 +789,7 @@ export default function Main() {
               className="relative rounded-xl p-2 text-indigo-600 transition hover:bg-indigo-50"
               title="展开任务看板"
             >
-              📋
+              <PanelLeftOpen className="h-4 w-4" />
             </button>
           </div>
         )}

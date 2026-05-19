@@ -97,6 +97,10 @@ export class ConnectionManager {
             return;
         }
 
+        if (this.socket) {
+            this.cleanupSocket();
+        }
+
         return new Promise((resolve, reject) => {
             try {
                 this.setStatus('connecting');
@@ -188,15 +192,14 @@ export class ConnectionManager {
      * 断开连接
      */
     disconnect(): void {
-        if (!this.socket) {
-            return;
-        }
-
-        this.stopHeartbeat();
-        this.socket.disconnect();
-        this.socket = null;
+        this.cleanupSocket();
         this.setStatus('disconnected');
         console.log('[ConnectionManager] Disconnected');
+    }
+
+    async reconnect(): Promise<void> {
+        this.disconnect();
+        await this.connect();
     }
 
     /**
@@ -342,9 +345,16 @@ export class ConnectionManager {
         // 如果已连接，需要重新连接以使用新token
         if (this.socket?.connected) {
             console.log('[ConnectionManager] Token updated, reconnecting...');
-            this.disconnect();
-            this.connect();
+            void this.reconnect();
         }
+    }
+
+    private cleanupSocket(): void {
+        this.stopHeartbeat();
+        if (!this.socket) return;
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+        this.socket = null;
     }
 
     /**

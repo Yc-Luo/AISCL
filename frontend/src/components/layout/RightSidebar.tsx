@@ -5,6 +5,7 @@ import ChatPanel from '../features/student/chat/ChatPanel'
 import TeacherSupportPanel from '../features/student/support/TeacherSupportPanel'
 import { User } from '../../types'
 import { Toast } from '../ui/Toast'
+import { Bell, LifeBuoy, MessageSquare, Settings } from 'lucide-react'
 
 export type RightPanel = 'chat' | 'teacher-support'
 
@@ -53,24 +54,24 @@ export default function RightSidebar({
     return (
       <div className="relative flex h-full w-12 flex-col items-center gap-3 border-l border-slate-200 bg-white py-3">
         <IconButton label="通知中心" onClick={() => onToggleExpanded(true)}>
-          🔔
+          <Bell className="h-4 w-4" />
         </IconButton>
         <IconButton
           label="群组聊天"
           badge={badges.chatMentions || badges.chatUnread}
           onClick={() => openPanel('chat')}
         >
-          💬
+          <MessageSquare className="h-4 w-4" />
         </IconButton>
         <IconButton
           label="教师支持"
           dot={badges.teacherSupport}
           onClick={() => openPanel('teacher-support')}
         >
-          🆘
+          <LifeBuoy className="h-4 w-4" />
         </IconButton>
         <IconButton label="个人设置" onClick={onOpenSettings}>
-          👤
+          <Settings className="h-4 w-4" />
         </IconButton>
         <div className="hidden">
           {projectId && (
@@ -206,7 +207,7 @@ function IconButton({
       type="button"
       onClick={onClick}
       title={label}
-      className="relative rounded-xl p-2 text-lg transition hover:bg-indigo-50"
+      className="relative rounded-xl p-2 text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-600"
     >
       {children}
       {badge ? (

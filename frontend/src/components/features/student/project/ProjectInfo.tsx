@@ -13,9 +13,10 @@ import { usePresenceStore } from '../../../../stores/presenceStore'
 interface ProjectInfoProps {
   projectId: string
   compact?: boolean
+  showArchiveAction?: boolean
 }
 
-export default function ProjectInfo({ projectId, compact = false }: ProjectInfoProps) {
+export default function ProjectInfo({ projectId, compact = false, showArchiveAction = true }: ProjectInfoProps) {
   const [project, setProject] = useState<Project | null>(null)
   const [members, setMembers] = useState<User[]>([])
   const [activities, setActivities] = useState<any[]>([])
@@ -344,10 +345,11 @@ export default function ProjectInfo({ projectId, compact = false }: ProjectInfoP
         </div>
       </div>
 
-      <div className={`${compact ? 'p-3 space-y-4' : 'flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar'}`}>
+      <div className={`${compact ? 'p-3 space-y-3' : 'flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar'}`}>
 
 
         {/* Project Overview & Targets */}
+        {!compact && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-900 px-1">
             <Target className="w-3 h-3 text-indigo-600" />
@@ -395,9 +397,11 @@ export default function ProjectInfo({ projectId, compact = false }: ProjectInfoP
             </div>
           )}
         </div>
+        )}
 
         {/* Members - Avatar Stack */}
-        <div className="space-y-3">
+        <div className={`${compact ? 'space-y-2' : 'space-y-3'}`}>
+          {!compact && (
           <div className="flex items-center justify-between px-1">
             <div className="text-xs font-bold text-gray-900">小组成员</div>
             <button
@@ -408,9 +412,10 @@ export default function ProjectInfo({ projectId, compact = false }: ProjectInfoP
               <UserPlus className="w-4 h-4" />
         </button>
       </div>
+          )}
 
       {notice && (
-        <div className={`mx-4 mt-3 rounded-2xl border px-3 py-2 text-xs font-medium ${notice.type === 'success'
+        <div className={`rounded-2xl border px-3 py-2 text-xs font-medium ${notice.type === 'success'
           ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
           : 'border-rose-100 bg-rose-50 text-rose-700'
           }`}>
@@ -425,7 +430,7 @@ export default function ProjectInfo({ projectId, compact = false }: ProjectInfoP
                 return (
                   <div key={member.user_id} className="relative group p-[2px] bg-white rounded-full">
                     <div
-                      className="w-8 h-8 rounded-full border-2 border-white bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold overflow-hidden cursor-pointer hover:translate-y-[-2px] transition-transform"
+                      className={`${compact ? 'h-7 w-7' : 'h-8 w-8'} rounded-full border-2 border-white bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold overflow-hidden cursor-pointer hover:translate-y-[-2px] transition-transform`}
                       title={memberUser?.username || member.user_id}
                     >
                       {memberUser?.avatar_url ? (
@@ -442,10 +447,10 @@ export default function ProjectInfo({ projectId, compact = false }: ProjectInfoP
               })}
               <button
                 onClick={() => setShowInviteDialog(true)}
-                className="w-8 h-8 rounded-full border-2 border-white bg-gray-100 border-dashed border-gray-300 flex items-center justify-center text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition-all ml-1"
+                className={`${compact ? 'h-7 w-7' : 'h-8 w-8'} rounded-full border-2 border-white bg-gray-100 border-dashed border-gray-300 flex items-center justify-center text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition-all ml-1`}
                 title="添加成员"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
               </button>
             </div>
             <span className="ml-3 text-[10px] font-medium text-gray-400">
@@ -496,7 +501,7 @@ export default function ProjectInfo({ projectId, compact = false }: ProjectInfoP
       </div>
 
       {/* Project Submission Action (Only for Owner) */}
-      {isOwner && !project.is_archived && (
+      {showArchiveAction && isOwner && !project.is_archived && (
         <div className="p-4 border-t border-gray-50 bg-white">
           <button
             onClick={() => setArchiveConfirmOpen(true)}
@@ -512,7 +517,7 @@ export default function ProjectInfo({ projectId, compact = false }: ProjectInfoP
         </div>
       )}
 
-      {project.is_archived && (
+      {showArchiveAction && project.is_archived && (
         <div className="p-4 border-t border-gray-50 bg-white">
           <div className="w-full py-3 bg-slate-50 text-slate-500 rounded-xl text-sm font-bold flex items-center justify-center gap-2">
             <CheckSquare className="w-4 h-4 text-emerald-500" />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { taskService } from '../../../../services/api/task'
 import { Task } from '../../../../types'
 import { trackingService } from '../../../../services/tracking/TrackingService'
@@ -17,7 +17,11 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
   const [loading, setLoading] = useState(true)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskDescription, setNewTaskDescription] = useState('')
+  const [newTaskDueDate, setNewTaskDueDate] = useState('')
+  const [newTaskPriority, setNewTaskPriority] = useState<Task['priority']>('medium')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [expandedSections, setExpandedSections] = useState({
     todo: true,
     doing: true,
@@ -30,7 +34,6 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
   const [pendingDeleteTask, setPendingDeleteTask] = useState<Task | null>(null)
   const [pendingSubmitTask, setPendingSubmitTask] = useState<Task | null>(null)
   const [submissionNote, setSubmissionNote] = useState('')
-  const newTaskInputRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
 
   useEffect(() => {
@@ -87,9 +90,20 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
 
 
 
+  const resetCreateTaskForm = () => {
+    setNewTaskTitle('')
+    setNewTaskDescription('')
+    setNewTaskDueDate('')
+    setNewTaskPriority('medium')
+  }
+
   const handleAddTask = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
-    if (!newTaskTitle.trim() || isSubmitting) return
+    if (!newTaskTitle.trim()) {
+      setToast({ message: '请先填写任务标题。', type: 'error' })
+      return
+    }
+    if (isSubmitting) return
     if (!projectId) {
       setToast({ message: '未找到小组 ID，无法添加任务。', type: 'error' })
       return
@@ -101,15 +115,18 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
       const newTask = await taskService.createTask(projectId, {
         title,
         column: 'todo',
-        priority: 'medium',
+        priority: newTaskPriority,
         assignees: user?.id ? [user.id] : [],
+        description: newTaskDescription.trim() || undefined,
+        due_date: newTaskDueDate ? new Date(newTaskDueDate).toISOString() : undefined,
       })
       trackingService.track({
         module: 'task',
         action: 'task_create',
         metadata: { projectId, taskId: newTask.id, title }
       })
-      setNewTaskTitle('')
+      resetCreateTaskForm()
+      setCreateDialogOpen(false)
       // Update state locally first
       setTasks(prev => [...prev, newTask])
     } catch (error: any) {
@@ -330,39 +347,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-        {/* Quick Add */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            handleAddTask()
-          }}
-          className="relative group"
-        >
-          <input
-            ref={newTaskInputRef}
-            type="text"
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleAddTask()
-              }
-            }}
-            disabled={isSubmitting}
-            placeholder="按下回车快速添加任务..."
-            className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:bg-white transition-all shadow-sm"
-          />
-          <button
-            type="submit"
-            disabled={isSubmitting || !newTaskTitle.trim()}
-            className="absolute left-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-indigo-600 transition-colors disabled:opacity-30"
-          >
-            <Plus className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
-          </button>
-        </form>
-
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
         {/* Task Flow Sections */}
         {(['todo', 'doing', 'done'] as const).map((col) => {
           const colTasks = getTasksByColumn(col)
@@ -391,6 +376,27 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                   <span className="text-[10px] font-bold text-gray-400 px-1.5 py-0.5 bg-white/50 rounded-full">
                     {colTasks.length}
                   </span>
+                  {col === 'todo' && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setCreateDialogOpen(true)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setCreateDialogOpen(true)
+                        }
+                      }}
+                      className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm transition hover:bg-indigo-700"
+                      title="添加任务"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </span>
+                  )}
                 </div>
                 <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
               </button>
@@ -403,7 +409,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                       {col === 'todo' && (
                         <button
                           type="button"
-                          onClick={() => newTaskInputRef.current?.focus()}
+                          onClick={() => setCreateDialogOpen(true)}
                           className="mt-2 rounded-full bg-indigo-50 px-3 py-1 text-[10px] font-bold text-indigo-600 transition hover:bg-indigo-100"
                         >
                           添加第一个任务
@@ -554,6 +560,74 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           onClose={() => setToast(null)}
         />
       )}
+      <ConfirmDialog
+        open={createDialogOpen}
+        title="添加小组任务"
+        description="为当前小组添加一个待办任务，可设置说明、优先级和完成时间。"
+        confirmLabel="添加任务"
+        loading={isSubmitting}
+        onOpenChange={(open) => {
+          if (!open && !isSubmitting) {
+            setCreateDialogOpen(false)
+            resetCreateTaskForm()
+          }
+        }}
+        onConfirm={async () => {
+          await handleAddTask()
+        }}
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <span className="mb-2 block text-xs font-bold text-slate-500">任务标题</span>
+            <input
+              autoFocus
+              value={newTaskTitle}
+              onChange={(event) => setNewTaskTitle(event.target.value.slice(0, 200))}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void handleAddTask()
+                }
+              }}
+              placeholder="例如：整理证据来源"
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-xs font-bold text-slate-500">任务说明（可选）</span>
+            <textarea
+              value={newTaskDescription}
+              onChange={(event) => setNewTaskDescription(event.target.value.slice(0, 1000))}
+              rows={3}
+              placeholder="补充任务要求、资料范围或成果形式。"
+              className="w-full resize-y rounded-2xl border border-slate-200 px-3 py-2 text-sm leading-6 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold text-slate-500">完成时间（可选）</span>
+              <input
+                type="datetime-local"
+                value={newTaskDueDate}
+                onChange={(event) => setNewTaskDueDate(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold text-slate-500">优先级</span>
+              <select
+                value={newTaskPriority}
+                onChange={(event) => setNewTaskPriority(event.target.value as Task['priority'])}
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              >
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </ConfirmDialog>
       <ConfirmDialog
         open={Boolean(pendingDeleteTask)}
         title="删除他人负责的任务"

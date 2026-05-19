@@ -219,21 +219,21 @@ export default function ContextualAIAssistant({
             <button
                 type="button"
                 onClick={() => setExpanded(true)}
-                className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-2xl shadow-indigo-200 transition hover:bg-indigo-700"
+                className="absolute bottom-4 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-indigo-600 text-white shadow-xl shadow-indigo-200 transition hover:bg-indigo-700"
+                title="AI 助手"
             >
                 <Bot className="h-5 w-5" />
-                上下文 AI
             </button>
         );
     }
 
     return (
-        <div className="fixed bottom-5 right-5 z-50 flex h-[560px] max-h-[78vh] w-[400px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border border-indigo-100 bg-white shadow-2xl shadow-indigo-200/60">
+        <div className="absolute bottom-4 right-4 z-40 flex h-[560px] max-h-[78vh] w-[400px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border border-indigo-100 bg-white shadow-2xl shadow-indigo-200/60">
             <div className="flex items-center justify-between border-b border-indigo-50 bg-indigo-50/80 px-4 py-3">
                 <div>
                     <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
                         <MessageCircle className="h-4 w-4 text-indigo-600" />
-                        上下文 AI 助手
+                        AI 助手
                     </div>
                     <p className="mt-0.5 text-xs text-slate-500">当前页面：{activeTabLabel}</p>
                 </div>

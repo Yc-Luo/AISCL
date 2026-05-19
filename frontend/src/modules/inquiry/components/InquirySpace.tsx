@@ -196,7 +196,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
 
             if (response?.message) {
                 addCard(response.message, 'ai_response');
-                setToast({ message: "素材归类建议已加入素材池，可按需拖入论证画布", visible: true });
+                setToast({ message: "素材归类建议已加入素材池，可按需拖入中间区域使用", visible: true });
                 trackBehavior('ai', 'clustering_success');
                 trackingService.trackResearchEvent({
                     project_id: projectId,

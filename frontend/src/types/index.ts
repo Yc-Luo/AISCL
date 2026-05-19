@@ -55,8 +55,42 @@ export interface Task {
   submission_note?: string
   artifact_document_id?: string
   artifact_snapshot_id?: string
+  submission_artifact_ids?: string[]
+  review_status?: 'pending' | 'reviewed' | 'revision_requested'
+  review_comment?: string
+  reviewed_by?: string
+  reviewed_at?: string
   created_at: string
   updated_at: string
+}
+
+export interface TaskSubmissionArtifact {
+  id: string
+  task_id: string
+  project_id: string
+  course_id?: string | null
+  course_task_release_id?: string | null
+  filename: string
+  file_key: string
+  mime_type: string
+  size: number
+  artifact_type: 'document' | 'slides' | 'image' | 'video' | 'archive' | 'other'
+  checksum_sha256?: string | null
+  uploaded_by: string
+  uploaded_at: string
+  download_url?: string | null
+}
+
+export interface TeacherSubmission {
+  task: Task
+  project_id: string
+  project_name: string
+  course_id?: string | null
+  course_name?: string | null
+  release_id?: string | null
+  release_title?: string | null
+  artifacts: TaskSubmissionArtifact[]
+  artifact_count: number
 }
 
 export interface CalendarEvent {

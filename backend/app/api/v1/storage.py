@@ -51,6 +51,10 @@ ALLOWED_UPLOAD_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-powerpoint",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/x-rar-compressed",
+    "application/x-7z-compressed",
 }
 
 INLINE_IMAGE_MIME_TYPES = {

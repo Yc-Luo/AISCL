@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { taskService } from '../../../../services/api/task'
-import { Task } from '../../../../types'
+import { Task, TaskSubmissionArtifact } from '../../../../types'
 import { trackingService } from '../../../../services/tracking/TrackingService'
-import { CheckCircle, Circle, PlayCircle, Plus, AlertCircle, ChevronDown, ListTodo, Clock, Trash2, ChevronRight, ChevronLeft } from 'lucide-react'
+import { CheckCircle, Circle, PlayCircle, Plus, AlertCircle, ChevronDown, ListTodo, Clock, Trash2, ChevronRight, ChevronLeft, Paperclip, UploadCloud, X } from 'lucide-react'
 import { Toast } from '../../../ui/Toast'
 import { ConfirmDialog } from '../../../ui'
 import { useAuthStore } from '../../../../stores/authStore'
@@ -11,6 +11,28 @@ interface TaskKanbanProps {
   projectId: string
   canSubmitCourseTask?: boolean
 }
+
+const MAX_ARTIFACT_SIZE = 50 * 1024 * 1024
+const ARTIFACT_ACCEPT = [
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.ppt',
+  '.pptx',
+  '.txt',
+  '.md',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.mp4',
+  '.webm',
+  '.mov',
+  '.zip',
+  '.rar',
+  '.7z',
+].join(',')
 
 export default function TaskKanban({ projectId, canSubmitCourseTask = true }: TaskKanbanProps) {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -34,6 +56,9 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
   const [pendingDeleteTask, setPendingDeleteTask] = useState<Task | null>(null)
   const [pendingSubmitTask, setPendingSubmitTask] = useState<Task | null>(null)
   const [submissionNote, setSubmissionNote] = useState('')
+  const [submissionFiles, setSubmissionFiles] = useState<File[]>([])
+  const [existingArtifacts, setExistingArtifacts] = useState<TaskSubmissionArtifact[]>([])
+  const [artifactLoading, setArtifactLoading] = useState(false)
   const { user } = useAuthStore()
 
   useEffect(() => {
@@ -57,6 +82,30 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
       fetchTasks()
     }
   }, [projectId])
+
+  useEffect(() => {
+    if (!pendingSubmitTask) {
+      setSubmissionFiles([])
+      setExistingArtifacts([])
+      setArtifactLoading(false)
+      return
+    }
+    let mounted = true
+    setArtifactLoading(true)
+    taskService.getTaskArtifacts(pendingSubmitTask.id)
+      .then((artifacts) => {
+        if (mounted) setExistingArtifacts(artifacts)
+      })
+      .catch(() => {
+        if (mounted) setToast({ message: '成果文件记录加载失败，请稍后重试。', type: 'error' })
+      })
+      .finally(() => {
+        if (mounted) setArtifactLoading(false)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [pendingSubmitTask])
 
   useEffect(() => {
     if (!projectId || tasks.length === 0) return
@@ -301,14 +350,35 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
     return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
   }
 
-  const handleSubmitTask = async (task: Task, note?: string) => {
+  const formatFileSize = (size: number) => {
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+    return `${(size / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  const handleSelectSubmissionFiles = (files: FileList | null) => {
+    if (!files) return
+    const nextFiles = Array.from(files)
+    const oversized = nextFiles.find(file => file.size > MAX_ARTIFACT_SIZE)
+    if (oversized) {
+      setToast({ message: `“${oversized.name}”超过 50MB，请压缩后再上传。`, type: 'error' })
+      return
+    }
+    setSubmissionFiles(prev => [...prev, ...nextFiles].slice(0, 20))
+  }
+
+  const handleSubmitTask = async (task: Task, note?: string, files: File[] = [], existingArtifactIds: string[] = []) => {
     if (!task.course_task_release_id || submittingTaskId) return
     try {
       setSubmittingTaskId(task.id)
-      const updated = await taskService.submitTask(task.id, note)
+      const uploadedArtifacts: TaskSubmissionArtifact[] = []
+      for (const file of files) {
+        uploadedArtifacts.push(await taskService.uploadTaskArtifact(task.id, file))
+      }
+      const artifactIds = Array.from(new Set([...existingArtifactIds, ...uploadedArtifacts.map(artifact => artifact.id)]))
+      const updated = await taskService.submitTask(task.id, note, undefined, undefined, artifactIds)
       setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
       setToast({
-        message: updated.submission_status === 'late_submitted' ? '任务已逾期提交。' : '任务已提交。',
+        message: updated.submission_status === 'late_submitted' ? '成果已逾期提交。' : '成果已提交。',
         type: 'success'
       })
       trackingService.track({
@@ -320,6 +390,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           courseTaskReleaseId: task.course_task_release_id,
           submissionStatus: updated.submission_status,
           noteLength: note?.trim().length || 0,
+          artifactCount: artifactIds.length,
         }
       })
     } catch (error: any) {
@@ -484,6 +555,12 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                                 <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1">
                                   <Clock className="w-2.5 h-2.5" />
                                   {new Date(task.due_date).toLocaleDateString()}
+                                </span>
+                              )}
+                              {(task.submission_artifact_ids?.length || 0) > 0 && (
+                                <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1">
+                                  <Paperclip className="w-2.5 h-2.5" />
+                                  {task.submission_artifact_ids?.length} 个成果
                                 </span>
                               )}
                             </div>
@@ -653,29 +730,108 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           if (!open && !submittingTaskId) {
             setPendingSubmitTask(null)
             setSubmissionNote('')
+            setSubmissionFiles([])
+            setExistingArtifacts([])
           }
         }}
         onConfirm={async () => {
           const task = pendingSubmitTask
           if (!task) return
-          await handleSubmitTask(task, submissionNote.trim() || undefined)
+          await handleSubmitTask(
+            task,
+            submissionNote.trim() || undefined,
+            submissionFiles,
+            existingArtifacts.map(artifact => artifact.id)
+          )
           setPendingSubmitTask(null)
           setSubmissionNote('')
+          setSubmissionFiles([])
+          setExistingArtifacts([])
         }}
       >
-        <label className="block">
-          <span className="mb-2 block text-xs font-bold text-slate-500">提交说明（可选）</span>
-          <textarea
-            value={submissionNote}
-            onChange={(event) => setSubmissionNote(event.target.value.slice(0, 2000))}
-            rows={4}
-            placeholder="可以说明本次提交对应的成果位置、尚未解决的问题或需要教师关注的地方。"
-            className="w-full resize-y rounded-2xl border border-slate-200 px-3 py-2 text-sm leading-6 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-          />
-          <span className="mt-1 block text-right text-[10px] font-semibold text-slate-400">
-            {submissionNote.length}/2000
-          </span>
-        </label>
+        <div className="space-y-4">
+          <label className="block">
+            <span className="mb-2 block text-xs font-bold text-slate-500">成果文件</span>
+            <div className="rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 p-4">
+              <input
+                id="task-artifact-upload"
+                type="file"
+                multiple
+                accept={ARTIFACT_ACCEPT}
+                className="hidden"
+                onChange={(event) => {
+                  handleSelectSubmissionFiles(event.target.files)
+                  event.target.value = ''
+                }}
+              />
+              <label
+                htmlFor="task-artifact-upload"
+                className="flex cursor-pointer flex-col items-center justify-center gap-2 text-center text-xs font-bold text-indigo-600"
+              >
+                <UploadCloud className="h-6 w-6" />
+                上传文档、PPT、图片、视频或压缩包
+                <span className="font-medium text-slate-400">单个文件不超过 50MB，最多 20 个文件</span>
+              </label>
+            </div>
+          </label>
+
+          <div className="space-y-2">
+            {artifactLoading && (
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">正在读取已有成果文件...</div>
+            )}
+            {existingArtifacts.map((artifact) => (
+              <div key={artifact.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2 text-xs">
+                <div className="min-w-0">
+                  <div className="truncate font-bold text-slate-700">{artifact.filename}</div>
+                  <div className="text-[10px] text-slate-400">已上传 · {formatFileSize(artifact.size)}</div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                  onClick={async () => {
+                    try {
+                      await taskService.deleteTaskArtifact(pendingSubmitTask!.id, artifact.id)
+                      setExistingArtifacts(prev => prev.filter(item => item.id !== artifact.id))
+                    } catch {
+                      setToast({ message: '删除成果文件失败。', type: 'error' })
+                    }
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            {submissionFiles.map((file, index) => (
+              <div key={`${file.name}-${file.size}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs">
+                <div className="min-w-0">
+                  <div className="truncate font-bold text-slate-700">{file.name}</div>
+                  <div className="text-[10px] text-slate-400">待上传 · {formatFileSize(file.size)}</div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                  onClick={() => setSubmissionFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <label className="block">
+            <span className="mb-2 block text-xs font-bold text-slate-500">提交说明（可选）</span>
+            <textarea
+              value={submissionNote}
+              onChange={(event) => setSubmissionNote(event.target.value.slice(0, 2000))}
+              rows={4}
+              placeholder="可以说明本次提交对应的成果位置、尚未解决的问题或需要教师关注的地方。"
+              className="w-full resize-y rounded-2xl border border-slate-200 px-3 py-2 text-sm leading-6 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+            <span className="mt-1 block text-right text-[10px] font-semibold text-slate-400">
+              {submissionNote.length}/2000
+            </span>
+          </label>
+        </div>
       </ConfirmDialog>
     </div>
   )

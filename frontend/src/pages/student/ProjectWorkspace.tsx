@@ -50,6 +50,25 @@ const getExperimentVersionSignature = (version: ExperimentVersion | null) => {
 
 const ALL_NAV_TABS = ['document', 'inquiry', 'resources', 'wiki', 'ai', 'dashboard']
 
+const STUDENT_ONBOARDING_STEPS = [
+  {
+    title: '先看左侧任务清单',
+    body: '小组任务、截止时间和成果提交入口都在左侧。需要提交作品时，由组长在课程任务卡片中上传文件并确认提交。',
+  },
+  {
+    title: '中间区域完成协作产出',
+    body: '协作文档、论证空间、小组资料和知识沉淀是主要学习区域。阶段切换后，系统会提示当前更适合使用的工具。',
+  },
+  {
+    title: '右侧用于沟通与求助',
+    body: '群组聊天支持同伴讨论和 @AI；教师支持用于低频求助，不会打断小组协作。',
+  },
+  {
+    title: 'AI 是辅助入口，不替代小组判断',
+    body: 'AI 对话和右下角 AI 助手会读取当前任务上下文。请把 AI 回复作为线索，再结合资料和同伴观点形成最终成果。',
+  },
+]
+
 const getVisiblePrimaryTabForStage = (stageId: string | null, version: ExperimentVersion | null) => {
   const primaryTab = getStageToolGuidance(stageId).primaryTab
   if (primaryTab === 'ai' && !isTutorTabEnabled(version)) return 'document'
@@ -87,6 +106,8 @@ export default function Main() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [showStageDetails, setShowStageDetails] = useState(false)
   const [stageChanging, setStageChanging] = useState(false)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const [onboardingStep, setOnboardingStep] = useState(0)
   const [stageConfirmTarget, setStageConfirmTarget] = useState<string | null>(null)
   const [stageUpdateNotice, setStageUpdateNotice] = useState<{
     stageId: string
@@ -113,6 +134,13 @@ export default function Main() {
       updateRightSidebarBadges({ teacherSupport: false })
     }
   }
+
+  useEffect(() => {
+    const dismissed = window.localStorage.getItem('aiscl:student-onboarding-dismissed')
+    if (!dismissed) {
+      setOnboardingOpen(true)
+    }
+  }, [])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)')
@@ -1104,6 +1132,58 @@ export default function Main() {
           experimentVersion={experimentVersion}
           onOpenTutor={() => setActiveTab('ai')}
         />
+      )}
+      {onboardingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500">
+              第 {onboardingStep + 1} 步 / {STUDENT_ONBOARDING_STEPS.length}
+            </div>
+            <h2 className="mt-3 text-2xl font-black text-slate-900">
+              {STUDENT_ONBOARDING_STEPS[onboardingStep].title}
+            </h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              {STUDENT_ONBOARDING_STEPS[onboardingStep].body}
+            </p>
+            <div className="mt-6 flex items-center justify-between">
+              <button
+                type="button"
+                className="text-sm font-bold text-slate-400 hover:text-slate-600"
+                onClick={() => {
+                  window.localStorage.setItem('aiscl:student-onboarding-dismissed', 'true')
+                  setOnboardingOpen(false)
+                }}
+              >
+                跳过
+              </button>
+              <div className="flex gap-2">
+                {onboardingStep > 0 && (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                    onClick={() => setOnboardingStep(prev => Math.max(prev - 1, 0))}
+                  >
+                    上一步
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700"
+                  onClick={() => {
+                    if (onboardingStep >= STUDENT_ONBOARDING_STEPS.length - 1) {
+                      window.localStorage.setItem('aiscl:student-onboarding-dismissed', 'true')
+                      setOnboardingOpen(false)
+                    } else {
+                      setOnboardingStep(prev => prev + 1)
+                    }
+                  }}
+                >
+                  {onboardingStep >= STUDENT_ONBOARDING_STEPS.length - 1 ? '开始使用' : '下一步'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       <ConfirmDialog
         open={Boolean(stageConfirmTarget)}

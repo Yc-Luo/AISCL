@@ -14,6 +14,7 @@ from .web_annotation import WebAnnotation
 
 # Collaboration models
 from .task import Task
+from .task_submission_artifact import TaskSubmissionArtifact
 from .course_task_release import CourseTaskRelease
 from .calendar_event import CalendarEvent
 from .chat_log import ChatLog
@@ -47,7 +48,7 @@ __all__ = [
     # Content
     "Document", "DocumentVersion", "CollaborationSnapshot", "Resource", "WebAnnotation",
     # Collaboration
-    "Task", "CourseTaskRelease", "CalendarEvent", "ChatLog", "DocComment",
+    "Task", "TaskSubmissionArtifact", "CourseTaskRelease", "CalendarEvent", "ChatLog", "DocComment",
     # AI
     "AIConversation", "AIMessage", "AIRole", "AIInterventionRule",
     # Analytics

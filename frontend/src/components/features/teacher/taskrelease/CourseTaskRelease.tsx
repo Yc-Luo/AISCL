@@ -38,6 +38,21 @@ const DEFAULT_FORM: ReleaseForm = {
   allow_late_submission: true,
 }
 
+const RELEASE_STEPS = [
+  {
+    label: '选择班级与时限',
+    description: '确认发布对象、任务标题、截止时间与逾期策略。',
+  },
+  {
+    label: '填写项目说明',
+    description: '补充任务背景、核心问题、协作要求、提交成果和评价要点。',
+  },
+  {
+    label: '预览并发布',
+    description: '检查同步结果，确认后发布到班级下全部未归档小组。',
+  },
+]
+
 const formatDateTime = (value?: string) => {
   if (!value) return '未设置'
   return new Date(value).toLocaleString('zh-CN', {
@@ -69,6 +84,7 @@ export default function CourseTaskRelease() {
   const [closingId, setClosingId] = useState<string | null>(null)
   const [form, setForm] = useState<ReleaseForm>(DEFAULT_FORM)
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [releaseStep, setReleaseStep] = useState(0)
 
   const selectedCourse = useMemo(
     () => courses.find((course) => course.id === selectedCourseId) || null,
@@ -128,6 +144,39 @@ export default function CourseTaskRelease() {
     setForm((previous) => ({ ...previous, [key]: value }))
   }
 
+  const canGoNext = useMemo(() => {
+    if (releaseStep === 0) return Boolean(selectedCourseId && form.title.trim())
+    if (releaseStep === 1) {
+      return Boolean(
+        form.task_background.trim()
+        || form.core_question.trim()
+        || form.collaboration_requirements.trim()
+        || form.deliverable_requirements.trim()
+        || form.evaluation_points.trim()
+      )
+    }
+    return true
+  }, [form, releaseStep, selectedCourseId])
+
+  const handleNextStep = () => {
+    if (!canGoNext) {
+      setNotice({
+        type: 'error',
+        message: releaseStep === 0
+          ? '请先选择班级并填写任务标题。'
+          : '请至少填写一项项目说明内容，避免学生端任务文档为空。',
+      })
+      return
+    }
+    setNotice(null)
+    setReleaseStep((previous) => Math.min(previous + 1, RELEASE_STEPS.length - 1))
+  }
+
+  const handlePreviousStep = () => {
+    setNotice(null)
+    setReleaseStep((previous) => Math.max(previous - 1, 0))
+  }
+
   const handleSubmit = async () => {
     if (!selectedCourseId) {
       setNotice({ type: 'error', message: '请先选择要发布任务的班级。' })
@@ -146,6 +195,7 @@ export default function CourseTaskRelease() {
       )
       setReleases((previous) => [release, ...previous])
       setForm(DEFAULT_FORM)
+      setReleaseStep(0)
       setNotice({
         type: 'success',
         message: `任务已发布，并同步到 ${release.synced_task_count} 个小组任务和 ${release.synced_document_count} 份共享文档。`,
@@ -259,88 +309,168 @@ export default function CourseTaskRelease() {
               </label>
             </div>
 
-            <div className="space-y-4">
-              <label className="block">
-                <span className="mb-1 block text-sm font-semibold text-slate-700">任务标题</span>
-                <input
-                  value={form.title}
-                  onChange={(event) => updateForm('title', event.target.value)}
-                  placeholder="例如：形成小组阶段性论证方案"
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                />
-              </label>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <TextAreaField
-                  label="任务背景"
-                  value={form.task_background}
-                  placeholder="说明情境、主题和学习目标。"
-                  onChange={(value) => updateForm('task_background', value)}
-                />
-                <TextAreaField
-                  label="核心问题"
-                  value={form.core_question}
-                  placeholder="说明小组需要回答或解决的关键问题。"
-                  onChange={(value) => updateForm('core_question', value)}
-                />
-                <TextAreaField
-                  label="协作要求"
-                  value={form.collaboration_requirements}
-                  placeholder="说明意义探索、解释整合、应用解决等协作过程要求。"
-                  onChange={(value) => updateForm('collaboration_requirements', value)}
-                />
-                <TextAreaField
-                  label="提交成果"
-                  value={form.deliverable_requirements}
-                  placeholder="说明最终需要提交的报告、方案、展示或其他成果。"
-                  onChange={(value) => updateForm('deliverable_requirements', value)}
-                />
+            <div className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                {RELEASE_STEPS.map((step, index) => (
+                  <button
+                    key={step.label}
+                    type="button"
+                    onClick={() => setReleaseStep(index)}
+                    className={`rounded-2xl border p-4 text-left transition ${
+                      releaseStep === index
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-900 shadow-sm'
+                        : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-slate-200'
+                    }`}
+                  >
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-black ${
+                        releaseStep === index ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500'
+                      }`}>
+                        {index + 1}
+                      </span>
+                      <span className="text-sm font-bold">{step.label}</span>
+                    </div>
+                    <p className="text-xs leading-5">{step.description}</p>
+                  </button>
+                ))}
               </div>
 
-              <TextAreaField
-                label="评价要点"
-                value={form.evaluation_points}
-                placeholder="说明评价关注点，例如证据质量、论证清晰度、协作完整性、成果说服力。"
-                minRows={3}
-                onChange={(value) => updateForm('evaluation_points', value)}
-              />
+              {releaseStep === 0 && (
+                <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-5">
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-semibold text-slate-700">任务标题</span>
+                    <input
+                      value={form.title}
+                      onChange={(event) => updateForm('title', event.target.value)}
+                      placeholder="例如：形成小组阶段性论证方案"
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </label>
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                <label className="block">
-                  <span className="mb-1 block text-sm font-semibold text-slate-700">截止时间</span>
-                  <input
-                    type="datetime-local"
-                    value={form.due_at}
-                    onChange={(event) => updateForm('due_at', event.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-semibold text-slate-700">截止时间</span>
+                      <input
+                        type="datetime-local"
+                        value={form.due_at}
+                        onChange={(event) => updateForm('due_at', event.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </label>
+                    <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={form.allow_late_submission}
+                        onChange={(event) => updateForm('allow_late_submission', event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      允许小组在截止后继续提交或完善
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {releaseStep === 1 && (
+                <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-5">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <TextAreaField
+                      label="任务背景"
+                      value={form.task_background}
+                      placeholder="说明情境、主题和学习目标。"
+                      onChange={(value) => updateForm('task_background', value)}
+                    />
+                    <TextAreaField
+                      label="核心问题"
+                      value={form.core_question}
+                      placeholder="说明小组需要回答或解决的关键问题。"
+                      onChange={(value) => updateForm('core_question', value)}
+                    />
+                    <TextAreaField
+                      label="协作要求"
+                      value={form.collaboration_requirements}
+                      placeholder="说明问题构建、意义探索、解释整合、应用解决等协作过程要求。"
+                      onChange={(value) => updateForm('collaboration_requirements', value)}
+                    />
+                    <TextAreaField
+                      label="提交成果"
+                      value={form.deliverable_requirements}
+                      placeholder="说明最终需要提交的报告、方案、展示或其他成果。"
+                      onChange={(value) => updateForm('deliverable_requirements', value)}
+                    />
+                  </div>
+
+                  <TextAreaField
+                    label="评价要点"
+                    value={form.evaluation_points}
+                    placeholder="说明评价关注点，例如证据质量、论证清晰度、协作完整性、成果说服力。"
+                    minRows={3}
+                    onChange={(value) => updateForm('evaluation_points', value)}
                   />
-                </label>
-                <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={form.allow_late_submission}
-                    onChange={(event) => updateForm('allow_late_submission', event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  允许小组在截止后继续提交或完善
-                </label>
-              </div>
+                </div>
+              )}
+
+              {releaseStep === 2 && (
+                <div className="space-y-4 rounded-3xl border border-indigo-100 bg-indigo-50/40 p-5">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <PreviewItem label="发布班级" value={selectedCourse?.name || '未选择'} />
+                    <PreviewItem label="任务标题" value={form.title || '未填写'} />
+                    <PreviewItem label="截止时间" value={form.due_at ? formatDateTime(new Date(form.due_at).toISOString()) : '未设置'} />
+                    <PreviewItem label="逾期策略" value={form.allow_late_submission ? '允许截止后继续提交或完善' : '截止后不再开放提交或完善'} />
+                  </div>
+                  <div className="rounded-2xl bg-white p-4 text-sm leading-6 text-slate-600 ring-1 ring-indigo-100">
+                    <div className="mb-2 text-xs font-black uppercase tracking-wider text-indigo-500">学生端项目说明预览</div>
+                    <PreviewSection title="任务背景" content={form.task_background} />
+                    <PreviewSection title="核心问题" content={form.core_question} />
+                    <PreviewSection title="协作要求" content={form.collaboration_requirements} />
+                    <PreviewSection title="提交成果" content={form.deliverable_requirements} />
+                    <PreviewSection title="评价要点" content={form.evaluation_points} />
+                  </div>
+                  <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-500 ring-1 ring-indigo-100">
+                    确认发布后，系统将为该班级下所有未归档小组生成任务卡、共享文档和知识沉淀任务简报。
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-                <span>发布后将进入对应小组的待办任务，已有小组不需要教师逐个配置。</span>
-                <Button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={submitting}
-                  className="rounded-2xl bg-indigo-600 px-5 py-2.5 text-white hover:bg-indigo-700"
-                >
-                  {submitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <span>
+                  {releaseStep === 2
+                    ? '请确认信息无误后发布；已创建的小组将同步收到任务。'
+                    : '按步骤填写可以减少学生端任务说明缺失或发布对象错误。'}
+                </span>
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePreviousStep}
+                    disabled={releaseStep === 0 || submitting}
+                    className="rounded-2xl"
+                  >
+                    上一步
+                  </Button>
+                  {releaseStep < RELEASE_STEPS.length - 1 ? (
+                    <Button
+                      type="button"
+                      onClick={handleNextStep}
+                      className="rounded-2xl bg-indigo-600 px-5 py-2.5 text-white hover:bg-indigo-700"
+                    >
+                      下一步
+                    </Button>
                   ) : (
-                    <Send className="mr-2 h-4 w-4" />
+                    <Button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={submitting}
+                      className="rounded-2xl bg-indigo-600 px-5 py-2.5 text-white hover:bg-indigo-700"
+                    >
+                      {submitting ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 h-4 w-4" />
+                      )}
+                      发布到班级小组
+                    </Button>
                   )}
-                  发布到班级小组
-                </Button>
+                </div>
               </div>
             </div>
           </section>
@@ -442,5 +572,24 @@ function TextAreaField({
         className="w-full resize-y rounded-2xl border border-slate-200 px-4 py-3 text-sm leading-6 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
       />
     </label>
+  )
+}
+
+function PreviewItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-indigo-100">
+      <div className="text-xs font-semibold text-slate-400">{label}</div>
+      <div className="mt-1 text-sm font-bold text-slate-900">{value}</div>
+    </div>
+  )
+}
+
+function PreviewSection({ title, content }: { title: string; content?: string }) {
+  if (!content?.trim()) return null
+  return (
+    <div className="border-t border-slate-100 py-3 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="text-xs font-bold text-slate-500">{title}</div>
+      <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{content.trim()}</div>
+    </div>
   )
 }

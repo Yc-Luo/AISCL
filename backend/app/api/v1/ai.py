@@ -186,8 +186,25 @@ async def _build_project_ai_context(
         stage_id=stage_id,
     )
     project_task_context = await group_memory_service.get_project_task_context(project)
+    contextual_notes = []
+    if chat_data.context_source:
+        contextual_notes.append(f"请求来源：{chat_data.context_source}")
+    if chat_data.active_tab:
+        contextual_notes.append(f"当前学习页面：{chat_data.active_tab}")
+    if chat_data.selected_text:
+        contextual_notes.append(f"学习者选中文本：\n{chat_data.selected_text.strip()[:2000]}")
+    if chat_data.selected_resource_id:
+        contextual_notes.append(f"当前选中资源ID：{chat_data.selected_resource_id}")
+    if chat_data.selected_inquiry_node_id:
+        contextual_notes.append(f"当前选中探究节点ID：{chat_data.selected_inquiry_node_id}")
+    contextual_content = "\n\n".join(contextual_notes)
+    base_content = (base_context or {}).get("content") or ""
+    merged_content = "\n\n".join(
+        section for section in [base_content, contextual_content] if section
+    )
     return {
         **(base_context or {"content": "", "citations": []}),
+        "content": merged_content,
         "project_task_context": project_task_context,
         "stage_memory_context": stage_memory.get("content"),
         "stage_memory_updated_at": stage_memory.get("updated_at"),

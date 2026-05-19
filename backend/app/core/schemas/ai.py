@@ -26,6 +26,11 @@ class AIChatRequest(BaseModel):
     enabled_rule_set: Optional[str] = Field(default=None, max_length=100)
     enabled_scaffold_roles: List[str] = Field(default_factory=list)
     preferred_subagent: Optional[str] = Field(default=None, max_length=100)
+    active_tab: Optional[str] = Field(default=None, max_length=100)
+    selected_text: Optional[str] = Field(default=None, max_length=2000)
+    selected_resource_id: Optional[str] = Field(default=None, max_length=100)
+    selected_inquiry_node_id: Optional[str] = Field(default=None, max_length=100)
+    context_source: Optional[str] = Field(default=None, max_length=100)
 
 
 class AIChatResponse(BaseModel):

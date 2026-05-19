@@ -46,6 +46,11 @@ export interface AIResearchContextPayload {
     enabled_rule_set?: string
     enabled_scaffold_roles?: string[]
     preferred_subagent?: string
+    active_tab?: string
+    selected_text?: string
+    selected_resource_id?: string
+    selected_inquiry_node_id?: string
+    context_source?: string
 }
 
 export interface AIStreamStatus {
@@ -101,6 +106,11 @@ export const aiService = {
             enabled_rule_set: researchContext?.enabled_rule_set,
             enabled_scaffold_roles: researchContext?.enabled_scaffold_roles || [],
             preferred_subagent: researchContext?.preferred_subagent,
+            active_tab: researchContext?.active_tab,
+            selected_text: researchContext?.selected_text,
+            selected_resource_id: researchContext?.selected_resource_id,
+            selected_inquiry_node_id: researchContext?.selected_inquiry_node_id,
+            context_source: researchContext?.context_source,
         })
         return response.data
     },

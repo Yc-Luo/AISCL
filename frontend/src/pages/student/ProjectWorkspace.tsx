@@ -10,6 +10,7 @@ import LearningDashboard from '../../components/features/student/dashboard/Learn
 import DocumentEditor from '../../components/features/student/document/DocumentEditor'
 import { InquirySpace } from '../../modules/inquiry/components/InquirySpace'
 import AITutor from '../../components/features/student/ai/AITutor'
+import ContextualAIAssistant from '../../components/features/student/ai/ContextualAIAssistant'
 import NotificationCenter from '../../components/feedback/NotificationCenter'
 import { projectService } from '../../services/api/project'
 import { documentService } from '../../services/api/document'
@@ -1041,6 +1042,13 @@ export default function Main() {
       </div>
 
       <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      {!workspaceLoading && !workspaceError && currentProjectId && tutorTabEnabled && (
+        <ContextualAIAssistant
+          projectId={currentProjectId}
+          experimentVersion={experimentVersion}
+          onOpenTutor={() => setActiveTab('ai')}
+        />
+      )}
       <ConfirmDialog
         open={Boolean(stageConfirmTarget)}
         title="确认切换任务阶段"

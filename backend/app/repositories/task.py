@@ -28,6 +28,8 @@ class Task(Document):
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[str] = Field(default=None, index=True)
     submission_note: Optional[str] = Field(default=None, max_length=2000)
+    artifact_document_id: Optional[str] = Field(default=None, index=True)
+    artifact_snapshot_id: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

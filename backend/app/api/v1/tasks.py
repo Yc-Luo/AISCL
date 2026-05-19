@@ -103,6 +103,8 @@ def to_task_response(task: Task) -> TaskResponse:
         submitted_at=task.submitted_at.isoformat() if task.submitted_at else None,
         submitted_by=task.submitted_by,
         submission_note=task.submission_note,
+        artifact_document_id=task.artifact_document_id,
+        artifact_snapshot_id=task.artifact_snapshot_id,
         created_at=task.created_at.isoformat(),
         updated_at=task.updated_at.isoformat(),
     )
@@ -392,6 +394,8 @@ async def submit_course_task(
         task.submitted_at = now
         task.submitted_by = str(current_user.id)
         task.submission_note = submit_data.note
+        task.artifact_document_id = submit_data.artifact_document_id
+        task.artifact_snapshot_id = submit_data.artifact_snapshot_id
 
     task.column = "done"
     task.updated_at = now
@@ -426,6 +430,9 @@ async def submit_course_task(
                     "course_task_release_id": task.course_task_release_id,
                     "submission_status": task.submission_status,
                     "due_at": task.due_date.isoformat() if task.due_date else None,
+                    "artifact_document_id": task.artifact_document_id,
+                    "artifact_snapshot_id": task.artifact_snapshot_id,
+                    "note_length": len(task.submission_note or ""),
                 },
             }
         ],

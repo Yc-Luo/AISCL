@@ -53,6 +53,8 @@ export interface Task {
   submitted_at?: string
   submitted_by?: string
   submission_note?: string
+  artifact_document_id?: string
+  artifact_snapshot_id?: string
   created_at: string
   updated_at: string
 }

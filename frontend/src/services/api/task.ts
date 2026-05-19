@@ -75,10 +75,19 @@ export const taskService = {
     await api.delete(`${API_ENDPOINTS.TASKS}/${taskId}`)
   },
 
-  async submitTask(taskId: string, note?: string): Promise<Task> {
+  async submitTask(
+    taskId: string,
+    note?: string,
+    artifactDocumentId?: string,
+    artifactSnapshotId?: string
+  ): Promise<Task> {
     const response = await api.post<Task>(
       `${API_ENDPOINTS.TASKS}/${taskId}/submit`,
-      { note }
+      {
+        note,
+        artifact_document_id: artifactDocumentId,
+        artifact_snapshot_id: artifactSnapshotId,
+      }
     )
     return response.data
   },

@@ -24,6 +24,8 @@ class TaskResponse(BaseModel):
     submitted_at: Optional[str] = None
     submitted_by: Optional[str] = None
     submission_note: Optional[str] = None
+    artifact_document_id: Optional[str] = None
+    artifact_snapshot_id: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -65,6 +67,8 @@ class TaskSubmitRequest(BaseModel):
     """Submit a course-released group task."""
 
     note: Optional[str] = Field(default=None, max_length=2000)
+    artifact_document_id: Optional[str] = Field(default=None, max_length=64)
+    artifact_snapshot_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class TaskListResponse(BaseModel):

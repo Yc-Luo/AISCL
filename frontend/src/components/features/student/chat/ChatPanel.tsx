@@ -33,6 +33,9 @@ import remarkGfm from 'remark-gfm'
 
 interface ChatPanelProps {
   projectId: string
+  isActive?: boolean
+  onUnreadChange?: (state: { chatUnread?: number; chatMentions?: number }) => void
+  onMentionNotification?: (message: string) => void
 }
 
 const getMessageKey = (message: ChatMessage): string => message.client_message_id || message.id
@@ -52,7 +55,7 @@ const compareChatMessages = (currentUserId?: string) => (a: ChatMessage, b: Chat
   return getMessageKey(a).localeCompare(getMessageKey(b))
 }
 
-export default function ChatPanel({ projectId }: ChatPanelProps) {
+export default function ChatPanel({ projectId, isActive = true, onUnreadChange, onMentionNotification }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState('')
   const [showMentionMenu, setShowMentionMenu] = useState(false)
   const [showAIMenu, setShowAIMenu] = useState(false)
@@ -73,6 +76,8 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messageListRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(true)
+  const knownMessageKeysRef = useRef<Set<string> | null>(null)
+  const unreadRef = useRef({ chatUnread: 0, chatMentions: 0 })
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
@@ -85,6 +90,61 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
     projectId,
   })
   const displayedMessages = [...messages].sort(compareChatMessages(user?.id))
+
+  useEffect(() => {
+    knownMessageKeysRef.current = null
+    unreadRef.current = { chatUnread: 0, chatMentions: 0 }
+    onUnreadChange?.({ chatUnread: 0, chatMentions: 0 })
+    setLightboxImage(null)
+    setReplyingTo(null)
+    setContextMenu(null)
+  }, [projectId])
+
+  useEffect(() => {
+    if (!isActive) return
+    unreadRef.current = { chatUnread: 0, chatMentions: 0 }
+    onUnreadChange?.({ chatUnread: 0, chatMentions: 0 })
+  }, [isActive])
+
+  useEffect(() => {
+    const currentKeys = new Set(displayedMessages.map(getMessageKey))
+    if (!knownMessageKeysRef.current) {
+      knownMessageKeysRef.current = currentKeys
+      return
+    }
+
+    let unreadDelta = 0
+    let mentionDelta = 0
+    displayedMessages.forEach((message) => {
+      const key = getMessageKey(message)
+      if (knownMessageKeysRef.current?.has(key)) return
+      knownMessageKeysRef.current?.add(key)
+
+      const fromSelf = message.user_id === user?.id
+      const isSystem = message.message_type === 'system'
+      const isMentioned = message.mentions.includes(user?.id || '') || Boolean(user?.username && message.content.includes(`@${user.username}`))
+      if (!fromSelf && !isSystem && !isActive) {
+        unreadDelta += 1
+        if (isMentioned) mentionDelta += 1
+      }
+      if (!fromSelf && isMentioned && !isActive) {
+        const notification = `${message.username || '小组成员'} 在群聊中提到了你。`
+        if (onMentionNotification) {
+          onMentionNotification(notification)
+        } else {
+          setToast({ message: notification, type: 'success' })
+        }
+      }
+    })
+
+    if (unreadDelta || mentionDelta) {
+      unreadRef.current = {
+        chatUnread: unreadRef.current.chatUnread + unreadDelta,
+        chatMentions: unreadRef.current.chatMentions + mentionDelta,
+      }
+      onUnreadChange?.(unreadRef.current)
+    }
+  }, [displayedMessages, isActive, onMentionNotification, onUnreadChange, user?.id, user?.username])
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     if (!autoScrollRef.current) return
@@ -578,6 +638,17 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
         {!connected && (
           <div className="mb-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
             聊天连接暂时中断，恢复后再发送消息。
+          </div>
+        )}
+        {displayedMessages.length === 0 && (
+          <div className="mx-auto mt-8 max-w-sm rounded-3xl border border-dashed border-indigo-100 bg-indigo-50/50 px-5 py-6 text-center">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm">
+              <Bot className="h-5 w-5" />
+            </div>
+            <div className="text-sm font-bold text-slate-800">开始小组讨论</div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              可以先说明当前任务理解，或使用 @ 提及同伴和智能体获得支持。新的 @ 提醒会在侧栏折叠时显示。
+            </p>
           </div>
         )}
         {displayedMessages.map((msg: ChatMessage, index: number) => {

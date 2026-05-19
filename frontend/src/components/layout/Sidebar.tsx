@@ -1,64 +1,42 @@
-import { useState } from 'react'
 import ProjectInfo from '../features/student/project/ProjectInfo'
 import TaskKanban from '../features/student/project/TaskKanban'
-import { trackingService } from '../../services/tracking/TrackingService'
-import { Folder, CheckSquare } from 'lucide-react'
+import { PanelLeftClose } from 'lucide-react'
 
 interface SidebarProps {
   projectId?: string
   canSubmitCourseTask?: boolean
+  onCollapse?: () => void
 }
 
-export default function Sidebar({ projectId, canSubmitCourseTask = true }: SidebarProps) {
-  const [activeSection, setActiveSection] = useState<'info' | 'tasks'>('info')
-
-  const handleSectionChange = (section: 'info' | 'tasks') => {
-    trackingService.track({
-      module: 'dashboard',
-      action: 'sidebar_section_change',
-      metadata: { from: activeSection, to: section }
-    })
-    setActiveSection(section)
-  }
-
+export default function Sidebar({ projectId, canSubmitCourseTask = true, onCollapse }: SidebarProps) {
   return (
-    <div className="h-full w-full bg-white border-r border-gray-200 flex flex-col transition-all duration-300 relative lg:w-64">
-      <div className="border-b border-gray-200 flex">
+    <div className="h-full w-full bg-white border-r border-gray-200 flex flex-col transition-all duration-300 relative lg:w-72">
+      <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
+        <div>
+          <div className="text-sm font-black tracking-tight text-indigo-700">AISCL</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">协作学习空间</div>
+        </div>
         <button
-          onClick={() => handleSectionChange('info')}
-          title="小组详情"
-          className={`flex-1 py-3 text-sm font-medium transition-colors relative flex items-center justify-center gap-2 ${activeSection === 'info'
-            ? 'text-indigo-600'
-            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
+          type="button"
+          onClick={onCollapse}
+          className="hidden rounded-xl p-2 text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600 lg:inline-flex"
+          title="折叠左侧栏"
         >
-          <Folder className="w-4 h-4" />
-          <span>小组</span>
-          {activeSection === 'info' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
-          )}
-        </button>
-        <button
-          onClick={() => handleSectionChange('tasks')}
-          title="任务看板"
-          className={`flex-1 py-3 text-sm font-medium transition-colors relative flex items-center justify-center gap-2 ${activeSection === 'tasks'
-            ? 'text-indigo-600'
-            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
-        >
-          <CheckSquare className="w-4 h-4" />
-          <span>任务</span>
-          {activeSection === 'tasks' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
-          )}
+          <PanelLeftClose className="h-4 w-4" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto block">
-        {activeSection === 'info' && projectId && (
-          <ProjectInfo projectId={projectId} />
-        )}
-        {activeSection === 'tasks' && projectId && (
-          <TaskKanban projectId={projectId} canSubmitCourseTask={canSubmitCourseTask} />
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {projectId ? (
+          <div className="space-y-3 pb-4">
+            <ProjectInfo projectId={projectId} compact />
+            <div className="mx-3 h-[30rem] min-h-[24rem] overflow-hidden rounded-2xl border border-slate-100 shadow-sm">
+              <TaskKanban projectId={projectId} canSubmitCourseTask={canSubmitCourseTask} />
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 text-center text-sm text-slate-400">
+            暂无可进入的小组空间。
+          </div>
         )}
       </div>
     </div>

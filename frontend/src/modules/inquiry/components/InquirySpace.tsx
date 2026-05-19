@@ -77,6 +77,8 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
         isHydrated,
         lastSavedAt,
         saveError,
+        isDirty,
+        isSavingSnapshot,
         trackInquiryResearchEvent
     } = useInquiryActions();
     const experimentVersionId = experimentVersion?.version_name || undefined;
@@ -386,6 +388,15 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
         );
     }
 
+    const saveStatusText = saveError
+        || (isSavingSnapshot
+            ? '正在保存探究空间...'
+            : isDirty
+                ? '存在未保存的探究修改，系统会自动同步。'
+                : lastSavedAt
+                    ? `上次保存：${new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour12: false })}`
+                    : '尚未形成云端保存记录');
+
     return (
         <div
             className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden bg-white rounded-lg shadow-inner outline-none"
@@ -426,13 +437,7 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
                     isConnected={isConnected}
                 />
                 <div className="flex items-center justify-between border-b border-slate-100 bg-white/90 px-4 py-1.5 text-[11px] text-slate-500">
-                    <span>
-                        {saveError
-                            ? saveError
-                            : lastSavedAt
-                                ? `上次保存：${new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour12: false })}`
-                                : '尚未形成云端保存记录'}
-                    </span>
+                    <span>{saveStatusText}</span>
                     <span>{isConnected ? '协作连接正常' : '协作连接中断'}</span>
                 </div>
                 <NodeInspector />

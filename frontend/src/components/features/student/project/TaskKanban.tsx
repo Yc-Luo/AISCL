@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { taskService } from '../../../../services/api/task'
 import { Task } from '../../../../types'
 import { trackingService } from '../../../../services/tracking/TrackingService'
@@ -30,6 +30,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
   const [pendingDeleteTask, setPendingDeleteTask] = useState<Task | null>(null)
   const [pendingSubmitTask, setPendingSubmitTask] = useState<Task | null>(null)
   const [submissionNote, setSubmissionNote] = useState('')
+  const newTaskInputRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
 
   useEffect(() => {
@@ -339,6 +340,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           className="relative group"
         >
           <input
+            ref={newTaskInputRef}
             type="text"
             value={newTaskTitle}
             onChange={(e) => setNewTaskTitle(e.target.value)}
@@ -396,7 +398,18 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
               {isExpanded && (
                 <div className="px-2 pb-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
                   {colTasks.length === 0 ? (
-                    <div className="py-6 text-center text-[10px] text-gray-400 font-medium italic">暂无内容</div>
+                    <div className="py-6 text-center text-[10px] text-gray-400 font-medium">
+                      <div className="italic">暂无内容</div>
+                      {col === 'todo' && (
+                        <button
+                          type="button"
+                          onClick={() => newTaskInputRef.current?.focus()}
+                          className="mt-2 rounded-full bg-indigo-50 px-3 py-1 text-[10px] font-bold text-indigo-600 transition hover:bg-indigo-100"
+                        >
+                          添加第一个任务
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     colTasks.map((task) => (
                       <div

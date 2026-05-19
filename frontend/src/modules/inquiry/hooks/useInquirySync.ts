@@ -72,6 +72,8 @@ export const useInquirySync = (projectId: string) => {
     const [isHydrated, setIsHydrated] = useState(false);
     const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [isDirty, setIsDirty] = useState(false);
+    const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
     const isHydratedRef = useRef(false);
     const isSyncingRef = useRef(false);
     const lastSyncTimeRef = useRef(0);
@@ -93,6 +95,7 @@ export const useInquirySync = (projectId: string) => {
 
     const markLocalMutation = useCallback(() => {
         hasLocalMutationRef.current = true;
+        setIsDirty(true);
         setSaveError(null);
     }, []);
 
@@ -191,19 +194,25 @@ export const useInquirySync = (projectId: string) => {
             return;
         }
 
-        const stateData = serializeState(nodes, edges, scrapbook);
-        const base64Data = encodeBase64(stateData);
-        const result = await inquiryService.saveSnapshot(projectId, base64Data, snapshotVersionRef.current);
-        snapshotVersionRef.current = result.version;
-        setLastSavedAt(result.updated_at || new Date().toISOString());
-        setSaveError(null);
-        hasLocalMutationRef.current = false;
-        console.log('[InquirySync] Snapshot persisted:', {
-            reason,
-            nodes: nodes.length,
-            edges: edges.length,
-            scrapbook: scrapbook.length,
-        });
+        setIsSavingSnapshot(true);
+        try {
+            const stateData = serializeState(nodes, edges, scrapbook);
+            const base64Data = encodeBase64(stateData);
+            const result = await inquiryService.saveSnapshot(projectId, base64Data, snapshotVersionRef.current);
+            snapshotVersionRef.current = result.version;
+            setLastSavedAt(result.updated_at || new Date().toISOString());
+            setSaveError(null);
+            setIsDirty(false);
+            hasLocalMutationRef.current = false;
+            console.log('[InquirySync] Snapshot persisted:', {
+                reason,
+                nodes: nodes.length,
+                edges: edges.length,
+                scrapbook: scrapbook.length,
+            });
+        } finally {
+            setIsSavingSnapshot(false);
+        }
     }, [projectId]);
 
     const persistStateToBackendSafe = useCallback(async (
@@ -627,5 +636,7 @@ export const useInquirySync = (projectId: string) => {
         isHydrated,
         lastSavedAt,
         saveError,
+        isDirty,
+        isSavingSnapshot,
     };
 };

@@ -250,8 +250,14 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
       {/* Resource List */}
       <div className="flex-1 overflow-y-auto">
         {resources.length === 0 ? (
-          <div className="text-center text-gray-500 py-8">
-            <p>还没有上传任何资源</p>
+          <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-10 text-center text-slate-500">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm">
+              📁
+            </div>
+            <p className="text-sm font-bold text-slate-700">暂无小组资源</p>
+            <p className="mt-2 text-xs leading-5">
+              可以把资料、图片或任务成果拖到上方上传区，上传后可加入 Wiki 作为证据或素材。
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

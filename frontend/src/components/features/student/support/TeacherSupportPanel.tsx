@@ -5,6 +5,8 @@ import { useContextStore } from '../../../../stores/contextStore'
 
 interface TeacherSupportPanelProps {
   projectId: string
+  isActive?: boolean
+  onUnreadChange?: (hasUnread: boolean) => void
 }
 
 const HELP_TYPES = ['任务不清楚', '协作卡住', '需要反馈', '成果提交', '其他']
@@ -35,7 +37,7 @@ function formatTime(value?: string) {
   })
 }
 
-export default function TeacherSupportPanel({ projectId }: TeacherSupportPanelProps) {
+export default function TeacherSupportPanel({ projectId, isActive = true, onUnreadChange }: TeacherSupportPanelProps) {
   const currentStage = useContextStore((state) => state.currentStage)
   const activeTab = useContextStore((state) => state.activeTab)
   const [requests, setRequests] = useState<TeacherHelpRequest[]>([])
@@ -68,6 +70,11 @@ export default function TeacherSupportPanel({ projectId }: TeacherSupportPanelPr
     }, 15000)
     return () => window.clearInterval(intervalId)
   }, [projectId])
+
+  useEffect(() => {
+    const hasTeacherReply = requests.some((request) => request.status === 'replied')
+    onUnreadChange?.(!isActive && hasTeacherReply)
+  }, [isActive, onUnreadChange, requests])
 
   const handleSubmit = async () => {
     const trimmed = content.trim()

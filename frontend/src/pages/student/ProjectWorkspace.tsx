@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import Sidebar from '../../components/layout/Sidebar'
-import RightSidebar from '../../components/layout/RightSidebar'
+import RightSidebar, { type RightPanel, type RightSidebarBadges } from '../../components/layout/RightSidebar'
 import TabNavigation from '../../components/layout/TabNavigation'
 import ConnectionStatusBanner from '../../components/feedback/ConnectionStatusBanner'
 import ResourceLibrary from '../../components/features/student/resources/ResourceLibrary'
@@ -11,7 +11,6 @@ import DocumentEditor from '../../components/features/student/document/DocumentE
 import { InquirySpace } from '../../modules/inquiry/components/InquirySpace'
 import AITutor from '../../components/features/student/ai/AITutor'
 import ContextualAIAssistant from '../../components/features/student/ai/ContextualAIAssistant'
-import NotificationCenter from '../../components/feedback/NotificationCenter'
 import { projectService } from '../../services/api/project'
 import { documentService } from '../../services/api/document'
 import { ExperimentVersion, Project } from '../../types'
@@ -61,8 +60,15 @@ export default function Main() {
   const [currentProjectId, setCurrentProjectId] = useState<string | undefined>(projectId)
   const [activeTab, setActiveTab] = useState('document')
   const [currentStage, setCurrentStage] = useState<string | null>(null)
+  const [isDesktopLayout, setIsDesktopLayout] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
+  const [rightSidebarPanel, setRightSidebarPanel] = useState<RightPanel>('chat')
+  const [rightSidebarBadges, setRightSidebarBadges] = useState<RightSidebarBadges>({
+    chatUnread: 0,
+    chatMentions: 0,
+    teacherSupport: false,
+  })
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() => {
     const savedWidth = Number(window.localStorage.getItem('aiscl:right-sidebar-width') || 380)
     return Number.isFinite(savedWidth) ? Math.min(Math.max(savedWidth, 320), 560) : 380
@@ -76,6 +82,7 @@ export default function Main() {
   const [workspaceReloadToken, setWorkspaceReloadToken] = useState(0)
   const [documentResolving, setDocumentResolving] = useState(false)
   const [documentResolveError, setDocumentResolveError] = useState<string | null>(null)
+  const [documentRetryToken, setDocumentRetryToken] = useState(0)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [showStageDetails, setShowStageDetails] = useState(false)
   const [stageChanging, setStageChanging] = useState(false)
@@ -91,9 +98,25 @@ export default function Main() {
   const rightSidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const toast = useToast()
 
+  const updateRightSidebarBadges = (next: Partial<RightSidebarBadges>) => {
+    setRightSidebarBadges((previous) => ({ ...previous, ...next }))
+  }
+
+  const openRightPanel = (panel: RightPanel) => {
+    setRightSidebarPanel(panel)
+    setRightSidebarOpen(true)
+    if (panel === 'chat') {
+      updateRightSidebarBadges({ chatUnread: 0, chatMentions: 0 })
+    }
+    if (panel === 'teacher-support') {
+      updateRightSidebarBadges({ teacherSupport: false })
+    }
+  }
+
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)')
     const syncSidebarState = (matches: boolean) => {
+      setIsDesktopLayout(matches)
       setLeftSidebarOpen(matches)
       setRightSidebarOpen(matches)
     }
@@ -532,7 +555,22 @@ export default function Main() {
     }
 
     getDocumentId()
-  }, [activeTab, currentProjectId, currentDocumentId, _project, workspaceError, workspaceLoading])
+  }, [activeTab, currentProjectId, currentDocumentId, _project, workspaceError, workspaceLoading, documentRetryToken])
+
+  const handleCreateDocumentFromWorkspace = async () => {
+    if (!currentProjectId || documentResolving) return
+    try {
+      setDocumentResolving(true)
+      setDocumentResolveError(null)
+      const doc = await documentService.createDocument(currentProjectId, '新建小组文档', '')
+      setCurrentDocumentId(doc.id)
+    } catch (error) {
+      console.error('Failed to manually create document:', error)
+      setDocumentResolveError('新建文档失败，请稍后重试。')
+    } finally {
+      setDocumentResolving(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -696,44 +734,24 @@ export default function Main() {
         onReconnect={() => syncService.init()}
       />
 
-      {/* Header */}
-      <header className="bg-white/90 backdrop-blur-xl border-b border-indigo-100/50 px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 shadow-sm sticky top-0 z-50">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
-          <button
-            onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-            className="p-2 hover:bg-indigo-50 rounded-xl text-indigo-600 transition-colors"
-          >
-            ☰
-          </button>
-          <div className="flex min-w-0 items-center gap-2">
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">AISCL</h1>
-            <span className="hidden rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-xs font-semibold tracking-wide text-indigo-600 sm:inline-flex">协作学习系统</span>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-          <NotificationCenter />
-          <button
-            onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-            className="p-2 hover:bg-indigo-50 rounded-xl text-indigo-600 transition-colors"
-          >
-            👥
-          </button>
-          <div
-            className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 border-2 border-white shadow-md cursor-pointer hover:ring-2 hover:ring-indigo-300 transition-all overflow-hidden flex items-center justify-center text-white font-bold text-sm"
-            onClick={() => setIsSettingsOpen(true)}
-            title={user?.username || '用户设置'}
-          >
-            {user?.avatar_url ? (
-              <img src={user.avatar_url} alt="User" className="h-full w-full object-cover" />
-            ) : (
-              (user?.username || 'U')[0].toUpperCase()
-            )}
-          </div>
-        </div>
-      </header>
-
       {/* Main Content Area */}
       <div className="relative flex-1 flex min-h-0 overflow-hidden">
+        <div className="pointer-events-none absolute left-2 right-2 top-2 z-20 flex justify-between lg:hidden">
+          <button
+            type="button"
+            onClick={() => setLeftSidebarOpen(true)}
+            className="pointer-events-auto rounded-full border border-indigo-100 bg-white/95 px-3 py-1.5 text-xs font-bold text-indigo-600 shadow-sm backdrop-blur"
+          >
+            任务
+          </button>
+          <button
+            type="button"
+            onClick={() => openRightPanel(rightSidebarPanel)}
+            className="pointer-events-auto rounded-full border border-indigo-100 bg-white/95 px-3 py-1.5 text-xs font-bold text-indigo-600 shadow-sm backdrop-blur"
+          >
+            聊天/支持
+          </button>
+        </div>
         {leftSidebarOpen && (
           <button
             type="button"
@@ -753,7 +771,11 @@ export default function Main() {
         {/* Left Sidebar */}
         {leftSidebarOpen && (
           <div className="absolute inset-y-0 left-0 z-40 w-[min(18rem,86vw)] flex-shrink-0 shadow-2xl transition-all duration-300 lg:relative lg:z-auto lg:w-auto lg:shadow-none">
-            <Sidebar projectId={currentProjectId} canSubmitCourseTask={isGroupLeader} />
+            <Sidebar
+              projectId={currentProjectId}
+              canSubmitCourseTask={isGroupLeader}
+              onCollapse={() => setLeftSidebarOpen(false)}
+            />
           </div>
         )}
         {!leftSidebarOpen && (
@@ -947,20 +969,37 @@ export default function Main() {
                     ) : documentResolveError ? (
                       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
                         <div className="text-sm text-red-500">{documentResolveError}</div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDocumentResolveError(null)
-                            setWorkspaceReloadToken((prev) => prev + 1)
-                          }}
-                          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
-                        >
-                          重新加载文档
-                        </button>
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCurrentDocumentId(undefined)
+                              setDocumentResolveError(null)
+                              setDocumentRetryToken((prev) => prev + 1)
+                            }}
+                            className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                          >
+                            重新加载文档
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleCreateDocumentFromWorkspace()}
+                            className="rounded-full border border-indigo-100 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 transition hover:bg-indigo-50"
+                          >
+                            手动创建新文档
+                          </button>
+                        </div>
                       </div>
                     ) : (
-                      <div className="flex-1 flex items-center justify-center text-gray-400">
-                        请选择或创建一个文档
+                      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center text-gray-400">
+                        <div>请选择或创建一个文档</div>
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateDocumentFromWorkspace()}
+                          className="rounded-full border border-indigo-100 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 transition hover:bg-indigo-50"
+                        >
+                          创建小组文档
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1000,43 +1039,57 @@ export default function Main() {
         </div>
 
         {/* Right Sidebar */}
-        {rightSidebarOpen && (
+        {isDesktopLayout && (
           <div
-            className="absolute inset-y-0 right-0 z-40 flex-shrink-0 shadow-2xl lg:relative lg:z-auto lg:shadow-none"
-            style={{ width: `min(${rightSidebarWidth}px, 92vw)` }}
+            className="relative flex-shrink-0 shadow-none"
+            style={{ width: rightSidebarOpen ? rightSidebarWidth : 48 }}
           >
-            <button
-              type="button"
-              aria-label="拖动调整聊天侧栏宽度"
-              title="拖动调整侧栏宽度"
-              onPointerDown={(event) => {
-                rightSidebarResizeRef.current = {
-                  startX: event.clientX,
-                  startWidth: rightSidebarWidth,
-                }
-                setRightSidebarResizing(true)
-              }}
-              className={`absolute left-0 top-0 z-10 hidden h-full w-2 -translate-x-1 cursor-col-resize lg:block ${
-                rightSidebarResizing ? 'bg-indigo-300/60' : 'bg-transparent hover:bg-indigo-200/50'
-              }`}
+            {rightSidebarOpen && (
+              <button
+                type="button"
+                aria-label="拖动调整聊天侧栏宽度"
+                title="拖动调整侧栏宽度"
+                onPointerDown={(event) => {
+                  rightSidebarResizeRef.current = {
+                    startX: event.clientX,
+                    startWidth: rightSidebarWidth,
+                  }
+                  setRightSidebarResizing(true)
+                }}
+                className={`absolute left-0 top-0 z-10 h-full w-2 -translate-x-1 cursor-col-resize ${
+                  rightSidebarResizing ? 'bg-indigo-300/60' : 'bg-transparent hover:bg-indigo-200/50'
+                }`}
+              />
+            )}
+            <RightSidebar
+              projectId={currentProjectId}
+              expanded={rightSidebarOpen}
+              activePanel={rightSidebarPanel}
+              badges={rightSidebarBadges}
+              currentUser={user}
+              onActivePanelChange={setRightSidebarPanel}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onToggleExpanded={setRightSidebarOpen}
+              onBadgesChange={updateRightSidebarBadges}
             />
-            <RightSidebar projectId={currentProjectId} />
           </div>
         )}
-        {!rightSidebarOpen && (
-          <div className="hidden w-12 shrink-0 border-l border-slate-200 bg-white lg:flex lg:flex-col lg:items-center lg:gap-3 lg:py-3">
-            <button type="button" onClick={() => setRightSidebarOpen(true)} className="rounded-xl p-2 transition hover:bg-indigo-50" title="通知中心">
-              🔔
-            </button>
-            <button type="button" onClick={() => setRightSidebarOpen(true)} className="rounded-xl p-2 transition hover:bg-indigo-50" title="群组聊天">
-              💬
-            </button>
-            <button type="button" onClick={() => setRightSidebarOpen(true)} className="rounded-xl p-2 transition hover:bg-indigo-50" title="教师支持">
-              🆘
-            </button>
-            <button type="button" onClick={() => setIsSettingsOpen(true)} className="rounded-xl p-2 transition hover:bg-indigo-50" title="个人设置">
-              👤
-            </button>
+        {!isDesktopLayout && rightSidebarOpen && (
+          <div
+            className="absolute inset-y-0 right-0 z-40 flex-shrink-0 shadow-2xl"
+            style={{ width: `min(${rightSidebarWidth}px, 92vw)` }}
+          >
+            <RightSidebar
+              projectId={currentProjectId}
+              expanded
+              activePanel={rightSidebarPanel}
+              badges={rightSidebarBadges}
+              currentUser={user}
+              onActivePanelChange={setRightSidebarPanel}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onToggleExpanded={setRightSidebarOpen}
+              onBadgesChange={updateRightSidebarBadges}
+            />
           </div>
         )}
       </div>

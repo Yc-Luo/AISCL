@@ -92,6 +92,7 @@ export class ChatAdapter {
      */
     private handleRemoteOperation(op: ChatOperation) {
         if (op.roomId !== this.roomId) return;
+        if (op.type !== 'message' && op.type !== 'edit') return;
 
         // 获取发送者信息
         const roomUsers = useRoomStore.getState().roomUsers[this.roomId] || [];

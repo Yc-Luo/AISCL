@@ -8,11 +8,16 @@ import {
 } from '../../types/sync';
 import { useSyncStore } from '../../stores/syncStore';
 import { useRoomStore } from '../../stores/roomStore';
+import { usePresenceStore } from '../../stores/presenceStore';
 import { tabManager } from '../TabManager';
 import { storageManager } from '../storage/StorageManager';
 import { ConnectionManager } from './ConnectionManager';
 import { OperationQueue } from './OperationQueue';
 
+const extractProjectIdFromRoom = (roomId?: string): string | null => {
+    if (!roomId) return null;
+    return roomId.startsWith('project:') ? roomId.split(':').pop() || null : roomId;
+};
 
 /**
  * 简单的事件发射器实现
@@ -290,6 +295,20 @@ export class SyncService extends EventEmitter {
     }
 
     /**
+     * 发送临时操作：用于 presence 等状态同步，不进入可靠队列，也不持久化为业务数据。
+     */
+    async sendEphemeralOperation(operation: Operation): Promise<string> {
+        await this.applyLocalOperation(operation);
+        tabManager.broadcast('sync-operation', operation);
+
+        if (this.connectionManager.isConnected()) {
+            this.connectionManager.send('operation', operation);
+        }
+
+        return operation.id;
+    }
+
+    /**
      * 将操作加入发送队列
      */
     private async enqueueOperation(operation: Operation): Promise<string> {
@@ -439,7 +458,7 @@ export class SyncService extends EventEmitter {
      * 处理用户加入
      */
     private handleUserJoined(data: any): void {
-        const { roomId, user_id, username, avatar_url } = data;
+        const { roomId, user_id, username, avatar_url, role } = data;
 
         if (roomId) {
             useRoomStore.getState().addRoomUser(roomId, {
@@ -450,6 +469,17 @@ export class SyncService extends EventEmitter {
                 isOnline: true,
                 lastSeen: Date.now()
             });
+
+            const projectId = extractProjectIdFromRoom(roomId);
+            if (projectId) {
+                usePresenceStore.getState().markOnline(projectId, {
+                    userId: user_id,
+                    username,
+                    avatarUrl: avatar_url,
+                    role,
+                    module: 'chat',
+                });
+            }
         }
     }
 
@@ -460,6 +490,10 @@ export class SyncService extends EventEmitter {
         const { roomId, user_id } = data;
         if (roomId) {
             useRoomStore.getState().removeRoomUser(roomId, user_id);
+            const projectId = extractProjectIdFromRoom(roomId);
+            if (projectId) {
+                usePresenceStore.getState().markOffline(projectId, user_id);
+            }
         }
     }
 

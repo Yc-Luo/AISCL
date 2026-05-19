@@ -82,7 +82,7 @@ export interface DocumentOperationData {
 /** 聊天操作 */
 export interface ChatOperation extends BaseOperation {
     module: 'chat';
-    type: 'message' | 'reaction' | 'edit' | 'delete';
+    type: 'message' | 'reaction' | 'edit' | 'delete' | 'presence';
     data: ChatOperationData;
 }
 
@@ -121,6 +121,16 @@ export interface ChatOperationData {
         allowPublicReply?: boolean;
         pageSource?: string;
         stageId?: string;
+    };
+    presence?: {
+        projectId?: string;
+        username?: string;
+        avatarUrl?: string;
+        role?: string;
+        module?: string;
+        pageSource?: string;
+        currentStage?: string | null;
+        lastSeenAt?: number;
     };
     isRecalled?: boolean;
 }

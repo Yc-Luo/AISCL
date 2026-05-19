@@ -18,9 +18,11 @@ import { useAuthStore } from '../../stores/authStore'
 import { useSyncStore } from '../../stores/syncStore'
 import Settings from '../../components/features/student/settings/Settings'
 import { syncService } from '../../services/sync/SyncService'
+import { ChatOperation } from '../../types/sync'
 import { useBehaviorTracking } from '../../hooks/common/useBehaviorTracking'
 import { useActivityTracking } from '../../hooks/common/useActivityTracking'
 import { useContextStore } from '../../stores/contextStore'
+import { usePresenceStore } from '../../stores/presenceStore'
 import { trackingService } from '../../services/tracking/TrackingService'
 import { isProcessScaffoldActive, isTutorTabEnabled } from '../../lib/experimentScaffold'
 import { formatStageLabel, getStageToolGuidance, getTabLabel } from '../../lib/stageModel'
@@ -108,6 +110,9 @@ export default function Main() {
   const setContextCurrentStage = useContextStore(state => state.setCurrentStage)
   const setContextExperimentVersionId = useContextStore(state => state.setExperimentVersionId)
   const setContextDocumentId = useContextStore(state => state.setDocumentId)
+  const markPresenceOnline = usePresenceStore(state => state.markOnline)
+  const markPresenceOffline = usePresenceStore(state => state.markOffline)
+  const prunePresence = usePresenceStore(state => state.pruneStale)
 
   const explicitLeaderId = _project?.members.find(
     (member) => member.role === 'owner' && member.user_id !== _project.owner_id
@@ -289,6 +294,112 @@ export default function Main() {
       }
     }
   }, [currentProjectId])
+
+  useEffect(() => {
+    if (!currentProjectId || !user?.id) return
+
+    const roomId = `project:${currentProjectId}`
+
+    const handlePresenceOperation = (operation: ChatOperation) => {
+      if (operation.type !== 'presence' || operation.roomId !== roomId) return
+      const presence = operation.data.presence || {}
+      const projectId = presence.projectId || currentProjectId
+      markPresenceOnline(projectId, {
+        userId: operation.clientId,
+        username: presence.username,
+        avatarUrl: presence.avatarUrl,
+        role: presence.role,
+        module: presence.module,
+        pageSource: presence.pageSource,
+        currentStage: presence.currentStage,
+        lastSeenAt: presence.lastSeenAt,
+      })
+    }
+
+    syncService.on('operation:chat', handlePresenceOperation)
+    return () => {
+      syncService.off('operation:chat', handlePresenceOperation)
+    }
+  }, [currentProjectId, markPresenceOnline, user?.id])
+
+  useEffect(() => {
+    if (!currentProjectId || !user?.id) return
+
+    const roomId = `project:${currentProjectId}`
+
+    const sendPresenceHeartbeat = () => {
+      const lastSeenAt = Date.now()
+      markPresenceOnline(currentProjectId, {
+        userId: user.id,
+        username: user.username,
+        avatarUrl: user.avatar_url,
+        role: user.role,
+        module: activeTab,
+        pageSource: activeTab,
+        currentStage,
+        lastSeenAt,
+        isLocal: true,
+      })
+
+      syncService.sendEphemeralOperation({
+        id: `presence-${user.id}-${lastSeenAt}`,
+        module: 'chat',
+        roomId,
+        timestamp: lastSeenAt,
+        clientId: user.id,
+        version: 0,
+        type: 'presence',
+        data: {
+          presence: {
+            projectId: currentProjectId,
+            username: user.username,
+            avatarUrl: user.avatar_url,
+            role: user.role,
+            module: activeTab,
+            pageSource: activeTab,
+            currentStage,
+            lastSeenAt,
+          },
+        },
+      }).catch(console.error)
+
+      trackingService.trackResearchEvent({
+        project_id: currentProjectId,
+        experiment_version_id: experimentVersion?.version_name,
+        actor_type: 'student',
+        event_domain: 'dialogue',
+        event_type: 'presence_heartbeat',
+        stage_id: currentStage || undefined,
+        payload: {
+          module: activeTab,
+          page_source: activeTab,
+          source: 'student_workspace',
+        },
+      })
+    }
+
+    sendPresenceHeartbeat()
+    const heartbeatTimer = window.setInterval(sendPresenceHeartbeat, 20_000)
+    const pruneTimer = window.setInterval(() => prunePresence(), 10_000)
+
+    return () => {
+      window.clearInterval(heartbeatTimer)
+      window.clearInterval(pruneTimer)
+      markPresenceOffline(currentProjectId, user.id)
+    }
+  }, [
+    activeTab,
+    currentProjectId,
+    currentStage,
+    experimentVersion?.version_name,
+    markPresenceOffline,
+    markPresenceOnline,
+    prunePresence,
+    user?.avatar_url,
+    user?.id,
+    user?.role,
+    user?.username,
+  ])
 
   useEffect(() => {
     if (!currentProjectId) return

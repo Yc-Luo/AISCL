@@ -8,6 +8,7 @@ import { userService } from '../../../../services/api/user'
 import { projectService } from '../../../../services/api/project'
 import { Project, User } from '../../../../types'
 import { ConfirmDialog } from '../../../ui'
+import { usePresenceStore } from '../../../../stores/presenceStore'
 
 interface ProjectInfoProps {
   projectId: string
@@ -19,6 +20,7 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
   const [activities, setActivities] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const { user: currentUser } = useAuthStore()
+  const isPresenceOnline = usePresenceStore(state => state.isOnline)
   const [userCache, setUserCache] = useState<Record<string, User>>({})
 
   // Inline editing state
@@ -132,6 +134,9 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
     if (memberUser) return memberUser.role === 'student'
     return member.user_id !== project.owner_id
   })
+  const onlineLearningCount = learningMembers.filter((member: any) =>
+    isPresenceOnline(projectId, member.user_id)
+  ).length
 
   const handleUpdateProject = async (updates: Partial<Project>) => {
     if (!projectId || isUpdating) return
@@ -414,7 +419,7 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
             <div className="flex -space-x-3 overflow-hidden">
               {learningMembers.map((member: any) => {
                 const memberUser = getMemberUser(member.user_id)
-                const online = false // TODO: Integration with syncService for real online status
+                const online = isPresenceOnline(projectId, member.user_id)
                 return (
                   <div key={member.user_id} className="relative group p-[2px] bg-white rounded-full">
                     <div
@@ -441,7 +446,9 @@ export default function ProjectInfo({ projectId }: ProjectInfoProps) {
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-            <span className="ml-3 text-[10px] font-medium text-gray-400">{learningMembers.length} 位成员</span>
+            <span className="ml-3 text-[10px] font-medium text-gray-400">
+              {learningMembers.length} 位成员 · {onlineLearningCount} 在线
+            </span>
           </div>
         </div>
 

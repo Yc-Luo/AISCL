@@ -18,6 +18,7 @@ import { storageService } from '../../../../services/api/storage'
 import { syncService } from '../../../../services/sync/SyncService'
 
 import { useAuthStore } from '../../../../stores/authStore'
+import { usePresenceStore } from '../../../../stores/presenceStore'
 import { projectService } from '../../../../services/api/project'
 import { userService } from '../../../../services/api/user'
 import api from '../../../../services/api/client'
@@ -75,6 +76,7 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
+  const isPresenceOnline = usePresenceStore(state => state.isOnline)
   const currentStage = useContextStore((state) => state.currentStage)
   const experimentVersionId = useContextStore((state) => state.experimentVersionId)
 
@@ -827,22 +829,31 @@ export default function ChatPanel({ projectId }: ChatPanelProps) {
           <div className="absolute bottom-[calc(100%-8px)] left-28 w-60 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
             <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500">提及小组成员</div>
             {otherMembers.length > 0 ? (
-              otherMembers.map((member) => (
-                <button
-                  key={member.id}
-                  onClick={() => handleSelectMention(member)}
-                  className="w-full px-4 py-3 text-left hover:bg-blue-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-0"
-                >
-                  {member.avatar_url ? (
-                    <img src={member.avatar_url} className="w-8 h-8 rounded-full border border-gray-100" alt={member.username} />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
-                      {member.username[0]?.toUpperCase()}
+              otherMembers.map((member) => {
+                const online = isPresenceOnline(projectId, member.id)
+                return (
+                  <button
+                    key={member.id}
+                    onClick={() => handleSelectMention(member)}
+                    className="w-full px-4 py-3 text-left hover:bg-blue-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-0"
+                  >
+                    <div className="relative">
+                      {member.avatar_url ? (
+                        <img src={member.avatar_url} className="w-8 h-8 rounded-full border border-gray-100" alt={member.username} />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+                          {member.username[0]?.toUpperCase()}
+                        </div>
+                      )}
+                      <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                     </div>
-                  )}
-                  <div className="text-sm font-medium text-gray-900">{member.username}</div>
-                </button>
-              ))
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{member.username}</div>
+                      <div className="text-[11px] text-gray-400">{online ? '在线' : '离线'}</div>
+                    </div>
+                  </button>
+                )
+              })
             ) : (
               <div className="px-4 py-6 text-center text-sm text-gray-500">暂无其他成员</div>
             )}

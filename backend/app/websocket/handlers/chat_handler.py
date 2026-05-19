@@ -896,7 +896,65 @@ async def handle_chat_op(sio, sid, data, user_id):
     op_type = data.get("type")
     op_payload = data.get("data", {})
     
-    if not room_id or not op_payload:
+    if not room_id:
+        return
+
+    if op_type == "presence":
+        try:
+            project_id = room_id.split(":")[-1]
+            presence_payload = op_payload.get("presence") if isinstance(op_payload, dict) else {}
+            if not isinstance(presence_payload, dict):
+                presence_payload = {}
+
+            from app.repositories.project import Project
+            from app.repositories.user import User
+            from app.services.research_event_service import research_event_service
+
+            project = await Project.get(project_id)
+            experiment_version = (getattr(project, "experiment_version", None) or {}) if project else {}
+            sender = await User.get(user_id)
+            current_stage = presence_payload.get("currentStage") or experiment_version.get("current_stage")
+
+            sanitized_presence = {
+                "projectId": project_id,
+                "username": presence_payload.get("username") or (sender.username if sender else None),
+                "avatarUrl": presence_payload.get("avatarUrl") or (sender.avatar_url if sender else None),
+                "role": presence_payload.get("role") or (sender.role if sender else None),
+                "module": presence_payload.get("module") or "chat",
+                "pageSource": presence_payload.get("pageSource"),
+                "currentStage": current_stage,
+                "lastSeenAt": presence_payload.get("lastSeenAt"),
+            }
+            data["data"] = {"presence": sanitized_presence}
+
+            await sio.emit("operation", data, room=room_id, skip_sid=sid)
+
+            await research_event_service.record_batch_events(
+                events=[
+                    {
+                        "project_id": project_id,
+                        "experiment_version_id": experiment_version.get("version_name") or experiment_version.get("name"),
+                        "room_id": room_id,
+                        "group_id": room_id,
+                        "user_id": user_id,
+                        "actor_type": sender.role if sender and sender.role in {"student", "teacher"} else "student",
+                        "event_domain": "dialogue",
+                        "event_type": "presence_heartbeat",
+                        "stage_id": current_stage,
+                        "payload": {
+                            "module": sanitized_presence.get("module"),
+                            "page_source": sanitized_presence.get("pageSource"),
+                            "connection_channel": "socketio",
+                        },
+                    }
+                ],
+                current_user_id=user_id,
+            )
+        except Exception as e:
+            logger.warning("Error handling presence op for %s: %s", room_id, e)
+        return
+
+    if not op_payload:
         return
 
     if op_type == "message":

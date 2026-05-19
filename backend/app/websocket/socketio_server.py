@@ -182,6 +182,7 @@ async def join_room(sid, data):
                 "user_id": user_id,
                 "username": user.username,
                 "avatar_url": user.avatar_url,
+                "role": user.role,
                 "roomId": room_id,
             },
             room=room_id,

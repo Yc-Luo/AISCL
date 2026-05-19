@@ -13,6 +13,7 @@ import {
     Search,
     Send,
     Sparkles,
+    Users,
 } from 'lucide-react';
 import { Button, Input, Badge } from '../../../ui';
 import { useToast } from '../../../ui/Toast';
@@ -23,6 +24,9 @@ import { chatService } from '../../../../services/api/chat';
 import { Project } from '../../../../types';
 import { trackingService } from '../../../../services/tracking/TrackingService';
 import { formatStageLabel } from '../../../../lib/stageModel';
+import { syncService } from '../../../../services/sync/SyncService';
+import { ChatOperation } from '../../../../types/sync';
+import { usePresenceStore } from '../../../../stores/presenceStore';
 
 type GroupStatus = 'normal' | 'attention' | 'help' | 'inactive';
 
@@ -202,6 +206,8 @@ export default function ProjectMonitor() {
     const [lastHelpRefreshAt, setLastHelpRefreshAt] = useState<string | null>(null);
     const dashboardViewTrackedRef = useRef(false);
     const toast = useToast();
+    const selectedPresenceUsers = usePresenceStore((state) => state.getProjectUsers(selectedProjectId));
+    const markPresenceOnline = usePresenceStore((state) => state.markOnline);
 
     useEffect(() => {
         const fetchOverviewData = async () => {
@@ -380,6 +386,13 @@ export default function ProjectMonitor() {
         : [];
     const primaryHelpRequest = selectedHelpRequests[0];
     const selectedSupportHistory = selectedProject ? supportHistory[selectedProject.id] || [] : [];
+    const onlineLearningCount = selectedProject
+        ? selectedPresenceUsers.filter((presenceUser) =>
+            selectedProject.members.some((member) =>
+                member.user_id === presenceUser.userId && member.user_id !== selectedProject.owner_id
+            )
+        ).length
+        : 0;
 
     useEffect(() => {
         if (!selectedProject) return;
@@ -422,6 +435,43 @@ export default function ProjectMonitor() {
             window.clearInterval(intervalId);
         };
     }, [selectedProject?.id]);
+
+    useEffect(() => {
+        if (!selectedProjectId) return;
+
+        const roomId = `project:${selectedProjectId}`;
+        syncService.init().catch(console.error);
+        syncService.joinRoom(roomId, 'chat').catch(console.error);
+
+        return () => {
+            syncService.leaveRoom(roomId, 'chat');
+        };
+    }, [selectedProjectId]);
+
+    useEffect(() => {
+        if (!selectedProjectId) return;
+
+        const roomId = `project:${selectedProjectId}`;
+        const handlePresenceOperation = (operation: ChatOperation) => {
+            if (operation.type !== 'presence' || operation.roomId !== roomId) return;
+            const presence = operation.data.presence || {};
+            markPresenceOnline(selectedProjectId, {
+                userId: operation.clientId,
+                username: presence.username,
+                avatarUrl: presence.avatarUrl,
+                role: presence.role,
+                module: presence.module,
+                pageSource: presence.pageSource,
+                currentStage: presence.currentStage,
+                lastSeenAt: presence.lastSeenAt,
+            });
+        };
+
+        syncService.on('operation:chat', handlePresenceOperation);
+        return () => {
+            syncService.off('operation:chat', handlePresenceOperation);
+        };
+    }, [markPresenceOnline, selectedProjectId]);
 
     const totalStudents = courses.reduce((acc, course) => acc + (course.students?.length || 0), 0);
     const attentionCount = projects.filter((project) => getProjectMetrics(project).status !== 'normal').length;
@@ -648,7 +698,7 @@ export default function ProjectMonitor() {
                                             </Badge>
                                         </div>
                                         <p className="mt-2 text-sm text-slate-500">
-                                            {getCourseLabel(selectedCourse)} · {getLearningMemberCount(selectedProject)} 名成员 · 最近活动 {formatDateTime(selectedProject.updated_at)}
+                                            {getCourseLabel(selectedCourse)} · {getLearningMemberCount(selectedProject)} 名成员 · {onlineLearningCount} 在线 · 最近活动 {formatDateTime(selectedProject.updated_at)}
                                         </p>
                                         <div className="mt-3 flex flex-wrap gap-2 text-xs">
                                             <Pill label={`任务阶段：${formatStageLabel(selectedProject.experiment_version?.current_stage)}`} />
@@ -676,7 +726,8 @@ export default function ProjectMonitor() {
                                 </div>
                             </section>
 
-                            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                                <MetricCard icon={Users} label="在线成员" value={onlineLearningCount} hint="当前在线学习者" />
                                 <MetricCard icon={MessageSquare} label="聊天活跃" value={selectedMetrics.messageCount} hint="近 7 天群聊/消息事件" />
                                 <MetricCard icon={FileText} label="文档更新" value={selectedMetrics.documentUpdates} hint="共享记录与文档操作" />
                                 <MetricCard icon={Layers} label="探究操作" value={selectedMetrics.inquiryOperations} hint="节点、连线与探究事件" />

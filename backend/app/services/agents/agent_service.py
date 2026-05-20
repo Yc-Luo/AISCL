@@ -849,6 +849,8 @@ class AgentService:
         agent_name = agent_def["name"]
         label = SUBAGENT_LABELS.get(agent_name, agent_name)
         parser = ThinkTagParser(agent=agent_name, label=label)
+        visible_output_seen = False
+        thinking_buffer = ""
         prompt = ChatPromptTemplate.from_messages([
             ("system", self._build_stage_aware_agent_prompt(
                 agent_def=agent_def,
@@ -866,6 +868,10 @@ class AgentService:
                 if not content:
                     continue
                 for event in parser.feed(str(content)):
+                    if event["type"] == "thinking":
+                        thinking_buffer += event.get("content", "")
+                    if event["type"] == "output" and event.get("content", "").strip():
+                        visible_output_seen = True
                     yield event
         except Exception as exc:
             yield {
@@ -875,8 +881,23 @@ class AgentService:
                 "content": f"本轮{label}暂时无法完整生成。我先给出最小建议：围绕当前问题补充依据、明确判断标准，并把下一步分工写入协作文档。",
                 "error": str(exc),
             }
-        for event in parser.flush():
+        flush_events = parser.flush()
+        for event in flush_events:
+            if event["type"] == "thinking":
+                thinking_buffer += event.get("content", "")
+            if event["type"] == "output" and event.get("content", "").strip():
+                visible_output_seen = True
             yield event
+        if not visible_output_seen:
+            promoted_answer = self._promote_unclosed_thinking_as_answer(thinking_buffer)
+            if promoted_answer:
+                yield {
+                    "type": "output",
+                    "agent": agent_name,
+                    "label": label,
+                    "content": promoted_answer,
+                    "promoted_from_unclosed_think": True,
+                }
 
     def _build_stage_aware_agent_prompt(
         self,
@@ -935,11 +956,43 @@ class AgentService:
 
 输出要求：
 - 先用 <think>...</think> 包裹一条 20-50 字的“处理摘要”，只说明你将从哪个角度支持学习者；不要展示详细推理链。
+- 如果使用 <think>，必须在 50 字内关闭标签，然后继续输出正式回答；不要把正式回答放进 <think>。
 - 正式回答必须使用中文；普通问题默认 220-420 字，复杂整合、平台操作或多智能体接力可到 500-700 字。
 - 根据问题类型组织回答，不要每次机械套用同一结构；平台操作问题优先给清晰步骤，协作论证问题优先给判断点、依据和下一步。
 - 回答可以包含：当前需要处理的判断点、具体下一步行动、可继续讨论的问题；但不要为了凑结构重复无关提醒。
 - 不替学习者完成最终答案，不暴露实验条件、graph_version、规则 ID 或内部路由细节。
 """
+
+    def _promote_unclosed_thinking_as_answer(self, text: str) -> str:
+        """Recover user-facing answers accidentally emitted inside an unclosed think block."""
+        cleaned = " ".join(str(text or "").replace("<think>", "").replace("</think>", "").split())
+        if len(cleaned) < 80:
+            return ""
+        user_facing_markers = [
+            "下一步",
+            "建议",
+            "请小组",
+            "具体",
+            "判断点",
+            "进入",
+            "可以",
+            "需要",
+            "**",
+            "1.",
+            "1、",
+        ]
+        if not any(marker in cleaned for marker in user_facing_markers):
+            return ""
+        reasoning_markers = [
+            "我需要先分析",
+            "让我思考",
+            "用户意图",
+            "内部推理",
+            "不能透露",
+        ]
+        for marker in reasoning_markers:
+            cleaned = cleaned.replace(marker, "")
+        return cleaned[:900].strip()
 
     def _resolve_stage_aware_rag_plan(self, *, plan: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         agents = plan.get("active_agents") or []

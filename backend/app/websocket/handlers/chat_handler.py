@@ -60,6 +60,10 @@ STAGE_LABELS = {
     "evidence_exploration": "证据探究",
     "argumentation": "论证协商",
     "reflection_revision": "反思修订",
+    "problem_construction": "问题构建",
+    "meaning_exploration": "意义探索",
+    "explanation_integration": "解释整合",
+    "application_solution": "应用解决",
 }
 
 RULE_TYPE_LABELS = {
@@ -83,6 +87,16 @@ MAX_CHAT_FILENAME_CHARS = 255
 GROUP_AI_PEER_MEMORY_LIMIT = 24
 GROUP_AI_INTERACTION_MEMORY_LINE_LIMIT = 16
 GROUP_AI_MEMORY_MESSAGE_CHARS = 420
+
+
+def _normalize_ai_scaffold_mode(value: Optional[str]) -> str:
+    """Normalize experiment AI mode; legacy/null projects use generic AI."""
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"multi_agent", "multi", "multiagent", "multi_ai"}:
+        return "multi_agent"
+    if normalized in {"single_agent", "single", "singleai", "single_ai", "general_ai"}:
+        return "single_agent"
+    return "single_agent"
 
 
 def _detect_preferred_subagent(content: str) -> str | None:
@@ -140,7 +154,7 @@ def _build_group_ai_meta(selected_subagent: Optional[str], routing_decision: dic
 
 def _extract_routing_context(project: object, content: str) -> dict:
     experiment_version = getattr(project, "experiment_version", None) or {}
-    ai_scaffold_mode = experiment_version.get("ai_scaffold_mode")
+    ai_scaffold_mode = _normalize_ai_scaffold_mode(experiment_version.get("ai_scaffold_mode"))
     enabled_roles = experiment_version.get("enabled_scaffold_roles") or []
     enabled_subagents = []
     preferred_subagent = None
@@ -603,7 +617,9 @@ async def _process_ai_reply(
         project = await Project.get(project_id)
         experiment_version = getattr(project, "experiment_version", None) or {}
         current_stage = experiment_version.get("current_stage")
-        ai_scaffold_mode = experiment_version.get("ai_scaffold_mode") or (routing_context or {}).get("ai_scaffold_mode")
+        ai_scaffold_mode = _normalize_ai_scaffold_mode(
+            experiment_version.get("ai_scaffold_mode") or (routing_context or {}).get("ai_scaffold_mode")
+        )
         group_memory = await _build_recent_group_chat_context(
             project_id=project_id,
             current_message_id=current_message_id,
@@ -902,7 +918,56 @@ async def _process_ai_reply(
         )
         
     except Exception as e:
-        logger.error(f"Error processing AI reply: {e}")
+        logger.exception("Error processing AI reply for project %s: %s", project_id, e)
+        try:
+            fallback_text = (
+                "AISCL智能助手暂时没有成功生成回应。请稍后重试，或先把当前问题、已有依据和下一步分工写在群聊中。"
+            )
+            fallback_id = str(uuid.uuid4())
+            fallback_timestamp = _utc_iso_timestamp()
+            from app.repositories.chat_log import ChatLog
+
+            chat_log = ChatLog(
+                project_id=project_id,
+                user_id="ai_assistant",
+                content=fallback_text,
+                message_type="text",
+                mentions=[],
+                metadata={
+                    "client_message_id": fallback_id,
+                    "ai_meta": {
+                        "primary_agent": "AISCL智能助手",
+                        "rationale_summary": "AI 服务临时异常，已给出最小可执行提示。",
+                        "routing_summary": ["生成失败兜底提示"],
+                    },
+                },
+            )
+            await chat_log.insert()
+            await sio.emit(
+                "operation",
+                {
+                    "id": str(uuid.uuid4()),
+                    "module": "chat",
+                    "roomId": room_id,
+                    "type": "message",
+                    "clientId": "ai_assistant",
+                    "data": {
+                        "messageId": fallback_id,
+                        "content": fallback_text,
+                        "mentions": [],
+                        "aiMeta": chat_log.metadata.get("ai_meta") if chat_log.metadata else None,
+                        "sender": {
+                            "id": "ai_assistant",
+                            "username": "AISCL智能助手",
+                            "avatar": "/avatars/ai_assistant.png",
+                        },
+                    },
+                    "timestamp": fallback_timestamp,
+                },
+                room=room_id,
+            )
+        except Exception as fallback_error:  # noqa: BLE001
+            logger.error("Failed to emit AI fallback message for %s: %s", project_id, fallback_error)
     finally:
         if typing_started:
             await sio.emit('stop_typing', {

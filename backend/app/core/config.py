@@ -79,6 +79,18 @@ class Settings(BaseSettings):
     RAG_CHUNK_SIZE: int = 900
     RAG_CHUNK_OVERLAP: int = 120
 
+    # Optional document parsing for rich RAG indexing.
+    DOCUMENT_PARSE_PROVIDER: str = "none"
+    MINERU_API_TOKEN: str = ""
+    MINERU_BASE_URL: str = "https://mineru.net"
+    MINERU_MODEL_VERSION: str = "vlm"
+    MINERU_ENABLE_TABLE: bool = True
+    MINERU_ENABLE_FORMULA: bool = True
+    MINERU_IS_OCR: bool = False
+    MINERU_LANGUAGE: str = "ch"
+    MINERU_POLL_INTERVAL_SECONDS: int = 10
+    MINERU_PARSE_TIMEOUT_SECONDS: int = 900
+
     # Optional web search fallback for RAG.
     WEB_SEARCH_ENABLED: bool = False
     WEB_SEARCH_PROVIDER: str = "searxng"

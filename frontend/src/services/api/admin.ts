@@ -58,7 +58,7 @@ export interface Config {
 
 export interface ModelConfigTestResult {
     success: boolean
-    service: 'llm' | 'embedding' | 'web_search'
+    service: 'llm' | 'embedding' | 'web_search' | 'document_parse'
     latency_ms?: number
     response_preview?: string
     vector_dimensions?: number
@@ -143,6 +143,11 @@ export const adminService = {
 
     testWebSearchConfig: async (): Promise<ModelConfigTestResult> => {
         const response = await api.post(API_ENDPOINTS.ADMIN.TEST_WEB_SEARCH_CONFIG)
+        return response.data
+    },
+
+    testDocumentParseConfig: async (): Promise<ModelConfigTestResult> => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.TEST_DOCUMENT_PARSE_CONFIG)
         return response.data
     },
 

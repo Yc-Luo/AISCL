@@ -42,6 +42,7 @@ SECRET_CONFIG_KEYS = {
     "llm_key",
     "embedding_key",
     "web_search_key",
+    "mineru_api_token",
 }
 
 
@@ -334,6 +335,34 @@ async def test_web_search_config(
             "latency_ms": elapsed_ms,
             "error": str(exc),
             "config": web_search_service.safe_summary(config),
+        }
+
+
+@router.post("/system-configs/test-document-parse")
+async def test_document_parse_config(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Test the optional MinerU document parser without exposing secrets."""
+    await _require_admin(current_user)
+    from app.services.document_parse_service import document_parse_service
+
+    started_at = perf_counter()
+    try:
+        result = await document_parse_service.test_mineru_config()
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        return {
+            **result,
+            "latency_ms": elapsed_ms,
+        }
+    except Exception as exc:  # noqa: BLE001
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        config = await document_parse_service.get_mineru_config()
+        return {
+            "success": False,
+            "service": "document_parse",
+            "latency_ms": elapsed_ms,
+            "error": str(exc),
+            "config": document_parse_service.safe_summary(config),
         }
 
 

@@ -37,7 +37,7 @@ from app.core.security import setup_rate_limiting, get_csp_header
 from app.core.db.mongodb import mongodb
 from app.websocket.socketio_server import socketio_app
 from app.websocket.yjs_server import websocket_endpoint
-from app.core.tasks import run_periodic_updates
+from app.core.tasks import run_periodic_updates, run_resource_parse_updates
 import asyncio
 
 
@@ -51,13 +51,19 @@ async def lifespan(app: FastAPI):
     
     # Start background tasks
     update_task = asyncio.create_task(run_periodic_updates())
+    parse_task = asyncio.create_task(run_resource_parse_updates())
     
     yield
     
     # Shutdown
     update_task.cancel()
+    parse_task.cancel()
     try:
         await update_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await parse_task
     except asyncio.CancelledError:
         pass
         

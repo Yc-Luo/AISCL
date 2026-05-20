@@ -8,6 +8,10 @@ import {
     Plus,
     Trash2,
     Upload,
+    CheckCircle2,
+    Clock3,
+    AlertTriangle,
+    MinusCircle,
 } from 'lucide-react';
 import { courseService, Course } from '../../../../services/api/course';
 import { storageService } from '../../../../services/api/storage';
@@ -30,6 +34,23 @@ const formatSize = (bytes: number) => {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+};
+
+const getParseStatus = (resource: Resource) => {
+    const status = resource.parse_status || 'pending';
+    if (status === 'indexed') {
+        return { title: '已完成解析并进入 AI 检索', icon: <CheckCircle2 className="h-4 w-4" />, className: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' };
+    }
+    if (status === 'parsing') {
+        return { title: '资源正在解析入库', icon: <Loader2 className="h-4 w-4 animate-spin" />, className: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100' };
+    }
+    if (status === 'failed') {
+        return { title: resource.parse_error || '解析失败，可稍后重试', icon: <AlertTriangle className="h-4 w-4" />, className: 'bg-rose-50 text-rose-700 ring-1 ring-rose-100' };
+    }
+    if (status === 'unsupported') {
+        return { title: '该资源仅作为文件保存，暂未进入 AI 检索', icon: <MinusCircle className="h-4 w-4" />, className: 'bg-slate-50 text-slate-500 ring-1 ring-slate-100' };
+    }
+    return { title: '等待解析入库', icon: <Clock3 className="h-4 w-4" />, className: 'bg-amber-50 text-amber-700 ring-1 ring-amber-100' };
 };
 
 export default function CourseResource() {
@@ -96,32 +117,32 @@ export default function CourseResource() {
         void fetchCourseResources(selectedCourseId);
     }, [selectedCourseId]);
 
+    useEffect(() => {
+        const hasUnfinishedParsing = resources.some((resource) =>
+            ['pending', 'parsing'].includes(resource.parse_status || 'pending')
+        );
+        if (!selectedCourseId || !hasUnfinishedParsing) return;
+        const timer = window.setInterval(() => {
+            void fetchCourseResources(selectedCourseId);
+        }, 10000);
+        return () => window.clearInterval(timer);
+    }, [resources, selectedCourseId]);
+
     const handleFileUpload = async () => {
         if (!selectedFile || !selectedCourseId) return;
 
         setUploading(true);
         try {
-            const { upload_url, file_key } = await storageService.getCoursePresignedUploadUrl(
-                selectedCourseId,
-                selectedFile.name,
-                selectedFile.type,
-                selectedFile.size
-            );
-
-            await storageService.uploadFile(upload_url, selectedFile);
-
-            await storageService.createCourseResource({
+            await storageService.uploadResourceFile({
                 course_id: selectedCourseId,
-                filename: selectedFile.name,
-                file_key,
-                size: selectedFile.size,
-                mime_type: selectedFile.type,
+                file: selectedFile,
+                source_type: 'library',
             });
 
             setIsUploadOpen(false);
             setSelectedFile(null);
             await fetchCourseResources(selectedCourseId);
-            setNotice({ type: 'success', message: '班级资源已上传，学生端资源库会按班级范围显示。' });
+            setNotice({ type: 'success', message: '班级资源已上传，系统将自动解析并写入 AI 检索库。' });
         } catch (error) {
             console.error('Upload failed:', error);
             setNotice({ type: 'error', message: '上传失败，请检查网络连接、文件类型或班级权限。' });
@@ -231,9 +252,10 @@ export default function CourseResource() {
                 <div className="overflow-x-auto rounded-3xl border border-gray-100 bg-white shadow-sm">
                     <table className="w-full min-w-[980px] table-fixed">
                         <colgroup>
-                            <col className="w-[46%]" />
-                            <col className="w-[13%]" />
-                            <col className="w-[13%]" />
+                            <col className="w-[43%]" />
+                            <col className="w-[12%]" />
+                            <col className="w-[12%]" />
+                            <col className="w-[8%]" />
                             <col className="w-[9%]" />
                             <col className="w-[11%]" />
                             <col className="w-[8%]" />
@@ -243,6 +265,7 @@ export default function CourseResource() {
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">文件名</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">所属班级</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">分发范围</th>
+                                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">入库</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">体积</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">上传时间</th>
                                 <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-widest text-gray-500">操作</th>
@@ -273,6 +296,19 @@ export default function CourseResource() {
                                         <Badge variant="secondary" className="border-0 bg-emerald-50 px-3 py-1 font-medium text-emerald-700">
                                             全班小组共享
                                         </Badge>
+                                    </td>
+                                    <td className="whitespace-nowrap px-6 py-4">
+                                        {(() => {
+                                            const parse = getParseStatus(resource);
+                                            return (
+                                                <span
+                                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${parse.className}`}
+                                                    title={parse.title}
+                                                >
+                                                    {parse.icon}
+                                                </span>
+                                            );
+                                        })()}
                                     </td>
                                     <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-500">
                                         {formatSize(resource.size)}

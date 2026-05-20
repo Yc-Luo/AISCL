@@ -16,7 +16,8 @@ import {
     Plus,
     Trash2,
     Globe,
-    Cpu as ModelIcon
+    Cpu as ModelIcon,
+    FileSearch
 } from 'lucide-react'
 import { Button, Input } from '../../../ui'
 import { adminService } from '../../../../services/api/admin'
@@ -35,12 +36,15 @@ export default function SystemConfig() {
     const [isSavingLLM, setIsSavingLLM] = useState(false)
     const [isSavingEmbedding, setIsSavingEmbedding] = useState(false)
     const [isSavingWebSearch, setIsSavingWebSearch] = useState(false)
+    const [isSavingDocumentParse, setIsSavingDocumentParse] = useState(false)
     const [isTestingLLM, setIsTestingLLM] = useState(false)
     const [isTestingEmbedding, setIsTestingEmbedding] = useState(false)
     const [isTestingWebSearch, setIsTestingWebSearch] = useState(false)
+    const [isTestingDocumentParse, setIsTestingDocumentParse] = useState(false)
     const [llmTestResult, setLlmTestResult] = useState<any>(null)
     const [embeddingTestResult, setEmbeddingTestResult] = useState<any>(null)
     const [webSearchTestResult, setWebSearchTestResult] = useState<any>(null)
+    const [documentParseTestResult, setDocumentParseTestResult] = useState<any>(null)
 
     // Mapping keys to local state for easier UI handling
     const [configValues, setConfigValues] = useState({
@@ -60,6 +64,14 @@ export default function SystemConfig() {
         webSearchKey: '',
         webSearchBaseUrl: '',
         webSearchMaxResults: '3',
+        documentParseProvider: 'none',
+        mineruApiToken: '',
+        mineruBaseUrl: 'https://mineru.net',
+        mineruModelVersion: 'vlm',
+        mineruEnableTable: 'true',
+        mineruEnableFormula: 'true',
+        mineruIsOcr: 'false',
+        mineruLanguage: 'ch',
         storageQuota: 5,
         fileLimit: 50,
         memberLimit: 5,
@@ -116,6 +128,14 @@ export default function SystemConfig() {
                 if (c.key === 'web_search_key') newValues.webSearchKey = c.value
                 if (c.key === 'web_search_base_url') newValues.webSearchBaseUrl = c.value
                 if (c.key === 'web_search_max_results') newValues.webSearchMaxResults = c.value
+                if (c.key === 'document_parse_provider') newValues.documentParseProvider = c.value
+                if (c.key === 'mineru_api_token') newValues.mineruApiToken = c.value
+                if (c.key === 'mineru_base_url') newValues.mineruBaseUrl = c.value
+                if (c.key === 'mineru_model_version') newValues.mineruModelVersion = c.value
+                if (c.key === 'mineru_enable_table') newValues.mineruEnableTable = c.value
+                if (c.key === 'mineru_enable_formula') newValues.mineruEnableFormula = c.value
+                if (c.key === 'mineru_is_ocr') newValues.mineruIsOcr = c.value
+                if (c.key === 'mineru_language') newValues.mineruLanguage = c.value
                 if (c.key === 'storage_quota') newValues.storageQuota = Number(c.value)
                 if (c.key === 'file_limit') newValues.fileLimit = Number(c.value)
                 if (c.key === 'member_limit') newValues.memberLimit = Number(c.value)
@@ -153,6 +173,9 @@ export default function SystemConfig() {
             }
             if (result.service === 'web_search') {
                 return `测试成功，返回 ${result.result_count ?? '-'} 条搜索结果，耗时 ${result.latency_ms ?? '-'} ms。`
+            }
+            if (result.service === 'document_parse') {
+                return `测试成功，MinerU 服务可访问，耗时 ${result.latency_ms ?? '-'} ms。`
             }
             return `测试成功，模型返回 ${result.response_preview || '有效响应'}，耗时 ${result.latency_ms ?? '-'} ms。`
         }
@@ -262,6 +285,36 @@ export default function SystemConfig() {
         }
     }
 
+    const handleTestDocumentParse = async () => {
+        try {
+            setIsTestingDocumentParse(true)
+            setIsSavingDocumentParse(true)
+            setDocumentParseTestResult(null)
+            await Promise.all([
+                adminService.updateConfig('document_parse_provider', configValues.documentParseProvider, 'Document parser provider'),
+                adminService.updateConfig('mineru_api_token', configValues.mineruApiToken, 'MinerU API token'),
+                adminService.updateConfig('mineru_base_url', configValues.mineruBaseUrl, 'MinerU API base URL'),
+                adminService.updateConfig('mineru_model_version', configValues.mineruModelVersion, 'MinerU model version'),
+                adminService.updateConfig('mineru_enable_table', configValues.mineruEnableTable, 'MinerU table parsing switch'),
+                adminService.updateConfig('mineru_enable_formula', configValues.mineruEnableFormula, 'MinerU formula parsing switch'),
+                adminService.updateConfig('mineru_is_ocr', configValues.mineruIsOcr, 'MinerU OCR switch'),
+                adminService.updateConfig('mineru_language', configValues.mineruLanguage, 'MinerU language'),
+            ])
+            const result = await adminService.testDocumentParseConfig()
+            setDocumentParseTestResult(result)
+        } catch (error: any) {
+            console.error('Failed to test document parser config:', error)
+            setDocumentParseTestResult({
+                success: false,
+                service: 'document_parse',
+                error: error?.response?.data?.detail || error?.message || '请求测试接口失败'
+            })
+        } finally {
+            setIsTestingDocumentParse(false)
+            setIsSavingDocumentParse(false)
+        }
+    }
+
     const handleSave = async () => {
         try {
             setIsSaving(true)
@@ -282,6 +335,14 @@ export default function SystemConfig() {
                 adminService.updateConfig('web_search_key', configValues.webSearchKey, 'Web search API key'),
                 adminService.updateConfig('web_search_base_url', configValues.webSearchBaseUrl, 'Web search API base URL'),
                 adminService.updateConfig('web_search_max_results', configValues.webSearchMaxResults, 'Maximum web results per AI request'),
+                adminService.updateConfig('document_parse_provider', configValues.documentParseProvider, 'Document parser provider'),
+                adminService.updateConfig('mineru_api_token', configValues.mineruApiToken, 'MinerU API token'),
+                adminService.updateConfig('mineru_base_url', configValues.mineruBaseUrl, 'MinerU API base URL'),
+                adminService.updateConfig('mineru_model_version', configValues.mineruModelVersion, 'MinerU model version'),
+                adminService.updateConfig('mineru_enable_table', configValues.mineruEnableTable, 'MinerU table parsing switch'),
+                adminService.updateConfig('mineru_enable_formula', configValues.mineruEnableFormula, 'MinerU formula parsing switch'),
+                adminService.updateConfig('mineru_is_ocr', configValues.mineruIsOcr, 'MinerU OCR switch'),
+                adminService.updateConfig('mineru_language', configValues.mineruLanguage, 'MinerU language'),
                 adminService.updateConfig('storage_quota', String(configValues.storageQuota), 'Storage quota per project in GB'),
                 adminService.updateConfig('file_limit', String(configValues.fileLimit), 'Single file size limit in MB'),
                 adminService.updateConfig('member_limit', String(configValues.memberLimit), 'Max members per project'),
@@ -394,6 +455,38 @@ export default function SystemConfig() {
             })
         } finally {
             setIsSavingWebSearch(false)
+        }
+    }
+
+    const handleSaveDocumentParse = async () => {
+        try {
+            setIsSavingDocumentParse(true)
+            await Promise.all([
+                adminService.updateConfig('document_parse_provider', configValues.documentParseProvider, 'Document parser provider'),
+                adminService.updateConfig('mineru_api_token', configValues.mineruApiToken, 'MinerU API token'),
+                adminService.updateConfig('mineru_base_url', configValues.mineruBaseUrl, 'MinerU API base URL'),
+                adminService.updateConfig('mineru_model_version', configValues.mineruModelVersion, 'MinerU model version'),
+                adminService.updateConfig('mineru_enable_table', configValues.mineruEnableTable, 'MinerU table parsing switch'),
+                adminService.updateConfig('mineru_enable_formula', configValues.mineruEnableFormula, 'MinerU formula parsing switch'),
+                adminService.updateConfig('mineru_is_ocr', configValues.mineruIsOcr, 'MinerU OCR switch'),
+                adminService.updateConfig('mineru_language', configValues.mineruLanguage, 'MinerU language'),
+            ])
+            setNotice({
+                isOpen: true,
+                title: '文档解析配置已同步',
+                message: 'PDF、PPT、Word 等复杂资源上传后将按该配置解析并进入 RAG。',
+                type: 'success'
+            })
+        } catch (error) {
+            console.error('Failed to save document parser configs:', error)
+            setNotice({
+                isOpen: true,
+                title: '同步失败',
+                message: '无法更新文档解析配置，请确认管理员权限或服务状态。',
+                type: 'error'
+            })
+        } finally {
+            setIsSavingDocumentParse(false)
         }
     }
 
@@ -811,6 +904,125 @@ export default function SystemConfig() {
                             <p>示例：provider=searxng，Base URL=https://your-searxng.example.com；provider=tavily，Base URL=https://api.tavily.com/search。</p>
                         </div>
                         {renderTestResult(webSearchTestResult)}
+                    </div>
+                </div>
+
+                {/* Document Parse Config Group */}
+                <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                    <div className="flex justify-between items-center border-b border-gray-50 pb-4">
+                        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <FileSearch className="w-5 h-5 text-violet-600" />
+                            文档解析服务 (MinerU)
+                        </h3>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-slate-600 border-slate-200 hover:bg-slate-50 gap-1.5 font-bold"
+                                onClick={handleTestDocumentParse}
+                                disabled={isTestingDocumentParse || isSavingDocumentParse}
+                            >
+                                {isTestingDocumentParse ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                保存并测试
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-violet-600 hover:text-violet-700 hover:bg-violet-50 gap-1.5 font-bold"
+                                onClick={handleSaveDocumentParse}
+                                disabled={isSavingDocumentParse}
+                            >
+                                {isSavingDocumentParse ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                同步配置
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <FileSearch className="w-4 h-4 text-slate-400" />
+                                    解析 Provider
+                                </label>
+                                <Input
+                                    value={configValues.documentParseProvider}
+                                    onChange={(e) => handleChange('documentParseProvider', e.target.value)}
+                                    placeholder="mineru 或 none"
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    填写 `mineru` 后，PDF、PPT、Word、Excel 等复杂资源上传后会自动解析并写入 RAG。
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <Cpu className="w-4 h-4 text-slate-400" />
+                                    MinerU 模型版本
+                                </label>
+                                <Input
+                                    value={configValues.mineruModelVersion}
+                                    onChange={(e) => handleChange('mineruModelVersion', e.target.value)}
+                                    placeholder="vlm 或 pipeline"
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    复杂版式 PDF 推荐 `vlm`；普通文本型 PDF 可使用 `pipeline`。
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Key className="w-4 h-4 text-slate-400" />
+                                MinerU API Token
+                            </label>
+                            <Input
+                                type="password"
+                                value={configValues.mineruApiToken}
+                                onChange={(e) => handleChange('mineruApiToken', e.target.value)}
+                                placeholder="Bearer Token；已配置时会显示为密码点"
+                            />
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                Token 仅保存在后端系统配置中，不会返回给学生端或教师端。
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-slate-400" />
+                                MinerU Base URL
+                            </label>
+                            <Input
+                                value={configValues.mineruBaseUrl}
+                                onChange={(e) => handleChange('mineruBaseUrl', e.target.value)}
+                                placeholder="https://mineru.net"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">表格识别</label>
+                                <Input value={configValues.mineruEnableTable} onChange={(e) => handleChange('mineruEnableTable', e.target.value)} placeholder="true 或 false" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">公式识别</label>
+                                <Input value={configValues.mineruEnableFormula} onChange={(e) => handleChange('mineruEnableFormula', e.target.value)} placeholder="true 或 false" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">OCR</label>
+                                <Input value={configValues.mineruIsOcr} onChange={(e) => handleChange('mineruIsOcr', e.target.value)} placeholder="扫描件可填 true" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">语言</label>
+                                <Input value={configValues.mineruLanguage} onChange={(e) => handleChange('mineruLanguage', e.target.value)} placeholder="ch" />
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-4 text-xs text-violet-900 space-y-2">
+                            <p className="font-bold">运行方式</p>
+                            <p>教师端课程资源和学生端小组资料共用同一解析管线：上传到 MinIO 后，后端生成临时下载 URL 交给 MinerU，完成后保存 Markdown 并写入 Qdrant。</p>
+                            <p>资源卡片上的小图标会显示解析状态：等待、解析中、已入库、失败或不支持。</p>
+                        </div>
+                        {renderTestResult(documentParseTestResult)}
                     </div>
                 </div>
 

@@ -24,6 +24,7 @@ from app.services.storage_service import storage_service
 from app.services.rag_service import rag_service
 from app.services.vector_store_service import vector_store_service
 from app.services.text_extraction_service import text_extraction_service
+from app.services.document_parse_service import document_parse_service
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
@@ -64,6 +65,27 @@ INLINE_IMAGE_MIME_TYPES = {
     "image/gif",
     "image/webp",
 }
+
+
+def _serialize_resource(resource: Resource, *, url: Optional[str] = None) -> dict:
+    """Return a frontend-safe resource payload."""
+    return {
+        "id": str(resource.id),
+        "filename": resource.filename,
+        "url": url if url is not None else resource.url,
+        "size": resource.size,
+        "mime_type": resource.mime_type,
+        "project_id": resource.project_id,
+        "course_id": resource.course_id,
+        "scope": resource.scope,
+        "source_type": resource.source_type,
+        "uploaded_by": resource.uploaded_by,
+        "uploaded_at": resource.uploaded_at.isoformat(),
+        "parse_status": getattr(resource, "parse_status", None) or "pending",
+        "parse_provider": getattr(resource, "parse_provider", None),
+        "parse_error": getattr(resource, "parse_error", None),
+        "parsed_at": resource.parsed_at.isoformat() if getattr(resource, "parsed_at", None) else None,
+    }
 
 
 def _normalize_mime_type(mime_type: str) -> str:
@@ -392,13 +414,12 @@ async def _create_resource_from_uploaded_object(
     )
     await resource.insert()
 
-    # Trigger RAG vectorization in background
-    # Note: Real implementation needs to download file from S3, extract text (via PDFMiner/OCR), 
-    # and then call rag_service.
-    # We define a helper task here.
     async def process_resource_task(resource_id: str, file_key: str):
-        """Extract lightweight resource text and index it for semantic retrieval."""
+        """Extract resource text and index it for semantic retrieval."""
         try:
+            resource = await Resource.get(resource_id)
+            if not resource:
+                return
             file_bytes = await run_in_threadpool(storage_service.get_file_bytes, file_key)
             text_content = ""
             if text_extraction_service.can_extract(normalized_mime_type, resource_data.filename):
@@ -413,9 +434,22 @@ async def _create_resource_from_uploaded_object(
                     f"类型：{normalized_mime_type}\n"
                     "该文件暂未抽取正文，可作为资源库引用来源。"
                 )
-            await rag_service.process_resource(resource_id, text_content)
+            if document_parse_service.can_parse_with_mineru(normalized_mime_type, resource_data.filename):
+                await document_parse_service.process_resource(resource_id, fallback_text=text_content)
+            else:
+                indexed = await rag_service.process_resource(resource_id, text_content)
+                resource.parse_status = "indexed" if indexed else "unsupported"
+                resource.parse_provider = "local"
+                resource.parse_error = None if indexed else "No indexable text was produced"
+                resource.parsed_at = datetime.utcnow() if indexed else None
+                await resource.save()
         except Exception as exc:
             print(f"Resource RAG indexing skipped: {exc}")
+            resource = await Resource.get(resource_id)
+            if resource:
+                resource.parse_status = "failed"
+                resource.parse_error = str(exc)[:1000]
+                await resource.save()
 
     if resource.source_type == "library":
         background_tasks.add_task(process_resource_task, str(resource.id), resource.file_key)
@@ -433,19 +467,7 @@ async def _create_resource_from_uploaded_object(
         )
 
 
-    return {
-        "id": str(resource.id),
-        "filename": resource.filename,
-        "url": resource.url,
-        "size": resource.size,
-        "mime_type": resource.mime_type,
-        "project_id": resource.project_id,
-        "course_id": resource.course_id,
-        "scope": resource.scope,
-        "source_type": resource.source_type,
-        "uploaded_by": resource.uploaded_by,
-        "uploaded_at": resource.uploaded_at.isoformat(),
-    }
+    return _serialize_resource(resource)
 
 
 @router.get("/resources/{project_id}")
@@ -524,21 +546,7 @@ async def list_resources(
         download_url = storage_service.generate_presigned_get_url(
             resource.file_key
         )
-        resource_list.append(
-            {
-                "id": str(resource.id),
-                "filename": resource.filename,
-                "url": download_url,
-                "size": resource.size,
-                "mime_type": resource.mime_type,
-                "project_id": resource.project_id,
-                "course_id": resource.course_id,
-                "scope": resource.scope,
-                "source_type": resource.source_type,
-                "uploaded_by": resource.uploaded_by,
-                "uploaded_at": resource.uploaded_at.isoformat(),
-            }
-        )
+        resource_list.append(_serialize_resource(resource, url=download_url))
 
     return {"resources": resource_list}
 
@@ -570,19 +578,10 @@ async def list_course_resources(
     resource_list = []
     for resource in resources:
         resource_list.append(
-            {
-                "id": str(resource.id),
-                "filename": resource.filename,
-                "url": storage_service.generate_presigned_get_url(resource.file_key),
-                "size": resource.size,
-                "mime_type": resource.mime_type,
-                "project_id": resource.project_id,
-                "course_id": resource.course_id,
-                "scope": resource.scope,
-                "source_type": resource.source_type,
-                "uploaded_by": resource.uploaded_by,
-                "uploaded_at": resource.uploaded_at.isoformat(),
-            }
+            _serialize_resource(
+                resource,
+                url=storage_service.generate_presigned_get_url(resource.file_key),
+            )
         )
 
     return {"resources": resource_list}
@@ -641,12 +640,26 @@ async def delete_resource(
     resource_id_str = str(resource.id)
     project_id = resource.project_id
     file_key = resource.file_key
+    parsed_keys = [
+        key
+        for key in [
+            resource.parsed_markdown_key,
+            resource.parsed_content_key,
+            resource.parsed_zip_key,
+        ]
+        if key
+    ]
 
     # Delete from storage first
     try:
         storage_service.delete_file(file_key)
     except Exception as e:
         print(f"Warning: Failed to delete file from storage: {e}")
+    for parsed_key in parsed_keys:
+        try:
+            storage_service.delete_file(parsed_key)
+        except Exception as e:
+            print(f"Warning: Failed to delete parsed artifact from storage: {e}")
 
     # Delete from database
     await resource.delete()

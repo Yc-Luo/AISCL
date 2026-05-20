@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { BookOpen, Eye, Download, Trash2 } from 'lucide-react'
+import { BookOpen, Eye, Download, Trash2, CheckCircle2, Clock3, Loader2, AlertTriangle, MinusCircle } from 'lucide-react'
 import { storageService } from '../../../../services/api/storage'
 import { wikiService } from '../../../../services/api/wiki'
 import { Resource } from '../../../../types'
@@ -39,22 +39,33 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     type: 'success',
   })
 
-  useEffect(() => {
-    const fetchResources = async () => {
-      try {
-        const data = await storageService.getResources(projectId, { includeCourseResources: true })
-        setResources(data.resources)
-      } catch (error) {
-        console.error('Failed to fetch resources:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    if (projectId) {
-      fetchResources()
+  const fetchResources = useCallback(async () => {
+    try {
+      const data = await storageService.getResources(projectId, { includeCourseResources: true })
+      setResources(data.resources)
+    } catch (error) {
+      console.error('Failed to fetch resources:', error)
+    } finally {
+      setLoading(false)
     }
   }, [projectId])
+
+  useEffect(() => {
+    if (projectId) {
+      void fetchResources()
+    }
+  }, [projectId, fetchResources])
+
+  useEffect(() => {
+    const hasUnfinishedParsing = resources.some((resource) =>
+      ['pending', 'parsing'].includes(resource.parse_status || 'pending')
+    )
+    if (!projectId || !hasUnfinishedParsing) return
+    const timer = window.setInterval(() => {
+      void fetchResources()
+    }, 10000)
+    return () => window.clearInterval(timer)
+  }, [projectId, resources, fetchResources])
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -79,8 +90,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
           setUploadProgress((prev) => ({ ...prev, [file.name]: 100 }))
 
           // Refresh resource list
-          const data = await storageService.getResources(projectId, { includeCourseResources: true })
-          setResources(data.resources)
+          await fetchResources()
 
           trackingService.track({
             module: 'resources',
@@ -102,7 +112,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
 
       setUploading(false)
     },
-    [projectId, user]
+    [projectId, user, fetchResources]
   )
 
 
@@ -199,6 +209,23 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     )
   }
 
+  const getParseStatus = (resource: Resource) => {
+    const status = resource.parse_status || 'pending'
+    if (status === 'indexed') {
+      return { title: '已完成解析并进入 AI 检索', icon: <CheckCircle2 size={14} />, className: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' }
+    }
+    if (status === 'parsing') {
+      return { title: '资源正在解析入库', icon: <Loader2 size={14} className="animate-spin" />, className: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100' }
+    }
+    if (status === 'failed') {
+      return { title: resource.parse_error || '解析失败，可稍后重试或联系教师', icon: <AlertTriangle size={14} />, className: 'bg-rose-50 text-rose-700 ring-1 ring-rose-100' }
+    }
+    if (status === 'unsupported') {
+      return { title: '该资源仅作为文件保存，暂未进入 AI 检索', icon: <MinusCircle size={14} />, className: 'bg-slate-50 text-slate-500 ring-1 ring-slate-100' }
+    }
+    return { title: '等待解析入库', icon: <Clock3 size={14} />, className: 'bg-amber-50 text-amber-700 ring-1 ring-amber-100' }
+  }
+
   if (loading) {
     return <div className="p-4">加载中...</div>
   }
@@ -280,6 +307,17 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
                       }`}>
                         {resource.scope === 'course' ? '教师资源' : '小组资源'}
                       </span>
+                      {(() => {
+                        const parse = getParseStatus(resource)
+                        return (
+                          <span
+                            className={`inline-flex shrink-0 items-center justify-center rounded-full p-1 ${parse.className}`}
+                            title={parse.title}
+                          >
+                            {parse.icon}
+                          </span>
+                        )
+                      })()}
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
                       {formatFileSize(resource.size)}

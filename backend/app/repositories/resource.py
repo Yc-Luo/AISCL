@@ -21,6 +21,18 @@ class Resource(Document):
     source_type: str = Field(default="library", index=True)
     uploaded_by: str = Field(..., index=True)
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    parse_status: str = Field(
+        default="pending",
+        pattern="^(pending|parsing|indexed|failed|unsupported)$",
+        index=True,
+    )
+    parse_provider: Optional[str] = Field(default=None, index=True)
+    parse_task_id: Optional[str] = None
+    parse_error: Optional[str] = None
+    parsed_markdown_key: Optional[str] = None
+    parsed_content_key: Optional[str] = None
+    parsed_zip_key: Optional[str] = None
+    parsed_at: Optional[datetime] = None
 
     class Settings:
         """Beanie settings."""
@@ -34,4 +46,6 @@ class Resource(Document):
             [("course_id", 1), ("source_type", 1)],
             [("uploaded_by", 1)],
             [("uploaded_at", 1)],
+            [("parse_status", 1)],
+            [("parse_provider", 1)],
         ]

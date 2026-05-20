@@ -41,6 +41,7 @@ export const API_ENDPOINTS = {
         TEST_LLM_CONFIG: '/admin/system-configs/test-llm',
         TEST_EMBEDDING_CONFIG: '/admin/system-configs/test-embedding',
         TEST_WEB_SEARCH_CONFIG: '/admin/system-configs/test-web-search',
+        TEST_DOCUMENT_PARSE_CONFIG: '/admin/system-configs/test-document-parse',
         BEHAVIOR_LOGS: '/admin/behavior-logs',
         BEHAVIOR_LOGS_EXPORT: '/admin/behavior-logs/export',
         CONFIG_PERMISSION_TEACHERS: '/admin/config-permissions/teachers',

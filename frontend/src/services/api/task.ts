@@ -143,6 +143,14 @@ export const taskService = {
     return response.data
   },
 
+  async exportTeacherSubmissionArtifactsZip(params?: { course_id?: string; release_id?: string }): Promise<Blob> {
+    const response = await api.get(
+      `${API_ENDPOINTS.TASKS}/teacher/submissions/artifacts.zip`,
+      { params, responseType: 'blob' }
+    )
+    return response.data
+  },
+
   async reviewSubmission(taskId: string, data: {
     review_status: 'reviewed' | 'revision_requested'
     review_comment?: string

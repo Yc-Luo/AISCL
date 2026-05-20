@@ -17,11 +17,13 @@ import {
     applyEdgeChanges,
     addEdge
 } from 'reactflow';
+import * as Y from 'yjs';
 import { useInquiryStore } from '../store/useInquiryStore';
 import { useAuthStore } from '../../../stores/authStore';
 import { InquiryNodeData, InquiryEdgeData, InquiryCard, InquiryCardType } from '../types';
 import { inquiryService } from '../../../services/api/inquiry';
 import { syncService } from '../../../services/sync/SyncService';
+import { SyncServiceYjsProvider } from '../../../services/sync/SyncServiceYjsProvider';
 import { useSyncStore } from '../../../stores/syncStore';
 
 // UTF-8 安全的 Base64 编码/解码
@@ -81,6 +83,9 @@ export const useInquirySync = (projectId: string) => {
     const hasLocalMutationRef = useRef(false);
     const snapshotVersionRef = useRef<number | undefined>(undefined);
     const syncUnlockTimerRef = useRef<number | null>(null);
+    const ydocRef = useRef<Y.Doc | null>(null);
+    const yProviderRef = useRef<SyncServiceYjsProvider | null>(null);
+    const yStateMapRef = useRef<Y.Map<any> | null>(null);
 
     // 唯一的 session ID，用于识别自己发送的操作
     const sessionIdRef = useRef(`session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -125,6 +130,15 @@ export const useInquirySync = (projectId: string) => {
             if (first) sentOperationIds.current.delete(first);
         }
 
+        const yStateMap = yStateMapRef.current;
+        if (ydocRef.current && yStateMap) {
+            ydocRef.current.transact(() => {
+                yStateMap.set('fullState', stateData);
+                yStateMap.set('updatedAt', Date.now());
+                yStateMap.set('updatedBy', user?.id || sessionIdRef.current);
+            }, sessionIdRef.current);
+        }
+
         // 使用 SyncService 发送操作
         const operation: any = {
             id: opId,
@@ -140,7 +154,7 @@ export const useInquirySync = (projectId: string) => {
         syncService.sendOperation(operation).catch(err => {
             console.error('[InquirySync] Failed to broadcast state:', err);
         });
-    }, [projectId]);
+    }, [projectId, user?.id]);
 
     const broadcastState = useCallback(() => {
         sendCurrentState(false);
@@ -282,6 +296,42 @@ export const useInquirySync = (projectId: string) => {
 
         console.log('[InquirySync] Initializing for project:', projectId);
 
+        const roomId = `inquiry:${projectId}`;
+        const ydoc = new Y.Doc();
+        const provider = new SyncServiceYjsProvider(roomId, ydoc, 'inquiry');
+        const yStateMap = ydoc.getMap<any>('inquiry_state');
+        ydocRef.current = ydoc;
+        yProviderRef.current = provider;
+        yStateMapRef.current = yStateMap;
+
+        const applyYjsState = (stateData: unknown) => {
+            if (typeof stateData !== 'string') return;
+            const parsed = deserializeState(stateData);
+            if (!parsed) return;
+
+            console.log('[InquirySync] Applying Yjs state:', {
+                nodes: parsed.nodes.length,
+                edges: parsed.edges.length,
+                scrapbook: parsed.scrapbook.length,
+            });
+
+            isSyncingRef.current = true;
+            useInquiryStore.getState().setFullState(parsed.nodes, parsed.edges, parsed.scrapbook, projectId);
+            isHydratedRef.current = true;
+            setIsHydrated(true);
+            setSaveError(null);
+            releaseSyncLock();
+        };
+
+        const observeYjsState = (_event: Y.YMapEvent<any>, transaction: Y.Transaction) => {
+            if (transaction.origin === sessionIdRef.current) return;
+            applyYjsState(yStateMap.get('fullState'));
+        };
+        yStateMap.observe(observeYjsState);
+        provider.connect().catch(error => {
+            console.error('[InquirySync] Failed to connect Yjs provider:', error);
+        });
+
         // 加载初始数据
         const loadInitialData = async () => {
             try {
@@ -302,9 +352,25 @@ export const useInquirySync = (projectId: string) => {
                             scrapbook: parsed.scrapbook.length
                         });
 
+                        const liveState = yStateMap.get('fullState');
+                        if (typeof liveState === 'string' && liveState && liveState !== decoded) {
+                            snapshotVersionRef.current = response.version;
+                            setLastSavedAt(response.updated_at || null);
+                            applyYjsState(liveState);
+                            console.log('[InquirySync] Used live Yjs state instead of older backend snapshot');
+                            return;
+                        }
+
                         // 在应用状态前加锁
                         isSyncingRef.current = true;
                         useInquiryStore.getState().setFullState(parsed.nodes, parsed.edges, parsed.scrapbook, projectId);
+                        if (!yStateMap.get('fullState')) {
+                            ydoc.transact(() => {
+                                yStateMap.set('fullState', decoded);
+                                yStateMap.set('updatedAt', Date.now());
+                                yStateMap.set('updatedBy', sessionIdRef.current);
+                            }, sessionIdRef.current);
+                        }
 
                         // 延迟解锁以避开 React Flow 初始化时的自动变化
                         setTimeout(() => {
@@ -325,6 +391,13 @@ export const useInquirySync = (projectId: string) => {
             }
 
             useInquiryStore.getState().setFullState([], [], [], projectId);
+            if (!yStateMap.get('fullState')) {
+                ydoc.transact(() => {
+                    yStateMap.set('fullState', serializeState([], [], []));
+                    yStateMap.set('updatedAt', Date.now());
+                    yStateMap.set('updatedBy', sessionIdRef.current);
+                }, sessionIdRef.current);
+            }
             isHydratedRef.current = true;
             setIsHydrated(true);
         };
@@ -338,12 +411,14 @@ export const useInquirySync = (projectId: string) => {
 
         syncService.on('operation:inquiry', handleOperation);
 
-        // 加入房间
-        syncService.joinRoom(`inquiry:${projectId}`, 'inquiry');
-
         return () => {
+            yStateMap.unobserve(observeYjsState);
+            provider.destroy();
+            ydoc.destroy();
+            if (yProviderRef.current === provider) yProviderRef.current = null;
+            if (ydocRef.current === ydoc) ydocRef.current = null;
+            if (yStateMapRef.current === yStateMap) yStateMapRef.current = null;
             syncService.off('operation:inquiry', handleOperation);
-            syncService.leaveRoom(`inquiry:${projectId}`, 'inquiry');
             isHydratedRef.current = false;
         };
     }, [projectId]); // 只依赖 projectId

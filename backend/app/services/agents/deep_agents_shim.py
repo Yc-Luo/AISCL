@@ -460,6 +460,7 @@ def create_deep_agent(
         group_chat_context = context_data.get("group_chat_context", "")
         group_peer_context = context_data.get("group_peer_context", "")
         group_ai_context = context_data.get("group_ai_context", "")
+        group_state_context = context_data.get("group_state_context", "")
         stage_memory_context = context_data.get("stage_memory_context", "")
         project_task_context = context_data.get("project_task_context", "")
         current_stage = context_data.get("current_stage", "")
@@ -591,6 +592,7 @@ You are the Deep Agent Supervisor.
 RAG Analysis: {strategy_note}
 Retrieved Context: {rag_context}
 Project Task Brief: {project_task_context or "none"}
+Group State Memory: {group_state_context or "none"}
 Stage Rolling Memory: {stage_memory_context or "none"}
 Group Peer Discussion Memory: {group_peer_context or group_chat_context or "none"}
 Group AI Interaction Memory: {group_ai_context or "none"}
@@ -721,6 +723,7 @@ Response Format (JSON):
             group_chat_context = state.get("context", {}).get("group_chat_context", "")
             group_peer_context = state.get("context", {}).get("group_peer_context", "")
             group_ai_context = state.get("context", {}).get("group_ai_context", "")
+            group_state_context = state.get("context", {}).get("group_state_context", "")
             stage_memory_context = state.get("context", {}).get("stage_memory_context", "")
             project_task_context = state.get("context", {}).get("project_task_context", "")
             diagnosis = state.get("routing_decision", {}).get("collaboration_diagnosis") or state.get("context", {}).get("collaboration_diagnosis") or {}
@@ -740,7 +743,9 @@ Response Protocol:
 - 再给出一个具体、可执行的下一步行动。
 - 最后给出一个可以继续讨论的问题。
 - 回答应围绕问题、标准、证据和解释边界提供判断支架。
-- 默认控制在 120-220 字，除非学习者明确要求详细解释。
+- 普通问题默认 220-420 字；复杂整合、平台操作或多角色接力可到 500-700 字。
+- 如果学习者询问 AISCL 平台操作，应优先说明进入哪个页签、点击哪个入口、下一步如何记录或提交。
+- 不要机械重复同一种建议；根据问题类型选择步骤说明、观点比较、证据核查或协作推进。
 - 不替学习者完成最终答案，不暴露实验条件、路由规则或内部系统配置。
 
 Relevant Context for your use (Cite if using):
@@ -748,6 +753,9 @@ Relevant Context for your use (Cite if using):
 
 Project Task Brief:
 {project_task_context or "none"}
+
+Group State Memory:
+{group_state_context or "none"}
 
 Stage Rolling Memory for continuity:
 {stage_memory_context or "none"}

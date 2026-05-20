@@ -34,10 +34,13 @@ export default function SystemConfig() {
     const [isSaving, setIsSaving] = useState(false)
     const [isSavingLLM, setIsSavingLLM] = useState(false)
     const [isSavingEmbedding, setIsSavingEmbedding] = useState(false)
+    const [isSavingWebSearch, setIsSavingWebSearch] = useState(false)
     const [isTestingLLM, setIsTestingLLM] = useState(false)
     const [isTestingEmbedding, setIsTestingEmbedding] = useState(false)
+    const [isTestingWebSearch, setIsTestingWebSearch] = useState(false)
     const [llmTestResult, setLlmTestResult] = useState<any>(null)
     const [embeddingTestResult, setEmbeddingTestResult] = useState<any>(null)
+    const [webSearchTestResult, setWebSearchTestResult] = useState<any>(null)
 
     // Mapping keys to local state for easier UI handling
     const [configValues, setConfigValues] = useState({
@@ -52,6 +55,11 @@ export default function SystemConfig() {
         embeddingType: 'db',
         embeddingGroupId: '',
         embeddingDimensions: '',
+        webSearchEnabled: 'false',
+        webSearchProvider: 'searxng',
+        webSearchKey: '',
+        webSearchBaseUrl: '',
+        webSearchMaxResults: '3',
         storageQuota: 5,
         fileLimit: 50,
         memberLimit: 5,
@@ -103,6 +111,11 @@ export default function SystemConfig() {
                 if (c.key === 'embedding_type') newValues.embeddingType = c.value
                 if (c.key === 'embedding_group_id') newValues.embeddingGroupId = c.value
                 if (c.key === 'embedding_dimensions') newValues.embeddingDimensions = c.value
+                if (c.key === 'web_search_enabled') newValues.webSearchEnabled = c.value
+                if (c.key === 'web_search_provider') newValues.webSearchProvider = c.value
+                if (c.key === 'web_search_key') newValues.webSearchKey = c.value
+                if (c.key === 'web_search_base_url') newValues.webSearchBaseUrl = c.value
+                if (c.key === 'web_search_max_results') newValues.webSearchMaxResults = c.value
                 if (c.key === 'storage_quota') newValues.storageQuota = Number(c.value)
                 if (c.key === 'file_limit') newValues.fileLimit = Number(c.value)
                 if (c.key === 'member_limit') newValues.memberLimit = Number(c.value)
@@ -138,6 +151,9 @@ export default function SystemConfig() {
             if (result.service === 'embedding') {
                 return `测试成功，返回 ${result.vector_dimensions ?? '-'} 维向量，耗时 ${result.latency_ms ?? '-'} ms。`
             }
+            if (result.service === 'web_search') {
+                return `测试成功，返回 ${result.result_count ?? '-'} 条搜索结果，耗时 ${result.latency_ms ?? '-'} ms。`
+            }
             return `测试成功，模型返回 ${result.response_preview || '有效响应'}，耗时 ${result.latency_ms ?? '-'} ms。`
         }
         return `测试失败：${result.error || '未知错误'}`
@@ -157,6 +173,7 @@ export default function SystemConfig() {
                 <p className="mt-1">{formatTestSummary(result)}</p>
                 <p className="mt-1 opacity-80">
                     当前测试配置：provider={result.config?.provider || '-'}，model={result.config?.model || '-'}，base_url={result.config?.base_url || '-'}。
+                    {result.config?.enabled !== undefined ? ` enabled=${result.config.enabled}` : ''}
                 </p>
             </div>
         )
@@ -218,6 +235,33 @@ export default function SystemConfig() {
         }
     }
 
+    const handleTestWebSearch = async () => {
+        try {
+            setIsTestingWebSearch(true)
+            setIsSavingWebSearch(true)
+            setWebSearchTestResult(null)
+            await Promise.all([
+                adminService.updateConfig('web_search_enabled', configValues.webSearchEnabled, 'Whether RAG may use web search fallback'),
+                adminService.updateConfig('web_search_provider', configValues.webSearchProvider, 'Web search provider adapter'),
+                adminService.updateConfig('web_search_key', configValues.webSearchKey, 'Web search API key'),
+                adminService.updateConfig('web_search_base_url', configValues.webSearchBaseUrl, 'Web search API base URL'),
+                adminService.updateConfig('web_search_max_results', configValues.webSearchMaxResults, 'Maximum web results per AI request'),
+            ])
+            const result = await adminService.testWebSearchConfig()
+            setWebSearchTestResult(result)
+        } catch (error: any) {
+            console.error('Failed to test web search config:', error)
+            setWebSearchTestResult({
+                success: false,
+                service: 'web_search',
+                error: error?.response?.data?.detail || error?.message || '请求测试接口失败'
+            })
+        } finally {
+            setIsTestingWebSearch(false)
+            setIsSavingWebSearch(false)
+        }
+    }
+
     const handleSave = async () => {
         try {
             setIsSaving(true)
@@ -233,6 +277,11 @@ export default function SystemConfig() {
                 adminService.updateConfig('embedding_type', configValues.embeddingType, 'Embedding request type or purpose'),
                 adminService.updateConfig('embedding_group_id', configValues.embeddingGroupId, 'MiniMax embedding group id'),
                 adminService.updateConfig('embedding_dimensions', configValues.embeddingDimensions, 'Embedding vector dimensions'),
+                adminService.updateConfig('web_search_enabled', configValues.webSearchEnabled, 'Whether RAG may use web search fallback'),
+                adminService.updateConfig('web_search_provider', configValues.webSearchProvider, 'Web search provider adapter'),
+                adminService.updateConfig('web_search_key', configValues.webSearchKey, 'Web search API key'),
+                adminService.updateConfig('web_search_base_url', configValues.webSearchBaseUrl, 'Web search API base URL'),
+                adminService.updateConfig('web_search_max_results', configValues.webSearchMaxResults, 'Maximum web results per AI request'),
                 adminService.updateConfig('storage_quota', String(configValues.storageQuota), 'Storage quota per project in GB'),
                 adminService.updateConfig('file_limit', String(configValues.fileLimit), 'Single file size limit in MB'),
                 adminService.updateConfig('member_limit', String(configValues.memberLimit), 'Max members per project'),
@@ -316,6 +365,35 @@ export default function SystemConfig() {
             })
         } finally {
             setIsSavingEmbedding(false)
+        }
+    }
+
+    const handleSaveWebSearch = async () => {
+        try {
+            setIsSavingWebSearch(true)
+            await Promise.all([
+                adminService.updateConfig('web_search_enabled', configValues.webSearchEnabled, 'Whether RAG may use web search fallback'),
+                adminService.updateConfig('web_search_provider', configValues.webSearchProvider, 'Web search provider adapter'),
+                adminService.updateConfig('web_search_key', configValues.webSearchKey, 'Web search API key'),
+                adminService.updateConfig('web_search_base_url', configValues.webSearchBaseUrl, 'Web search API base URL'),
+                adminService.updateConfig('web_search_max_results', configValues.webSearchMaxResults, 'Maximum web results per AI request'),
+            ])
+            setNotice({
+                isOpen: true,
+                title: '联网搜索配置已同步',
+                message: 'RAG 将在本地资料和 Wiki 无命中时按该配置进行受控搜索兜底。',
+                type: 'success'
+            })
+        } catch (error) {
+            console.error('Failed to save web search configs:', error)
+            setNotice({
+                isOpen: true,
+                title: '同步失败',
+                message: '无法更新联网搜索配置，请确认管理员权限或服务状态。',
+                type: 'error'
+            })
+        } finally {
+            setIsSavingWebSearch(false)
         }
     }
 
@@ -622,6 +700,117 @@ export default function SystemConfig() {
                             <p className="text-emerald-800/80">注意：更换向量模型时，向量维度必须与 Qdrant collection 的维度一致；如维度不同，需要重建向量集合。</p>
                         </div>
                         {renderTestResult(embeddingTestResult)}
+                    </div>
+                </div>
+
+                {/* Web Search Config Group */}
+                <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                    <div className="flex justify-between items-center border-b border-gray-50 pb-4">
+                        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <Globe className="w-5 h-5 text-sky-600" />
+                            联网搜索兜底（可选）
+                        </h3>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-slate-600 border-slate-200 hover:bg-slate-50 gap-1.5 font-bold"
+                                onClick={handleTestWebSearch}
+                                disabled={isTestingWebSearch || isSavingWebSearch}
+                            >
+                                {isTestingWebSearch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                保存并测试
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-sky-600 hover:text-sky-700 hover:bg-sky-50 gap-1.5 font-bold"
+                                onClick={handleSaveWebSearch}
+                                disabled={isSavingWebSearch}
+                            >
+                                {isSavingWebSearch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                同步配置
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <ShieldCheck className="w-4 h-4 text-slate-400" />
+                                    是否启用
+                                </label>
+                                <Input
+                                    value={configValues.webSearchEnabled}
+                                    onChange={(e) => handleChange('webSearchEnabled', e.target.value)}
+                                    placeholder="true 或 false"
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    默认 false。启用后，仅在本地资料/Wiki 无命中且不是平台操作问题时使用。
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <Globe className="w-4 h-4 text-slate-400" />
+                                    Provider
+                                </label>
+                                <Input
+                                    value={configValues.webSearchProvider}
+                                    onChange={(e) => handleChange('webSearchProvider', e.target.value)}
+                                    placeholder="如：searxng、tavily、brave、bing、serpapi"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Key className="w-4 h-4 text-slate-400" />
+                                Search API Key（可选）
+                            </label>
+                            <Input
+                                type="password"
+                                value={configValues.webSearchKey}
+                                onChange={(e) => handleChange('webSearchKey', e.target.value)}
+                                placeholder="Tavily/Brave/Bing/SerpAPI 需要；自建 SearXNG 通常可留空"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-4">
+                            <div className="col-span-2 space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <Globe className="w-4 h-4 text-slate-400" />
+                                    Search Base URL
+                                </label>
+                                <Input
+                                    value={configValues.webSearchBaseUrl}
+                                    onChange={(e) => handleChange('webSearchBaseUrl', e.target.value)}
+                                    placeholder="如：https://your-searxng.example.com 或 https://api.tavily.com/search"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-slate-400" />
+                                    最大结果数
+                                </label>
+                                <Input
+                                    type="number"
+                                    min="1"
+                                    max="5"
+                                    value={configValues.webSearchMaxResults}
+                                    onChange={(e) => handleChange('webSearchMaxResults', e.target.value)}
+                                    placeholder="3"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl border border-sky-100 bg-sky-50/60 p-4 text-xs text-sky-900 space-y-2">
+                            <p className="font-bold">设计约束</p>
+                            <p>联网搜索只作为 RAG 兜底，不替代项目资源库、Wiki 和任务记忆。</p>
+                            <p>学习者询问“如何上传、如何提交、Wiki 怎么用”等平台操作问题时，后端会优先使用平台功能知识，不触发搜索。</p>
+                            <p>示例：provider=searxng，Base URL=https://your-searxng.example.com；provider=tavily，Base URL=https://api.tavily.com/search。</p>
+                        </div>
+                        {renderTestResult(webSearchTestResult)}
                     </div>
                 </div>
 

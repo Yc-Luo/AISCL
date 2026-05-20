@@ -108,6 +108,15 @@ export default function AssignmentReview() {
     }
   }
 
+  const exportArtifactsZip = async () => {
+    try {
+      const blob = await taskService.exportTeacherSubmissionArtifactsZip()
+      saveBlob(blob, `学生成果文件-${new Date().toISOString().slice(0, 10)}.zip`)
+    } catch {
+      setToast({ message: '成果文件打包下载失败，请稍后重试。', type: 'error' })
+    }
+  }
+
   const submitReview = async () => {
     if (!selected) return
     try {
@@ -145,6 +154,10 @@ export default function AssignmentReview() {
           <Button onClick={exportTable} className="self-center rounded-2xl bg-slate-900 text-white hover:bg-slate-800">
             <ArrowDownToLine className="mr-2 h-4 w-4" />
             导出清单
+          </Button>
+          <Button onClick={exportArtifactsZip} className="self-center rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700">
+            <FileArchive className="mr-2 h-4 w-4" />
+            下载全部成果
           </Button>
         </div>
       </div>

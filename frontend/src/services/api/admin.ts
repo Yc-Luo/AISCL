@@ -58,10 +58,11 @@ export interface Config {
 
 export interface ModelConfigTestResult {
     success: boolean
-    service: 'llm' | 'embedding'
+    service: 'llm' | 'embedding' | 'web_search'
     latency_ms?: number
     response_preview?: string
     vector_dimensions?: number
+    result_count?: number
     error?: string
     config?: {
         provider?: string
@@ -69,6 +70,8 @@ export interface ModelConfigTestResult {
         model?: string
         has_key?: boolean
         configured_dimensions?: string
+        max_results?: number
+        enabled?: boolean
     }
 }
 
@@ -135,6 +138,11 @@ export const adminService = {
 
     testEmbeddingConfig: async (): Promise<ModelConfigTestResult> => {
         const response = await api.post(API_ENDPOINTS.ADMIN.TEST_EMBEDDING_CONFIG)
+        return response.data
+    },
+
+    testWebSearchConfig: async (): Promise<ModelConfigTestResult> => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.TEST_WEB_SEARCH_CONFIG)
         return response.data
     },
 

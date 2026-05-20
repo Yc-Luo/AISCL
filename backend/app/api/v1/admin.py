@@ -33,6 +33,7 @@ from app.repositories.activity_log import ActivityLog
 from app.services.auth_service import get_password_hash
 from app.core.llm_config import get_llm
 from app.services.embedding_service import embedding_service
+from app.services.web_search_service import web_search_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -40,6 +41,7 @@ MASKED_SECRET_VALUE = "********"
 SECRET_CONFIG_KEYS = {
     "llm_key",
     "embedding_key",
+    "web_search_key",
 }
 
 
@@ -306,6 +308,32 @@ async def test_embedding_config(
                 **_safe_config_summary(configs, "embedding"),
                 "configured_dimensions": configs.get("embedding_dimensions"),
             },
+        }
+
+
+@router.post("/system-configs/test-web-search")
+async def test_web_search_config(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Test the optional web-search fallback without exposing secrets."""
+    await _require_admin(current_user)
+    started_at = perf_counter()
+    try:
+        result = await web_search_service.test_search()
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        return {
+            **result,
+            "latency_ms": elapsed_ms,
+        }
+    except Exception as exc:  # noqa: BLE001
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        config = await web_search_service.get_config()
+        return {
+            "success": False,
+            "service": "web_search",
+            "latency_ms": elapsed_ms,
+            "error": str(exc),
+            "config": web_search_service.safe_summary(config),
         }
 
 

@@ -12,7 +12,8 @@ interface TaskKanbanProps {
   canSubmitCourseTask?: boolean
 }
 
-const MAX_ARTIFACT_SIZE = 50 * 1024 * 1024
+const MAX_ARTIFACT_SIZE_MB = 300
+const MAX_ARTIFACT_SIZE = MAX_ARTIFACT_SIZE_MB * 1024 * 1024
 const ARTIFACT_ACCEPT = [
   '.pdf',
   '.doc',
@@ -360,7 +361,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
     const nextFiles = Array.from(files)
     const oversized = nextFiles.find(file => file.size > MAX_ARTIFACT_SIZE)
     if (oversized) {
-      setToast({ message: `“${oversized.name}”超过 50MB，请压缩后再上传。`, type: 'error' })
+      setToast({ message: `“${oversized.name}”超过 ${MAX_ARTIFACT_SIZE_MB}MB，请压缩后再上传。`, type: 'error' })
       return
     }
     setSubmissionFiles(prev => [...prev, ...nextFiles].slice(0, 20))

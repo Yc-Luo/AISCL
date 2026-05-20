@@ -16,6 +16,7 @@ from app.repositories.resource import Resource
 from app.services.embedding_service import embedding_service
 from app.services.research_event_service import research_event_service
 from app.services.vector_store_service import vector_store_service
+from app.services.web_search_service import web_search_service
 from app.services.wiki_service import wiki_service
 
 
@@ -225,6 +226,18 @@ class RAGService:
                 seen_ids.add(key)
 
         final_results = unique_results[:max_results]
+        web_results: List[dict] = []
+        if (
+            not final_results
+            and (not source_types or set(source_types).issubset({"wiki", "resource"}))
+            and await web_search_service.is_enabled()
+            and web_search_service.should_search(query)
+        ):
+            try:
+                web_results = await web_search_service.search(query, max_results=max_results)
+                final_results = web_results[:max_results]
+            except Exception as exc:  # noqa: BLE001
+                print(f"Web search fallback error: {exc}")
 
         if record_event:
             await RAGService._record_retrieval_event(
@@ -239,6 +252,7 @@ class RAGService:
                 experiment_version_id=experiment_version_id,
                 source_types=source_types,
                 wiki_item_types=wiki_item_types,
+                web_fallback_used=bool(web_results),
             )
 
         return {
@@ -252,6 +266,8 @@ class RAGService:
                     "source_type": r.get("source_type"),
                     "scope": r.get("scope"),
                     "course_id": r.get("course_id"),
+                    "url": r.get("url"),
+                    "provider": r.get("provider"),
                 }
                 for r in final_results
             ],
@@ -264,6 +280,10 @@ class RAGService:
             title = result.get("title") or "Wiki 条目"
             item_type = result.get("item_type") or "note"
             return f"[WIKI:{item_type}:{title}]: {result['content']}"
+        if result.get("type") == "web":
+            title = result.get("title") or "网页搜索结果"
+            url = result.get("url") or ""
+            return f"[WEB:{title}]: {result['content']}\nURL: {url}"
         return f"[{result['type'].upper()}]: {result['content']}"
 
     @staticmethod
@@ -280,6 +300,7 @@ class RAGService:
         experiment_version_id: Optional[str],
         source_types: Optional[List[str]],
         wiki_item_types: Optional[List[str]],
+        web_fallback_used: bool = False,
     ) -> None:
         """Record a lightweight retrieval event for later RAG trace analysis."""
         try:
@@ -318,11 +339,32 @@ class RAGService:
                                 result for result in results
                                 if result.get("type") == "resource"
                             ]),
+                            "web_result_count": len([
+                                result for result in results
+                                if result.get("type") == "web"
+                            ]),
+                            "web_fallback_used": web_fallback_used,
                             "source_types_filter": source_types or [],
                             "wiki_item_types_filter": wiki_item_types or [],
                         },
                     }
                 ] + ([
+                    {
+                        **base_event,
+                        "event_domain": "rag",
+                        "event_type": "web_search_requested",
+                        "payload": {
+                            "query_length": len(query or ""),
+                            "result_count": len([result for result in results if result.get("type") == "web"]),
+                            "citation_titles": [
+                                result.get("title") for result in results if result.get("type") == "web"
+                            ],
+                            "citation_urls": [
+                                result.get("url") for result in results if result.get("type") == "web"
+                            ],
+                        },
+                    }
+                ] if web_fallback_used else []) + ([
                     {
                         **base_event,
                         "event_domain": "rag",

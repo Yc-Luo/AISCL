@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, ChevronDown, Image as ImageIcon, Loader2, MessageCircle, SendHorizontal, X } from 'lucide-react';
@@ -11,6 +11,11 @@ import { ExperimentVersion } from '../../../../types';
 import { getTabLabel } from '../../../../lib/stageModel';
 
 const MAX_FLOATING_IMAGE_BYTES = 10 * 1024 * 1024;
+const FLOATING_POSITION_STORAGE_KEY = 'aiscl-floating-ai-position';
+const FLOATING_BUTTON_SIZE = 44;
+const FLOATING_PANEL_WIDTH = 400;
+const FLOATING_PANEL_HEIGHT = 560;
+const FLOATING_MARGIN = 8;
 
 interface FloatingMessage {
     id: string;
@@ -56,7 +61,24 @@ export default function ContextualAIAssistant({
     const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+    const [panelPosition, setPanelPosition] = useState<{ x: number; y: number } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const dragRef = useRef<{
+        mode: 'button' | 'panel';
+        pointerId: number;
+        offsetX: number;
+        offsetY: number;
+        bounds: DOMRect;
+        elementWidth: number;
+        elementHeight: number;
+        startClientX: number;
+        startClientY: number;
+        moved: boolean;
+    } | null>(null);
+    const suppressClickRef = useRef(false);
     const rawContentRef = useRef('');
     const enqueueRecommendation = useScaffoldRecommendationStore((state) => state.enqueueRecommendation);
 
@@ -69,6 +91,127 @@ export default function ContextualAIAssistant({
         '请检查我当前思路可能缺少什么证据或反例。',
         '把这个问题转成适合小组讨论的一个聚焦问题。',
     ];
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const saved = window.localStorage.getItem(FLOATING_POSITION_STORAGE_KEY);
+            if (!saved) return;
+            const parsed = JSON.parse(saved);
+            if (Number.isFinite(parsed?.x) && Number.isFinite(parsed?.y)) {
+                setPosition({ x: parsed.x, y: parsed.y });
+            }
+        } catch {
+            // Ignore corrupted local preference.
+        }
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !position) return;
+        window.localStorage.setItem(FLOATING_POSITION_STORAGE_KEY, JSON.stringify(position));
+    }, [position]);
+
+    const getContainerBounds = (node: HTMLElement | null) => (
+        (node?.offsetParent as HTMLElement | null)?.getBoundingClientRect()
+        ?? document.documentElement.getBoundingClientRect()
+    );
+
+    const clampToBounds = (
+        x: number,
+        y: number,
+        bounds: DOMRect,
+        elementWidth: number,
+        elementHeight: number,
+    ) => ({
+        x: Math.min(Math.max(x, FLOATING_MARGIN), Math.max(FLOATING_MARGIN, bounds.width - elementWidth - FLOATING_MARGIN)),
+        y: Math.min(Math.max(y, FLOATING_MARGIN), Math.max(FLOATING_MARGIN, bounds.height - elementHeight - FLOATING_MARGIN)),
+    });
+
+    const openAssistant = () => {
+        if (position) {
+            const bounds = getContainerBounds(buttonRef.current);
+            const panelWidth = Math.min(FLOATING_PANEL_WIDTH, Math.max(FLOATING_BUTTON_SIZE, bounds.width - FLOATING_MARGIN * 2));
+            const panelHeight = Math.min(FLOATING_PANEL_HEIGHT, Math.max(FLOATING_BUTTON_SIZE, bounds.height * 0.78));
+            setPanelPosition(clampToBounds(position.x, position.y, bounds, panelWidth, panelHeight));
+        }
+        setExpanded(true);
+    };
+
+    useEffect(() => {
+        const handlePointerMove = (event: PointerEvent) => {
+            const drag = dragRef.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            const distance = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY);
+            if (distance > 3) {
+                drag.moved = true;
+                suppressClickRef.current = true;
+            }
+            const nextPosition = clampToBounds(
+                event.clientX - drag.bounds.left - drag.offsetX,
+                event.clientY - drag.bounds.top - drag.offsetY,
+                drag.bounds,
+                drag.elementWidth,
+                drag.elementHeight,
+            );
+            if (drag.mode === 'panel') {
+                setPanelPosition(nextPosition);
+                setPosition(nextPosition);
+            } else {
+                setPosition(nextPosition);
+                setPanelPosition(null);
+            }
+        };
+        const handlePointerUp = (event: PointerEvent) => {
+            if (dragRef.current?.pointerId === event.pointerId) {
+                dragRef.current = null;
+            }
+        };
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+        window.addEventListener('pointercancel', handlePointerUp);
+        return () => {
+            window.removeEventListener('pointermove', handlePointerMove);
+            window.removeEventListener('pointerup', handlePointerUp);
+            window.removeEventListener('pointercancel', handlePointerUp);
+        };
+    }, []);
+
+    const startDrag = (
+        event: React.PointerEvent<HTMLDivElement | HTMLButtonElement>,
+        mode: 'button' | 'panel',
+    ) => {
+        if (event.button !== 0) return;
+        const target = mode === 'panel' ? panelRef.current : buttonRef.current;
+        if (!target) return;
+        const bounds = getContainerBounds(target);
+        const rect = target.getBoundingClientRect();
+        dragRef.current = {
+            mode,
+            pointerId: event.pointerId,
+            offsetX: event.clientX - rect.left,
+            offsetY: event.clientY - rect.top,
+            bounds,
+            elementWidth: rect.width,
+            elementHeight: rect.height,
+            startClientX: event.clientX,
+            startClientY: event.clientY,
+            moved: false,
+        };
+        const currentPosition = clampToBounds(
+            rect.left - bounds.left,
+            rect.top - bounds.top,
+            bounds,
+            rect.width,
+            rect.height,
+        );
+        if (mode === 'panel') {
+            setPanelPosition(currentPosition);
+            setPosition(currentPosition);
+        } else {
+            setPosition(currentPosition);
+        }
+    };
 
     const handleImageUpload = async (file?: File) => {
         if (!file) return;
@@ -217,10 +360,19 @@ export default function ContextualAIAssistant({
     if (!expanded) {
         return (
             <button
+                ref={buttonRef}
                 type="button"
-                onClick={() => setExpanded(true)}
-                className="absolute bottom-4 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-indigo-600 text-white shadow-xl shadow-indigo-200 transition hover:bg-indigo-700"
-                title="AI 助手"
+                onPointerDown={(event) => startDrag(event, 'button')}
+                onClick={() => {
+                    if (suppressClickRef.current) {
+                        suppressClickRef.current = false;
+                        return;
+                    }
+                    openAssistant();
+                }}
+                className={`absolute z-40 flex h-11 w-11 items-center justify-center rounded-full bg-indigo-600 text-white shadow-xl shadow-indigo-200 transition hover:bg-indigo-700 ${position ? '' : 'bottom-4 right-4'}`}
+                style={position ? { left: position.x, top: position.y } : undefined}
+                title="拖动移动，点击打开 AI 助手"
             >
                 <Bot className="h-5 w-5" />
             </button>
@@ -228,8 +380,16 @@ export default function ContextualAIAssistant({
     }
 
     return (
-        <div className="absolute bottom-4 right-4 z-40 flex h-[560px] max-h-[78vh] w-[400px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border border-indigo-100 bg-white shadow-2xl shadow-indigo-200/60">
-            <div className="flex items-center justify-between border-b border-indigo-50 bg-indigo-50/80 px-4 py-3">
+        <div
+            ref={panelRef}
+            className={`absolute z-40 flex h-[560px] max-h-[78vh] w-[400px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border border-indigo-100 bg-white shadow-2xl shadow-indigo-200/60 ${panelPosition || position ? '' : 'bottom-4 right-4'}`}
+            style={panelPosition || position ? { left: (panelPosition || position)?.x, top: (panelPosition || position)?.y } : undefined}
+        >
+            <div
+                className="flex cursor-move touch-none items-center justify-between border-b border-indigo-50 bg-indigo-50/80 px-4 py-3"
+                onPointerDown={(event) => startDrag(event, 'panel')}
+                title="拖动移动 AI 助手"
+            >
                 <div>
                     <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
                         <MessageCircle className="h-4 w-4 text-indigo-600" />
@@ -240,6 +400,7 @@ export default function ContextualAIAssistant({
                 <button
                     type="button"
                     onClick={() => setExpanded(false)}
+                    onPointerDown={(event) => event.stopPropagation()}
                     className="rounded-full p-1.5 text-slate-400 transition hover:bg-white hover:text-slate-700"
                 >
                     <ChevronDown className="h-5 w-5" />

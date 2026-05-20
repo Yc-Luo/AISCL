@@ -12,7 +12,6 @@ import {
     MessageSquare,
     Search,
     Send,
-    Sparkles,
     Users,
 } from 'lucide-react';
 import { Button, Input, Badge } from '../../../ui';
@@ -72,29 +71,6 @@ function mapHelpRequest(request: any): HelpRequest {
 }
 
 const UNASSIGNED_COURSE_ID = '__unassigned__';
-
-const SUPPORT_TEMPLATES = [
-    {
-        type: '任务推进',
-        text: '请先对照项目说明，明确当前小组最需要解决的一个问题，并把下一步任务写入协作文档。',
-    },
-    {
-        type: '证据补充',
-        text: '建议补充至少一条可核验资料，并说明这条证据与当前观点之间的关系。',
-    },
-    {
-        type: '观点比较',
-        text: '请尝试列出一个不同观点或反例，再判断原有观点是否需要修订。',
-    },
-    {
-        type: '阶段总结',
-        text: '请把当前共识、主要分歧和下一步分工整理到协作文档中。',
-    },
-    {
-        type: '协作分工',
-        text: '建议明确每位成员接下来负责的资料、观点或文档部分，避免重复劳动。',
-    },
-];
 
 const FOUR_C_LABELS: Record<string, string> = {
     communication: '沟通参与',
@@ -196,13 +172,14 @@ export default function ProjectMonitor() {
     const [analyticsLoading, setAnalyticsLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [onlyNeedsAttention, setOnlyNeedsAttention] = useState(false);
-    const [supportType, setSupportType] = useState(SUPPORT_TEMPLATES[0].type);
-    const [supportDraft, setSupportDraft] = useState(SUPPORT_TEMPLATES[0].text);
+    const [groupSupportDraft, setGroupSupportDraft] = useState('');
+    const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+    const [replyPublicByRequest, setReplyPublicByRequest] = useState<Record<string, boolean>>({});
     const [supportSending, setSupportSending] = useState(false);
+    const [sendingRequestId, setSendingRequestId] = useState<string | null>(null);
     const [supportFeedback, setSupportFeedback] = useState<string | null>(null);
     const [supportHistory, setSupportHistory] = useState<Record<string, SupportHistoryItem[]>>({});
     const [helpRequests, setHelpRequests] = useState<HelpRequest[]>(emptyHelpRequests);
-    const [supportPublicReply, setSupportPublicReply] = useState(false);
     const [lastHelpRefreshAt, setLastHelpRefreshAt] = useState<string | null>(null);
     const dashboardViewTrackedRef = useRef(false);
     const toast = useToast();
@@ -371,11 +348,10 @@ export default function ProjectMonitor() {
     }, [filteredProjects, selectedProjectId]);
 
     useEffect(() => {
-        const defaultTemplate = SUPPORT_TEMPLATES[0];
-        setSupportType(defaultTemplate.type);
-        setSupportDraft(defaultTemplate.text);
+        setGroupSupportDraft('');
+        setReplyDrafts({});
+        setReplyPublicByRequest({});
         setSupportFeedback(null);
-        setSupportPublicReply(false);
     }, [selectedProjectId]);
 
     const selectedProject = filteredProjects.find((project) => project.id === selectedProjectId) || filteredProjects[0];
@@ -384,7 +360,6 @@ export default function ProjectMonitor() {
     const selectedHelpRequests = selectedProject
         ? helpRequests.filter((request) => request.projectId === selectedProject.id && request.status === 'pending')
         : [];
-    const primaryHelpRequest = selectedHelpRequests[0];
     const selectedSupportHistory = selectedProject ? supportHistory[selectedProject.id] || [] : [];
     const onlineLearningCount = selectedProject
         ? selectedPresenceUsers.filter((presenceUser) =>
@@ -476,28 +451,19 @@ export default function ProjectMonitor() {
     const totalStudents = courses.reduce((acc, course) => acc + (course.students?.length || 0), 0);
     const attentionCount = projects.filter((project) => getProjectMetrics(project).status !== 'normal').length;
 
-    const handleTemplateSelect = (template: (typeof SUPPORT_TEMPLATES)[number]) => {
-        setSupportType(template.type);
-        setSupportDraft(template.text);
-        setSupportFeedback(null);
-    };
-
-    const handleSendTeacherSupport = async () => {
-        if (!selectedProject || !supportDraft.trim()) return;
+    const handleReplyHelpRequest = async (request: HelpRequest) => {
+        if (!selectedProject) return;
+        const draft = (replyDrafts[request.id] || '').trim();
+        if (!draft) return;
 
         try {
-            setSupportSending(true);
+            setSendingRequestId(request.id);
             setSupportFeedback(null);
-            const message = primaryHelpRequest
-                ? await chatService.replyTeacherHelpRequest(primaryHelpRequest.id, {
-                    content: supportDraft.trim(),
-                    support_type: supportType,
-                    public_reply: supportPublicReply && primaryHelpRequest.allowPublicReply,
-                })
-                : await chatService.sendTeacherSupport(selectedProject.id, {
-                    content: supportDraft.trim(),
-                    support_type: supportType,
-                });
+            const publicReply = Boolean(replyPublicByRequest[request.id] && request.allowPublicReply);
+            const message = await chatService.replyTeacherHelpRequest(request.id, {
+                content: draft,
+                public_reply: publicReply,
+            });
 
             setSupportHistory((previous) => {
                 const current = previous[selectedProject.id] || [];
@@ -507,7 +473,7 @@ export default function ProjectMonitor() {
                         {
                             id: message.id,
                             projectId: selectedProject.id,
-                            supportType,
+                            supportType: publicReply ? '公开回复' : '私下回复',
                             content: message.content,
                             createdAt: message.created_at,
                         },
@@ -515,45 +481,65 @@ export default function ProjectMonitor() {
                     ].slice(0, 5),
                 };
             });
-            if (primaryHelpRequest) {
-                setHelpRequests((previous) =>
-                    previous.map((request) =>
-                        request.id === primaryHelpRequest.id
-                            ? { ...request, status: 'replied' }
-                            : request
-                    )
-                );
-            }
-            setSupportFeedback(
-                primaryHelpRequest
-                    ? supportPublicReply && primaryHelpRequest.allowPublicReply
-                        ? '已公开回复到小组聊天，并记录为教师支持事件。'
-                        : '已私下回复学生，并记录为教师支持事件。'
-                    : '已发送到小组聊天，并记录为教师支持事件。'
+            setHelpRequests((previous) =>
+                previous.map((item) =>
+                    item.id === request.id ? { ...item, status: 'replied' } : item
+                )
             );
-            toast.success(primaryHelpRequest ? '教师支持回复已发送。' : '教师支持已发送到小组聊天。');
+            setReplyDrafts((previous) => ({ ...previous, [request.id]: '' }));
+            setReplyPublicByRequest((previous) => ({ ...previous, [request.id]: false }));
+            setSupportFeedback(
+                publicReply
+                    ? '已公开回复到小组聊天，并记录为教师支持事件。'
+                    : '已私下回复学生，并记录为教师支持事件。'
+            );
+            toast.success('教师支持回复已发送。');
+        } catch (error) {
+            console.error('Failed to send teacher support:', error);
+            setSupportFeedback('发送失败，请检查权限或网络后重试。');
+            toast.error('教师支持发送失败，请检查权限或网络。');
+        } finally {
+            setSendingRequestId(null);
+        }
+    };
+
+    const handleSendGroupSupport = async () => {
+        if (!selectedProject) return;
+        const draft = groupSupportDraft.trim();
+        if (!draft) return;
+
+        try {
+            setSupportSending(true);
+            setSupportFeedback(null);
+            const message = await chatService.sendTeacherSupport(selectedProject.id, {
+                content: draft,
+            });
+
+            setSupportHistory((previous) => {
+                const current = previous[selectedProject.id] || [];
+                return {
+                    ...previous,
+                    [selectedProject.id]: [
+                        {
+                            id: message.id,
+                            projectId: selectedProject.id,
+                            supportType: '小组支持',
+                            content: message.content,
+                            createdAt: message.created_at,
+                        },
+                        ...current,
+                    ].slice(0, 5),
+                };
+            });
+            setGroupSupportDraft('');
+            setSupportFeedback('已发送到小组聊天，并记录为教师支持事件。');
+            toast.success('教师支持已发送到小组聊天。');
         } catch (error) {
             console.error('Failed to send teacher support:', error);
             setSupportFeedback('发送失败，请检查权限或网络后重试。');
             toast.error('教师支持发送失败，请检查权限或网络。');
         } finally {
             setSupportSending(false);
-        }
-    };
-
-    const handleResolveHelpRequest = async (requestId: string) => {
-        try {
-            await chatService.updateTeacherHelpRequestStatus(requestId, 'resolved');
-            setHelpRequests((previous) =>
-                previous.map((request) =>
-                    request.id === requestId ? { ...request, status: 'resolved' } : request
-                )
-            );
-            toast.success('已标记为解决。');
-        } catch (error) {
-            console.error('Failed to resolve help request:', error);
-            setSupportFeedback('求助状态更新失败，请稍后重试。');
-            toast.error('求助状态更新失败。');
         }
     };
 
@@ -870,13 +856,48 @@ export default function ProjectMonitor() {
                                             </div>
                                             <div className="mt-2 flex items-center justify-between gap-2">
                                                 <p className="text-[11px] text-slate-400">{formatDateTime(request.createdAt)}</p>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleResolveHelpRequest(request.id)}
-                                                    className="rounded-full border border-rose-100 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100"
+                                                <span className="text-[11px] text-slate-400">学生确认后会变为已解决</span>
+                                            </div>
+                                            <textarea
+                                                value={replyDrafts[request.id] || ''}
+                                                onChange={(event) => {
+                                                    const value = event.target.value;
+                                                    setReplyDrafts((previous) => ({ ...previous, [request.id]: value }));
+                                                    setSupportFeedback(null);
+                                                }}
+                                                disabled={sendingRequestId === request.id}
+                                                rows={4}
+                                                className="mt-3 w-full resize-none rounded-xl border border-rose-100 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                                                placeholder="直接输入给该学生的回复。建议简短说明下一步怎么做、需要补充什么或如何协调。"
+                                            />
+                                            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                <label className={`flex items-start gap-2 text-xs leading-5 ${request.allowPublicReply ? 'text-slate-600' : 'text-slate-400'}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={Boolean(replyPublicByRequest[request.id] && request.allowPublicReply)}
+                                                        disabled={!request.allowPublicReply || sendingRequestId === request.id}
+                                                        onChange={(event) =>
+                                                            setReplyPublicByRequest((previous) => ({
+                                                                ...previous,
+                                                                [request.id]: event.target.checked,
+                                                            }))
+                                                        }
+                                                        className="mt-1"
+                                                    />
+                                                    <span>
+                                                        同步到小组聊天
+                                                        {!request.allowPublicReply ? '（学生未授权公开回应）' : ''}
+                                                    </span>
+                                                </label>
+                                                <Button
+                                                    size="sm"
+                                                    className="gap-2"
+                                                    disabled={sendingRequestId === request.id || !(replyDrafts[request.id] || '').trim()}
+                                                    onClick={() => handleReplyHelpRequest(request)}
                                                 >
-                                                    标记已解决
-                                                </button>
+                                                    <Send className="h-3.5 w-3.5" />
+                                                    {sendingRequestId === request.id ? '发送中...' : '回复该求助'}
+                                                </Button>
                                             </div>
                                         </div>
                                     ))}
@@ -890,59 +911,27 @@ export default function ProjectMonitor() {
 
                         <section>
                             <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-800">
-                                <Sparkles className="h-4 w-4 text-indigo-500" />
-                                低频支持模板
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {SUPPORT_TEMPLATES.map((template) => (
-                                    <button
-                                        key={template.type}
-                                        type="button"
-                                        onClick={() => handleTemplateSelect(template)}
-                                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${supportType === template.type
-                                            ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                                            : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
-                                            }`}
-                                    >
-                                        {template.type}
-                                    </button>
-                                ))}
+                                <MessageSquare className="h-4 w-4 text-indigo-500" />
+                                小组公开支持
                             </div>
                             <textarea
-                                value={supportDraft}
-                                onChange={(event) => setSupportDraft(event.target.value)}
+                                value={groupSupportDraft}
+                                onChange={(event) => {
+                                    setGroupSupportDraft(event.target.value);
+                                    setSupportFeedback(null);
+                                }}
                                 disabled={!selectedProject || supportSending}
-                                rows={6}
+                                rows={4}
                                 className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-                                placeholder="编辑教师支持内容..."
+                                placeholder="没有学生单独求助时，可在这里向当前小组发送一条公开教师支持。"
                             />
-                            {primaryHelpRequest ? (
-                                <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
-                                    <p className="text-xs leading-5 text-indigo-700">
-                                        当前将回复：{primaryHelpRequest.studentName} 的“{primaryHelpRequest.type}”求助。
-                                    </p>
-                                    <label className={`mt-2 flex items-start gap-2 text-xs leading-5 ${primaryHelpRequest.allowPublicReply ? 'text-indigo-700' : 'text-slate-400'}`}>
-                                        <input
-                                            type="checkbox"
-                                            checked={supportPublicReply && primaryHelpRequest.allowPublicReply}
-                                            disabled={!primaryHelpRequest.allowPublicReply}
-                                            onChange={(event) => setSupportPublicReply(event.target.checked)}
-                                            className="mt-1"
-                                        />
-                                        <span>
-                                            公开回应到小组聊天
-                                            {!primaryHelpRequest.allowPublicReply ? '（学生未授权公开回应）' : ''}
-                                        </span>
-                                    </label>
-                                </div>
-                            ) : null}
                             <Button
                                 className="mt-3 w-full gap-2"
-                                disabled={!selectedProject || supportSending || !supportDraft.trim()}
-                                onClick={handleSendTeacherSupport}
+                                disabled={!selectedProject || supportSending || !groupSupportDraft.trim()}
+                                onClick={handleSendGroupSupport}
                             >
                                 <Send className="h-4 w-4" />
-                                {supportSending ? '发送中...' : primaryHelpRequest ? '回复学生求助' : '发送到小组聊天'}
+                                {supportSending ? '发送中...' : '发送到小组聊天'}
                             </Button>
                             {supportFeedback ? (
                                 <p className={`mt-2 text-xs leading-relaxed ${supportFeedback.includes('失败') ? 'text-rose-600' : 'text-emerald-600'}`}>
@@ -950,9 +939,7 @@ export default function ProjectMonitor() {
                                 </p>
                             ) : (
                                 <p className="mt-2 text-xs leading-relaxed text-slate-400">
-                                    {primaryHelpRequest
-                                        ? '未公开回应时，回复只在学生端“教师支持”页显示；公开回应时才进入小组聊天。'
-                                        : '无待回复求助时，消息会作为公开教师支持进入该小组群聊。'}
+                                    学生个人求助请在对应求助卡片内回复；这里仅用于面向全组的低频公开提醒。
                                 </p>
                             )}
                         </section>

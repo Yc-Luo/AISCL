@@ -3,7 +3,10 @@
 import csv
 import hashlib
 import mimetypes
+import os
+import tempfile
 import uuid
+import zipfile
 from datetime import datetime
 from io import StringIO
 from typing import List, Optional
@@ -11,6 +14,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
@@ -238,6 +242,68 @@ def to_task_response(task: Task) -> TaskResponse:
         created_at=task.created_at.isoformat(),
         updated_at=task.updated_at.isoformat(),
     )
+
+
+def _zip_safe_segment(value: Optional[str], fallback: str = "未命名") -> str:
+    """Create a safe path segment for exported ZIP artifact names."""
+    text = sanitize_filename(str(value or fallback)).strip(". ")
+    return text or fallback
+
+
+def _unique_zip_name(path: str, used_names: set[str]) -> str:
+    """Avoid overwriting files with the same name inside a ZIP archive."""
+    if path not in used_names:
+        used_names.add(path)
+        return path
+    if "." in path.rsplit("/", 1)[-1]:
+        stem, suffix = path.rsplit(".", 1)
+        suffix = f".{suffix}"
+    else:
+        stem, suffix = path, ""
+    index = 2
+    while f"{stem}-{index}{suffix}" in used_names:
+        index += 1
+    unique_path = f"{stem}-{index}{suffix}"
+    used_names.add(unique_path)
+    return unique_path
+
+
+def _stream_file(path: str, chunk_size: int = 1024 * 1024):
+    """Yield a local file in chunks for StreamingResponse."""
+    with open(path, "rb") as file:
+        while True:
+            chunk = file.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+
+def _remove_temp_file(path: str) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def _get_file_object_size(file_obj) -> int:
+    current = file_obj.tell()
+    file_obj.seek(0, os.SEEK_END)
+    size = file_obj.tell()
+    file_obj.seek(current)
+    return size
+
+
+def _hash_and_upload_file_object(file_obj, file_key: str, mime_type: str, length: int) -> str:
+    digest = hashlib.sha256()
+    file_obj.seek(0)
+    while True:
+        chunk = file_obj.read(1024 * 1024)
+        if not chunk:
+            break
+        digest.update(chunk)
+    file_obj.seek(0)
+    storage_service.upload_file_object(file_key, file_obj, length, mime_type)
+    return digest.hexdigest()
 
 
 async def auto_submit_due_course_tasks(project_id: Optional[str] = None) -> int:
@@ -510,6 +576,97 @@ async def export_teacher_submissions(
     )
 
 
+@router.get("/teacher/submissions/artifacts.zip")
+async def export_teacher_submission_artifacts_zip(
+    course_id: Optional[str] = Query(None),
+    release_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Export all teacher-visible submitted artifact files as one ZIP package."""
+    submissions = await list_teacher_submissions(
+        course_id=course_id,
+        release_id=release_id,
+        status_filter=None,
+        current_user=current_user,
+    )
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    temp_path = temp_file.name
+    temp_file.close()
+
+    try:
+        await run_in_threadpool(_write_teacher_artifacts_zip, submissions, temp_path)
+    except Exception:
+        _remove_temp_file(temp_path)
+        raise
+
+    filename = f"task-artifacts-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.zip"
+    return StreamingResponse(
+        _stream_file(temp_path),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        background=BackgroundTask(_remove_temp_file, temp_path),
+    )
+
+
+def _write_teacher_artifacts_zip(submissions: TeacherSubmissionListResponse, temp_path: str) -> None:
+    """Write submitted artifacts into a ZIP file without keeping the ZIP in memory."""
+    manifest_output = StringIO()
+    manifest_writer = csv.writer(manifest_output)
+    manifest_writer.writerow([
+        "班级",
+        "小组",
+        "任务",
+        "状态",
+        "提交时间",
+        "文件名",
+        "ZIP路径",
+        "MIME类型",
+        "大小",
+        "下载状态",
+    ])
+    used_names: set[str] = set()
+
+    with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        artifact_count = 0
+        for row in submissions.submissions:
+            if not row.artifacts:
+                continue
+            task = row.task
+            course_segment = _zip_safe_segment(row.course_name, "未绑定班级")
+            project_segment = _zip_safe_segment(row.project_name, "未命名小组")
+            task_segment = _zip_safe_segment(task.title, "未命名任务")
+            for artifact in row.artifacts:
+                filename = _zip_safe_segment(artifact.filename, "artifact")
+                archive_path = _unique_zip_name(
+                    f"{course_segment}/{project_segment}/{task_segment}/{filename}",
+                    used_names,
+                )
+                status_text = "ok"
+                try:
+                    with archive.open(archive_path, "w") as archive_file:
+                        storage_service.write_file_to(artifact.file_key, archive_file)
+                    artifact_count += 1
+                except Exception as exc:
+                    status_text = f"failed: {exc}"
+                manifest_writer.writerow([
+                    row.course_name or "",
+                    row.project_name,
+                    task.title,
+                    task.submission_status or "unsubmitted",
+                    task.submitted_at or "",
+                    artifact.filename,
+                    archive_path,
+                    artifact.mime_type,
+                    artifact.size,
+                    status_text,
+                ])
+
+        archive.writestr("manifest.csv", manifest_output.getvalue().encode("utf-8-sig"))
+        if artifact_count == 0:
+            archive.writestr("README.txt", "当前筛选范围内暂无可打包的学生成果文件。\n".encode("utf-8"))
+
+
 @router.post("/{task_id}/artifacts", response_model=TaskArtifactResponse)
 async def upload_task_artifact(
     task_id: str,
@@ -532,15 +689,21 @@ async def upload_task_artifact(
 
     filename = sanitize_filename(file.filename or "artifact")
     mime_type = _ensure_allowed_artifact_mime(_resolve_artifact_mime_type(filename, file.content_type))
-    file_bytes = await file.read()
-    if not file_bytes:
+    file_size = _get_file_object_size(file.file)
+    if file_size <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
-    if len(file_bytes) > settings.MAX_FILE_SIZE:
+    if file_size > settings.MAX_TASK_ARTIFACT_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Uploaded file exceeds the maximum allowed size")
 
     artifact_id = str(uuid.uuid4())
     file_key = f"projects/{task.project_id}/task-artifacts/{task_id}/{artifact_id}"
-    await run_in_threadpool(storage_service.upload_file_bytes, file_key, file_bytes, mime_type)
+    checksum_sha256 = await run_in_threadpool(
+        _hash_and_upload_file_object,
+        file.file,
+        file_key,
+        mime_type,
+        file_size,
+    )
 
     artifact = TaskSubmissionArtifact(
         task_id=task_id,
@@ -550,9 +713,9 @@ async def upload_task_artifact(
         filename=filename,
         file_key=file_key,
         mime_type=mime_type,
-        size=len(file_bytes),
+        size=file_size,
         artifact_type=_infer_artifact_type(mime_type, filename),
-        checksum_sha256=hashlib.sha256(file_bytes).hexdigest(),
+        checksum_sha256=checksum_sha256,
         uploaded_by=str(current_user.id),
     )
     await artifact.insert()

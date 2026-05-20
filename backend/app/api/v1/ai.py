@@ -185,6 +185,12 @@ async def _build_project_ai_context(
         group_id=group_id,
         stage_id=stage_id,
     )
+    group_state = await group_memory_service.refresh_and_get_group_state_context(
+        project_id=str(project.id),
+        group_id=group_id,
+        stage_id=stage_id,
+        project=project,
+    )
     project_task_context = await group_memory_service.get_project_task_context(project)
     contextual_notes = []
     if chat_data.context_source:
@@ -210,6 +216,10 @@ async def _build_project_ai_context(
         "stage_memory_updated_at": stage_memory.get("updated_at"),
         "stage_memory_id": stage_memory.get("memory_id"),
         "stage_memory_version": stage_memory.get("version"),
+        "group_state_context": group_state.get("content"),
+        "group_state_updated_at": group_state.get("updated_at"),
+        "group_state_memory_id": group_state.get("memory_id"),
+        "group_state_memory_version": group_state.get("version"),
     }
 
 
@@ -433,7 +443,7 @@ async def chat_stream(
                 "status",
                 {
                     "step": "retrieval",
-                    "message": "正在检索项目 Wiki、资源库和近期协作记录。",
+                    "message": "正在检查项目资料、Wiki 和近期协作记录。",
                 },
             )
             try:
@@ -453,7 +463,11 @@ async def chat_stream(
                     "status",
                     {
                         "step": "retrieval_done",
-                        "message": "检索完成，正在组织可引用的学习支持回应。",
+                        "message": (
+                            "已找到可引用来源，正在组织学习支持回应。"
+                            if context and context.get("citations")
+                            else "未找到可引用来源，正在基于任务说明和协作记录回应。"
+                        ),
                         "citation_count": len(context.get("citations", [])) if context else 0,
                     },
                 )

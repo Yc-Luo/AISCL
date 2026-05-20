@@ -100,7 +100,6 @@ export class SyncServiceYjsProvider extends Observable {
      * 处理本地 Yjs 更新
      */
     private handleLocalUpdate(update: Uint8Array, origin: any) {
-        if (this.module === 'inquiry') return;
         if (origin === this) {
             return; // 忽略来自本 Provider 的更新
         }
@@ -130,7 +129,6 @@ export class SyncServiceYjsProvider extends Observable {
      * 处理本地 Awareness 更新
      */
     private handleAwarenessUpdate({ added, updated, removed }: any, origin: any) {
-        if (this.module === 'inquiry') return;
         if (origin === 'remote') {
             return;
         }
@@ -164,11 +162,6 @@ export class SyncServiceYjsProvider extends Observable {
      * 处理远程操作
      */
     private handleRemoteOperation(operation: Operation) {
-        // Inquiry 模块现在使用全量 JSON 同步，不由 Yjs 负责
-        if (this.module === 'inquiry') {
-            return;
-        }
-
         // CRITICAL: Skip remote operations until initial sync is complete
         // This prevents early updates from corrupting the state
         if (!this.synced) {
@@ -262,11 +255,6 @@ export class SyncServiceYjsProvider extends Observable {
      * 处理全量状态同步
      */
     private handleStateSync(data: { roomId?: string; room_id?: string; state: any; isDraft?: boolean; isSnapshot?: boolean }) {
-        // Inquiry 模块不由 Yjs 负责同步
-        if (this.module === 'inquiry') {
-            return;
-        }
-
         // IMPORTANT: Verify roomId to prevent cross-room data contamination
         const incomingRoomId = data.roomId || data.room_id;
         if (incomingRoomId && incomingRoomId !== this.roomId) {

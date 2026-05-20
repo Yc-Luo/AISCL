@@ -3,7 +3,7 @@
 import logging
 from io import BytesIO
 from datetime import timedelta
-from typing import Optional
+from typing import BinaryIO, Optional
 from urllib.parse import urlparse
 
 from minio import Minio
@@ -185,6 +185,25 @@ class StorageService:
         except S3Error as e:
             raise ValueError(f"Failed to upload file: {e}")
 
+    def upload_file_object(self, file_key: str, file_obj: BinaryIO, length: int, content_type: str) -> None:
+        """Upload a file-like object without loading the whole file into memory."""
+        if not self.client:
+            raise ValueError("Storage client not initialized")
+
+        self._ensure_bucket_exists()
+
+        try:
+            file_obj.seek(0)
+            self.client.put_object(
+                settings.MINIO_BUCKET_NAME,
+                file_key,
+                file_obj,
+                length=length,
+                content_type=content_type,
+            )
+        except S3Error as e:
+            raise ValueError(f"Failed to upload file: {e}")
+
     def get_file_bytes(self, file_key: str) -> bytes:
         """Download file bytes from object storage."""
         if not self.client:
@@ -196,6 +215,31 @@ class StorageService:
         try:
             response = self.client.get_object(settings.MINIO_BUCKET_NAME, file_key)
             return response.read()
+        except S3Error as e:
+            raise ValueError(f"Failed to download file: {e}")
+        finally:
+            if response is not None:
+                response.close()
+                response.release_conn()
+
+    def write_file_to(self, file_key: str, writer: BinaryIO, chunk_size: int = 1024 * 1024) -> int:
+        """Copy an object-storage file into a writable stream in chunks."""
+        if not self.client:
+            raise ValueError("Storage client not initialized")
+
+        self._ensure_bucket_exists()
+
+        response = None
+        bytes_written = 0
+        try:
+            response = self.client.get_object(settings.MINIO_BUCKET_NAME, file_key)
+            while True:
+                chunk = response.read(chunk_size)
+                if not chunk:
+                    break
+                writer.write(chunk)
+                bytes_written += len(chunk)
+            return bytes_written
         except S3Error as e:
             raise ValueError(f"Failed to download file: {e}")
         finally:

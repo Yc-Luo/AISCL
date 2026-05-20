@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,8 @@ from app.repositories.document import Document
 from app.repositories.group_memory_summary import GroupMemorySummary
 from app.repositories.project import Project
 from app.repositories.research_event import ResearchEvent
+from app.repositories.resource import Resource
+from app.repositories.task import Task
 from app.repositories.user import User
 from app.repositories.wiki_item import WikiItem
 from app.services.ai_service import AIService
@@ -41,6 +44,32 @@ CONTENT_LABELS = {
     "next_steps": "下一步推进建议",
 }
 
+STATE_DEFAULT: Dict[str, Any] = {
+    "current_stage": "",
+    "task_focus": "",
+    "task_status": [],
+    "resource_status": "",
+    "wiki_status": "",
+    "document_status": "",
+    "inquiry_status": "",
+    "recent_progress": [],
+    "collaboration_risks": [],
+    "recommended_support": [],
+}
+
+STATE_LABELS = {
+    "current_stage": "当前协作阶段",
+    "task_focus": "当前任务焦点",
+    "task_status": "任务清单状态",
+    "resource_status": "资源库状态",
+    "wiki_status": "知识沉淀状态",
+    "document_status": "协作文档状态",
+    "inquiry_status": "论证空间状态",
+    "recent_progress": "近期小组推进",
+    "collaboration_risks": "可观察协作风险",
+    "recommended_support": "适合的支持方向",
+}
+
 ARTIFACT_DOMAINS = {"shared_record", "inquiry_structure", "wiki"}
 SCAFFOLD_DOMAINS = {"scaffold", "stage_transition"}
 SUMMARY_CHAT_LIMIT = 80
@@ -48,6 +77,8 @@ SUMMARY_EVENT_LIMIT = 80
 EVENT_THRESHOLD = 8
 AI_INTERACTION_THRESHOLD = 2
 ARTIFACT_THRESHOLD = 3
+GROUP_STATE_EVENT_LIMIT = 80
+GROUP_STATE_CHAT_LIMIT = 30
 
 
 def _truncate_text(text: str, max_chars: int = 420) -> str:
@@ -94,6 +125,40 @@ def _format_content_for_prompt(content: Dict[str, Any]) -> str:
     normalized = _normalize_content(content)
     lines: List[str] = []
     for key, label in CONTENT_LABELS.items():
+        value = normalized.get(key)
+        lines.append(f"{label}：")
+        if isinstance(value, list):
+            lines.extend(f"- {item}" for item in value if item)
+            if not value:
+                lines.append("- 暂无")
+        else:
+            lines.append(value or "暂无")
+    return "\n".join(lines)
+
+
+def _normalize_state_content(raw_content: Dict[str, Any]) -> Dict[str, Any]:
+    content = {**STATE_DEFAULT}
+    if not isinstance(raw_content, dict):
+        return content
+
+    for key, default_value in STATE_DEFAULT.items():
+        value = raw_content.get(key, default_value)
+        if isinstance(default_value, list):
+            if isinstance(value, list):
+                content[key] = [str(item).strip() for item in value if str(item).strip()]
+            elif isinstance(value, str) and value.strip():
+                content[key] = [value.strip()]
+            else:
+                content[key] = []
+        else:
+            content[key] = str(value or "").strip()
+    return content
+
+
+def _format_state_for_prompt(content: Dict[str, Any]) -> str:
+    normalized = _normalize_state_content(content)
+    lines: List[str] = []
+    for key, label in STATE_LABELS.items():
         value = normalized.get(key)
         lines.append(f"{label}：")
         if isinstance(value, list):
@@ -330,6 +395,112 @@ class GroupMemoryService:
             "memory_id": str(memory.id),
             "version": memory.version,
             "updated_at": memory.updated_at.isoformat() if memory.updated_at else None,
+        }
+
+    @staticmethod
+    async def get_group_state_memory(
+        *,
+        project_id: str,
+        group_id: Optional[str],
+    ) -> Optional[GroupMemorySummary]:
+        """Read the current whole-group state memory."""
+        return await GroupMemorySummary.find_one(
+            GroupMemorySummary.project_id == project_id,
+            GroupMemorySummary.group_id == group_id,
+            GroupMemorySummary.stage_id == None,  # noqa: E711
+            GroupMemorySummary.memory_type == "group_state_memory",
+            GroupMemorySummary.deleted_at == None,  # noqa: E711
+        )
+
+    @classmethod
+    async def get_group_state_context(
+        cls,
+        *,
+        project_id: str,
+        group_id: Optional[str],
+    ) -> Dict[str, Any]:
+        """Read and format whole-group state memory for AI prompts."""
+        memory = await cls.get_group_state_memory(project_id=project_id, group_id=group_id)
+        if not memory:
+            return {"content": "", "memory_id": None}
+        return {
+            "content": _format_state_for_prompt(memory.content),
+            "memory_id": str(memory.id),
+            "version": memory.version,
+            "updated_at": memory.updated_at.isoformat() if memory.updated_at else None,
+        }
+
+    @classmethod
+    async def refresh_and_get_group_state_context(
+        cls,
+        *,
+        project_id: str,
+        group_id: Optional[str],
+        stage_id: Optional[str],
+        project: Optional[Project] = None,
+        trigger: str = "on_ai_request",
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        """Refresh deterministic group state, then return prompt-ready text."""
+        await cls.maybe_refresh_group_state_memory(
+            project_id=project_id,
+            group_id=group_id,
+            stage_id=stage_id,
+            project=project,
+            trigger=trigger,
+            force=force,
+        )
+        return await cls.get_group_state_context(project_id=project_id, group_id=group_id)
+
+    @classmethod
+    async def maybe_refresh_group_state_memory(
+        cls,
+        *,
+        project_id: str,
+        group_id: Optional[str],
+        stage_id: Optional[str],
+        project: Optional[Project] = None,
+        trigger: str = "on_ai_request",
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        """Update whole-group state memory from observable project data.
+
+        This state memory is deterministic: it summarizes current artifacts,
+        tasks, resources, Wiki and recent activity without asking an LLM to
+        infer hidden student intent.
+        """
+        existing = await cls.get_group_state_memory(project_id=project_id, group_id=group_id)
+        snapshot = await cls._collect_group_state_snapshot(
+            project_id=project_id,
+            group_id=group_id,
+            stage_id=stage_id,
+            project=project,
+        )
+        content = snapshot["content"]
+        if not force and existing and _normalize_state_content(existing.content) == _normalize_state_content(content):
+            return {
+                "updated": False,
+                "reason": "state_unchanged",
+                "memory_id": str(existing.id),
+                "version": existing.version,
+            }
+
+        update_trigger = "manual_regenerate" if force else trigger
+        memory = await cls._upsert_group_state_memory(
+            existing=existing,
+            project_id=project_id,
+            group_id=group_id,
+            content=content,
+            snapshot=snapshot,
+            update_trigger=update_trigger,
+        )
+        await cls._record_memory_event(memory, update_trigger, snapshot["counts"])
+        return {
+            "updated": True,
+            "memory_id": str(memory.id),
+            "version": memory.version,
+            "trigger": update_trigger,
+            "counts": snapshot["counts"],
         }
 
     @staticmethod
@@ -662,6 +833,269 @@ class GroupMemoryService:
             source_chat_log_ids=source_chat_ids[-200:],
             source_research_event_ids=source_event_ids[-200:],
             source_counts=counts,
+            source_range=snapshot["source_range"],
+            last_processed_chat_log_id=str(latest_chat.id) if latest_chat else None,
+            last_processed_research_event_id=str(latest_event.id) if latest_event else None,
+            last_processed_chat_time=latest_chat.created_at if latest_chat else None,
+            last_processed_event_time=latest_event.event_time if latest_event else None,
+            version=1,
+            update_trigger=update_trigger,
+            visible_to_student=False,
+            created_by="system",
+            updated_by="system",
+            created_at=now,
+            updated_at=now,
+        )
+        await memory.insert()
+        return memory
+
+    @staticmethod
+    def _format_due_date(due_at: Optional[datetime]) -> str:
+        if not due_at:
+            return "未设截止"
+        return due_at.strftime("%m-%d %H:%M")
+
+    @classmethod
+    async def _collect_group_state_snapshot(
+        cls,
+        *,
+        project_id: str,
+        group_id: Optional[str],
+        stage_id: Optional[str],
+        project: Optional[Project],
+    ) -> Dict[str, Any]:
+        if not project:
+            project = await Project.get(project_id)
+
+        tasks = (
+            await Task.find(Task.project_id == project_id)
+            .sort("-updated_at")
+            .limit(60)
+            .to_list()
+        )
+        documents = (
+            await Document.find(Document.project_id == project_id, Document.is_archived == False)  # noqa: E712
+            .sort("-updated_at")
+            .limit(12)
+            .to_list()
+        )
+        resource_query: Dict[str, Any] = {"project_id": project_id}
+        if project and project.course_id:
+            resource_query = {
+                "$or": [
+                    {"project_id": project_id},
+                    {"course_id": project.course_id, "scope": "course"},
+                ]
+            }
+        resources = (
+            await Resource.find(resource_query)
+            .sort("-uploaded_at")
+            .limit(20)
+            .to_list()
+        )
+        wiki_items = (
+            await WikiItem.find(WikiItem.project_id == project_id)
+            .sort("-updated_at")
+            .limit(30)
+            .to_list()
+        )
+        recent_chats = (
+            await ChatLog.find(
+                {
+                    "project_id": project_id,
+                    "metadata.teacher_help_request": {"$ne": True},
+                    "metadata.teacher_private_reply": {"$ne": True},
+                }
+            )
+            .sort("-created_at")
+            .limit(GROUP_STATE_CHAT_LIMIT)
+            .to_list()
+        )
+        event_query: Dict[str, Any] = {
+            "project_id": project_id,
+            "event_type": {"$ne": "group_memory_summary_updated"},
+        }
+        if group_id:
+            event_query["$or"] = [{"group_id": group_id}, {"room_id": group_id}]
+        recent_events = (
+            await ResearchEvent.find(event_query)
+            .sort("-event_time")
+            .limit(GROUP_STATE_EVENT_LIMIT)
+            .to_list()
+        )
+
+        task_counts = Counter(task.column for task in tasks)
+        wiki_counts = Counter(item.item_type for item in wiki_items)
+        event_counts = Counter(event.event_domain for event in recent_events)
+        peer_chat_count = len([
+            chat for chat in recent_chats
+            if chat.user_id not in {"ai_assistant", "system"}
+            and not (chat.user_id or "").startswith("auto_prompt:")
+        ])
+        ai_chat_count = len([chat for chat in recent_chats if _is_ai_interaction(chat)])
+
+        active_tasks = [
+            f"{task.title}（{ {'todo': '待办', 'doing': '进行中', 'done': '已完成'}.get(task.column, task.column)}，截止：{cls._format_due_date(task.due_date)}）"
+            for task in tasks
+            if task.column != "done"
+        ][:6]
+        recent_documents = [
+            f"{doc.title}（更新：{doc.updated_at.strftime('%m-%d %H:%M') if doc.updated_at else '未知'}）"
+            for doc in documents[:4]
+        ]
+        recent_resource_titles = [resource.filename for resource in resources[:5]]
+        recent_wiki_titles = [
+            f"{item.title}（{item.item_type}）"
+            for item in wiki_items[:5]
+        ]
+        recent_progress = []
+        if tasks:
+            recent_progress.append(
+                f"任务：待办 {task_counts.get('todo', 0)}，进行中 {task_counts.get('doing', 0)}，已完成 {task_counts.get('done', 0)}。"
+            )
+        if peer_chat_count or ai_chat_count:
+            recent_progress.append(f"近 {len(recent_chats)} 条讨论中，同伴消息 {peer_chat_count} 条，AI相关消息 {ai_chat_count} 条。")
+        if event_counts:
+            recent_progress.append(
+                "近期操作：" + "，".join(
+                    f"{domain} {count} 次" for domain, count in event_counts.most_common(5)
+                ) + "。"
+            )
+        if recent_documents:
+            recent_progress.append("最近更新文档：" + "；".join(recent_documents))
+
+        collaboration_risks = []
+        if not resources:
+            collaboration_risks.append("资源库暂无可用资料，回答时不应让学习者去搜索不存在的资源。")
+        if not wiki_items:
+            collaboration_risks.append("项目 Wiki 暂无沉淀内容，后续可把关键概念、证据或阶段结论加入 Wiki。")
+        if task_counts.get("todo", 0) > 0 and task_counts.get("doing", 0) == 0:
+            collaboration_risks.append("任务多处于待办状态，可能需要明确谁负责、先做哪一步。")
+        if peer_chat_count < 2:
+            collaboration_risks.append("近期同伴讨论较少，可能需要先激活小组成员对任务焦点的共同确认。")
+        if event_counts.get("inquiry_structure", 0) == 0:
+            collaboration_risks.append("近期论证空间操作较少，可提醒学习者把观点、证据和反例结构化。")
+
+        recommended_support = []
+        if not resources:
+            recommended_support.append("优先建议学习者上传或摘录可核查资料，而不是要求其在资源库中搜索。")
+        if not wiki_items:
+            recommended_support.append("可建议将已确认概念、证据或争议点沉淀为 Wiki 卡片。")
+        if active_tasks:
+            recommended_support.append("围绕当前待办任务给出短步骤建议，并提示截止时间。")
+        if stage_id:
+            recommended_support.append("结合当前协作阶段给出支架：问题构建重在澄清焦点，意义探索重在扩展材料，解释整合重在证据化，应用解决重在落地检验。")
+
+        task_focus = ""
+        if project:
+            task_focus = _truncate_text(project.description or project.name or "", 600)
+        if not task_focus and active_tasks:
+            task_focus = active_tasks[0]
+
+        content = _normalize_state_content({
+            "current_stage": stage_id or "",
+            "task_focus": task_focus,
+            "task_status": active_tasks or ["暂无进行中的任务卡。"],
+            "resource_status": (
+                f"共有 {len(resources)} 个可用资源；最近资源：" + "；".join(recent_resource_titles)
+                if resources
+                else "暂无可用资源。"
+            ),
+            "wiki_status": (
+                f"共有 {len(wiki_items)} 张 Wiki 卡片；类型分布："
+                + "，".join(f"{key} {value}" for key, value in wiki_counts.items())
+                + ("；最近卡片：" + "；".join(recent_wiki_titles) if recent_wiki_titles else "")
+                if wiki_items
+                else "暂无 Wiki 卡片。"
+            ),
+            "document_status": (
+                f"共有 {len(documents)} 份协作文档；" + "；".join(recent_documents)
+                if documents
+                else "暂无协作文档内容。"
+            ),
+            "inquiry_status": (
+                f"近期论证空间事件 {event_counts.get('inquiry_structure', 0)} 次。"
+            ),
+            "recent_progress": recent_progress or ["暂无可观察到的新近推进。"],
+            "collaboration_risks": collaboration_risks,
+            "recommended_support": recommended_support,
+        })
+
+        times = (
+            [chat.created_at for chat in recent_chats]
+            + [event.event_time for event in recent_events]
+            + [task.updated_at for task in tasks]
+            + [doc.updated_at for doc in documents]
+            + [resource.uploaded_at for resource in resources]
+            + [item.updated_at for item in wiki_items]
+        )
+        return {
+            "content": content,
+            "chat_logs": list(reversed(recent_chats)),
+            "research_events": list(reversed(recent_events)),
+            "counts": {
+                "dialogue": len(recent_chats),
+                "ai_interaction": ai_chat_count,
+                "artifact": len(documents) + len(resources) + len(wiki_items),
+                "scaffold": event_counts.get("scaffold", 0),
+                "stage_transition": event_counts.get("stage_transition", 0),
+                "total": len(recent_chats) + len(recent_events) + len(tasks) + len(documents) + len(resources) + len(wiki_items),
+                "tasks": len(tasks),
+                "resources": len(resources),
+                "wiki_items": len(wiki_items),
+                "documents": len(documents),
+                "inquiry_events": event_counts.get("inquiry_structure", 0),
+            },
+            "source_range": {
+                "from_time": _earliest_datetime(times),
+                "to_time": _latest_datetime(times),
+            },
+        }
+
+    @staticmethod
+    async def _upsert_group_state_memory(
+        *,
+        existing: Optional[GroupMemorySummary],
+        project_id: str,
+        group_id: Optional[str],
+        content: Dict[str, Any],
+        snapshot: Dict[str, Any],
+        update_trigger: str,
+    ) -> GroupMemorySummary:
+        chat_logs: List[ChatLog] = snapshot["chat_logs"]
+        research_events: List[ResearchEvent] = snapshot["research_events"]
+        source_chat_ids = [str(message.id) for message in chat_logs]
+        source_event_ids = [str(event.id) for event in research_events]
+        latest_chat = chat_logs[-1] if chat_logs else None
+        latest_event = research_events[-1] if research_events else None
+        now = datetime.utcnow()
+
+        if existing:
+            existing.content = content
+            existing.source_chat_log_ids = source_chat_ids[-200:]
+            existing.source_research_event_ids = source_event_ids[-200:]
+            existing.source_counts = snapshot["counts"]
+            existing.source_range = snapshot["source_range"]
+            existing.last_processed_chat_log_id = str(latest_chat.id) if latest_chat else existing.last_processed_chat_log_id
+            existing.last_processed_research_event_id = str(latest_event.id) if latest_event else existing.last_processed_research_event_id
+            existing.last_processed_chat_time = latest_chat.created_at if latest_chat else existing.last_processed_chat_time
+            existing.last_processed_event_time = latest_event.event_time if latest_event else existing.last_processed_event_time
+            existing.version += 1
+            existing.update_trigger = update_trigger
+            existing.updated_by = "system"
+            existing.updated_at = now
+            await existing.save()
+            return existing
+
+        memory = GroupMemorySummary(
+            project_id=project_id,
+            group_id=group_id,
+            stage_id=None,
+            memory_type="group_state_memory",
+            content=content,
+            source_chat_log_ids=source_chat_ids[-200:],
+            source_research_event_ids=source_event_ids[-200:],
+            source_counts=snapshot["counts"],
             source_range=snapshot["source_range"],
             last_processed_chat_log_id=str(latest_chat.id) if latest_chat else None,
             last_processed_research_event_id=str(latest_event.id) if latest_event else None,

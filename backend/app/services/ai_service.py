@@ -13,6 +13,16 @@ from app.repositories.ai_message import AIMessage as AIMessageModel
 from app.repositories.ai_role import AIRole
 
 
+AISCL_PLATFORM_GUIDE = (
+    "AISCL 平台功能速查：协作文档用于共同撰写和沉淀结论；论证空间用于结构化观点、证据、反驳和关系；"
+    "小组资料用于上传课程资源、学习资料、图片和成果材料；知识沉淀用于形成任务简报、概念卡、证据卡、观点卡、争议卡和阶段结论；"
+    "AI 对话适合个人深入追问，小组聊天 @AISCL智能助手 适合公开协作支架；学习概览查看 4C 和过程建议；"
+    "教师支持用于低频向教师求助；任务清单用于分解小组待办，教师发布的限时任务需要上传成果并提交。"
+    "只有当上下文提供实际检索结果或引用来源时，才建议查看资源库或 Wiki 中的现有内容；"
+    "如果没有检索结果，不要假设资源库/Wiki 已有内容可查，应建议先上传资料、创建 Wiki 卡片或补充材料线索。"
+)
+
+
 @dataclass
 class FallbackAIRole:
     """Minimal in-memory AI role used when the database has no AIRole documents."""
@@ -28,8 +38,8 @@ class AIService:
     """Service for AI chat and conversation."""
 
     # Token budget configuration
-    MAX_CONTEXT_TOKENS = 8000  # Maximum context tokens
-    MAX_RESPONSE_TOKENS = 2000  # Maximum response tokens
+    MAX_CONTEXT_TOKENS = 12000  # Maximum context tokens
+    MAX_RESPONSE_TOKENS = 3500  # Maximum response tokens
     TOKEN_BUDGET_PER_USER = 100000  # Daily token budget per user
 
     FALLBACK_ROLES = {
@@ -42,6 +52,8 @@ class AIService:
                 "你是 AISCL 的智能学习助手。你的目标是支持学习者在人智协同学习中推进问题理解、"
                 "证据比较、观点修订和协作记录。请优先使用中文，保持回答简洁、具体、可操作。"
                 "不要直接替学习者完成判断，应通过提问、提示和结构化建议推动其继续思考。"
+                "当学习者询问平台操作时，请根据 AISCL 平台功能直接给出操作路径和下一步。"
+                f"{AISCL_PLATFORM_GUIDE}"
             ),
         ),
         "default-tutor": FallbackAIRole(
@@ -51,6 +63,8 @@ class AIService:
             system_prompt=(
                 "你是一名过程导师。你的职责是帮助学习者澄清阶段任务、推进协作过程、补充判断依据、"
                 "比较不同观点并促进修订。请优先用中文给出分步建议、追问和改进方向，避免空泛鼓励。"
+                "当问题属于平台操作或功能使用，请优先说明应进入哪个页签、点击哪个入口、如何记录或提交。"
+                f"{AISCL_PLATFORM_GUIDE}"
             ),
         ),
     }
@@ -91,6 +105,10 @@ class AIService:
         if stage_memory_context:
             sections.append(f"当前阶段滚动记忆：\n{stage_memory_context}")
 
+        group_state_context = context.get("group_state_context")
+        if group_state_context:
+            sections.append(f"小组当前状态记忆：\n{group_state_context}")
+
         group_peer_context = context.get("group_peer_context")
         if group_peer_context:
             sections.append(f"小组协作讨论记忆：\n{group_peer_context}")
@@ -103,13 +121,25 @@ class AIService:
         if group_chat_context and not group_peer_context and not group_ai_context:
             sections.append(f"小组最近对话上下文：\n{group_chat_context}")
 
+        citations = context.get("citations")
+        has_web_citation = any(
+            (citation.get("resource_type") or citation.get("source_type")) == "web"
+            for citation in citations or []
+            if isinstance(citation, dict)
+        )
+
         rag_content = context.get("content")
         if rag_content:
-            sections.append(f"项目资料/ Wiki 检索结果：\n{rag_content}")
+            label = "联网搜索兜底结果" if has_web_citation else "项目资料/ Wiki 检索结果"
+            sections.append(f"{label}：\n{rag_content}")
 
-        citations = context.get("citations")
         if citations:
             sections.append(f"可引用来源：\n{citations}")
+        if not rag_content and not citations:
+            sections.append(
+                "资料/Wiki可用性：本轮没有检索到项目资料或 Wiki 引用。"
+                "不要暗示资源库/Wiki 已有内容可搜索；如需证据支持，应建议先上传资料、创建 Wiki 卡片或补充选中文本。"
+            )
 
         extra_context = {
             key: value
@@ -121,6 +151,10 @@ class AIService:
                 "group_memory_message_count",
                 "group_peer_message_count",
                 "group_ai_interaction_count",
+                "group_state_context",
+                "group_state_updated_at",
+                "group_state_memory_id",
+                "group_state_memory_version",
                 "stage_memory_context",
                 "stage_memory_updated_at",
                 "stage_memory_id",
@@ -336,6 +370,7 @@ class AIService:
         if context:
             context_text = "\n\nContext:\n" + AIService.format_context_for_prompt(context)
             messages[-1] = HumanMessage(content=message + context_text)
+        messages = AIService.truncate_context(messages, AIService.MAX_CONTEXT_TOKENS)
 
         # Get LLM
         llm = await get_llm_for_role(role.name, role.temperature)
@@ -450,6 +485,7 @@ class AIService:
         if context:
             context_text = "\n\nContext:\n" + AIService.format_context_for_prompt(context)
             messages[-1] = HumanMessage(content=message + context_text)
+        messages = AIService.truncate_context(messages, AIService.MAX_CONTEXT_TOKENS)
 
         # Get LLM
         llm = await get_llm_for_role(role.name, role.temperature)

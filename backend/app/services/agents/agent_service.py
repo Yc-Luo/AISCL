@@ -1,10 +1,14 @@
 """Agent Service using LangGraph and Deep Agents Shim."""
 
+import asyncio
 import hashlib
-from typing import Dict, Any, AsyncGenerator, Optional, List, Union
+import operator
+from typing import Dict, Any, AsyncGenerator, Optional, List, Union, Annotated, TypedDict
 
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 
 from app.core.config import settings
 from app.core.prompts.personas import PERSONAS
@@ -14,6 +18,37 @@ from app.services.research_event_service import research_event_service
 from app.services.agents.deep_agents_shim import derive_routing_decision_from_context
 from app.services.agents.orchestration_planner import OrchestrationPlanner, SUBAGENT_LABELS
 from app.services.agents.think_tag_parser import ThinkTagParser
+
+
+class StageAgentGraphState(TypedDict, total=False):
+    """Runtime state for stage-aware multi-agent graph execution."""
+
+    active_agents: List[str]
+    agent_name: str
+    agent_index: int
+    subagents: Dict[str, Dict[str, Any]]
+    message: str
+    plan: Dict[str, Any]
+    context: Dict[str, Any]
+    mode: str
+    events: Annotated[List[Dict[str, Any]], operator.add]
+    final_sections: Annotated[List[str], operator.add]
+    processing_summaries: Annotated[List[str], operator.add]
+    agent_outputs: Annotated[List[Dict[str, str]], operator.add]
+
+
+AISCL_PLATFORM_GUIDE = """AISCL 平台功能速查：
+- 协作文档：用于共同撰写任务理解、证据整理、阶段结论和最终成果草稿，可把关键内容加入 Wiki。
+- 论证空间：用于把观点、证据、反驳、关系和解释边界结构化，不是普通聊天区。
+- 小组资料：用于上传课程资源、学习资料、图片和成果相关材料；聊天图片只作为聊天附件。
+- 知识沉淀：用于沉淀任务简报、概念卡、证据卡、观点卡、争议卡和阶段结论，便于 AI 和小组后续检索。
+- AI 对话：适合个人深入追问；小组聊天 @AISCL智能助手 适合公开协作支架。
+- 学习概览：查看 4C、阶段建议和协作过程反馈。
+- 教师支持：用于低频向教师求助；教师公开回应会标记为教师支持。
+- 任务清单：用于分解小组待办；教师发布的限时任务需要按要求上传成果并提交。
+回答平台操作问题时，优先给“进入哪个页签/点击哪个入口/下一步做什么”的步骤，不要泛泛谈学习策略。
+只有当本轮上下文提供了实际检索结果或引用来源时，才建议学习者查看资源库或 Wiki 中的现有内容；如果没有检索结果，不要假设资源库/Wiki 已有内容可查，应建议先上传资料、创建 Wiki 卡片或补充材料线索。
+"""
 
 
 class AgentService:
@@ -407,6 +442,9 @@ class AgentService:
         if not active_agents:
             active_agents = ["problem_progressor"]
             plan = {**plan, "active_agents": active_agents, "selected_subagent": "problem_progressor"}
+        if plan.get("orchestration_mode") == "debate" and len(active_agents) > 3:
+            active_agents = active_agents[:3]
+            plan = {**plan, "active_agents": active_agents}
 
         rag_plan = self._resolve_stage_aware_rag_plan(plan=plan, context=context)
         rag_results = {"content": "", "citations": []}
@@ -458,36 +496,25 @@ class AgentService:
             "citation_count": len(rag_results.get("citations", [])),
         }
 
-        final_sections: List[str] = []
-        processing_summaries: List[str] = []
-        previous_outputs: Dict[str, str] = {}
         mode = plan["orchestration_mode"]
-
-        for index, agent_name in enumerate(active_agents):
-            label = SUBAGENT_LABELS.get(agent_name, agent_name)
-            section_prefix = self._section_prefix(mode=mode, agent_name=agent_name, index=index)
-            if section_prefix:
-                yield {"type": "output", "agent": agent_name, "label": label, "content": section_prefix}
-            agent_output = ""
-            yield {"type": "output_start", "agent": agent_name, "label": label}
-            async for event in self._stream_single_agent(
-                agent_def=subagents[agent_name],
-                message=message,
-                instruction=(plan.get("agent_instructions") or {}).get(agent_name, ""),
-                context=merged_context,
-                previous_outputs=previous_outputs,
-                mode=mode,
-            ):
-                if event["type"] == "output":
-                    agent_output += event.get("content", "")
-                elif event["type"] == "thinking":
-                    processing_summaries.append(f"{label}: {event.get('content', '').strip()}")
-                yield event
-            yield {"type": "output_end", "agent": agent_name, "label": label}
-            previous_outputs[agent_name] = agent_output.strip()
-            final_sections.append((section_prefix or "") + agent_output.strip())
-            if mode == "single":
-                break
+        if mode == "parallel" and len(active_agents) > 1:
+            yield {
+                "type": "status",
+                "message": "正在并行组织多个智能体视角。",
+                "orchestration_mode": mode,
+            }
+        execution = await self._execute_stage_aware_agents(
+            active_agents=active_agents,
+            subagents=subagents,
+            message=message,
+            plan=plan,
+            context=merged_context,
+            mode=mode,
+        )
+        for event in execution["events"]:
+            yield event
+        final_sections: List[str] = execution["final_sections"]
+        processing_summaries: List[str] = execution["processing_summaries"]
 
         final_content = "\n\n".join(section.strip() for section in final_sections if section.strip()).strip()
         if not final_content:
@@ -519,7 +546,290 @@ class AgentService:
             context=context,
             plan=plan,
             retrieval_mode=rag_plan["retrieval_mode"],
+            graph_runtime=execution.get("graph_runtime"),
         )
+
+    async def _execute_stage_aware_agents(
+        self,
+        *,
+        active_agents: List[str],
+        subagents: Dict[str, Dict[str, Any]],
+        message: str,
+        plan: Dict[str, Any],
+        context: Dict[str, Any],
+        mode: str,
+    ) -> Dict[str, Any]:
+        """Execute the planned agent mode through a LangGraph StateGraph."""
+        try:
+            return await self._execute_stage_aware_langgraph(
+                active_agents=active_agents,
+                subagents=subagents,
+                message=message,
+                plan=plan,
+                context=context,
+                mode=mode,
+            )
+        except Exception:
+            return await self._execute_stage_aware_agents_legacy(
+                active_agents=active_agents,
+                subagents=subagents,
+                message=message,
+                plan=plan,
+                context=context,
+                mode=mode,
+            )
+
+    async def _execute_stage_aware_agents_legacy(
+        self,
+        *,
+        active_agents: List[str],
+        subagents: Dict[str, Dict[str, Any]],
+        message: str,
+        plan: Dict[str, Any],
+        context: Dict[str, Any],
+        mode: str,
+    ) -> Dict[str, Any]:
+        """Fallback executor used if LangGraph compilation/runtime fails."""
+        if mode == "parallel" and len(active_agents) > 1:
+            tasks = [
+                self._collect_stage_agent_events(
+                    agent_name=agent_name,
+                    index=index,
+                    subagents=subagents,
+                    message=message,
+                    plan=plan,
+                    context=context,
+                    previous_outputs={},
+                    mode=mode,
+                )
+                for index, agent_name in enumerate(active_agents)
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            return self._merge_agent_execution_results(
+                results=results,
+                active_agents=active_agents,
+                mode=mode,
+            )
+
+        final_sections: List[str] = []
+        processing_summaries: List[str] = []
+        previous_outputs: Dict[str, str] = {}
+        events: List[Dict[str, Any]] = []
+        agents_to_run = active_agents[:3] if mode == "debate" else active_agents
+
+        for index, agent_name in enumerate(agents_to_run):
+            result = await self._collect_stage_agent_events(
+                agent_name=agent_name,
+                index=index,
+                subagents=subagents,
+                message=message,
+                plan=plan,
+                context=context,
+                previous_outputs=previous_outputs,
+                mode=mode,
+            )
+            events.extend(result["events"])
+            processing_summaries.extend(result["processing_summaries"])
+            previous_outputs[agent_name] = result["agent_output"]
+            if result["section_text"].strip():
+                final_sections.append(result["section_text"])
+            if mode == "single":
+                break
+
+        return {
+            "events": events,
+            "final_sections": final_sections,
+            "processing_summaries": processing_summaries,
+            "graph_runtime": "legacy_fallback",
+        }
+
+    async def _execute_stage_aware_langgraph(
+        self,
+        *,
+        active_agents: List[str],
+        subagents: Dict[str, Dict[str, Any]],
+        message: str,
+        plan: Dict[str, Any],
+        context: Dict[str, Any],
+        mode: str,
+    ) -> Dict[str, Any]:
+        """Build and run a per-request StateGraph using Send for parallel fan-out."""
+
+        async def run_agent_node(state: StageAgentGraphState) -> StageAgentGraphState:
+            agent_name = state["agent_name"]
+            agent_outputs = state.get("agent_outputs", [])
+            previous_outputs = {
+                item.get("agent", ""): item.get("output", "")
+                for item in agent_outputs
+                if item.get("agent")
+            }
+            result = await self._collect_stage_agent_events(
+                agent_name=agent_name,
+                index=state.get("agent_index", 0),
+                subagents=state["subagents"],
+                message=state["message"],
+                plan=state["plan"],
+                context=state["context"],
+                previous_outputs=previous_outputs,
+                mode=state["mode"],
+            )
+            return {
+                "events": result["events"],
+                "final_sections": [result["section_text"]] if result["section_text"].strip() else [],
+                "processing_summaries": result["processing_summaries"],
+                "agent_outputs": [{"agent": agent_name, "output": result["agent_output"]}],
+            }
+
+        graph = StateGraph(StageAgentGraphState)
+
+        if mode == "parallel" and len(active_agents) > 1:
+            def fanout(state: StageAgentGraphState) -> List[Send]:
+                return [
+                    Send(
+                        "run_agent",
+                        {
+                            **state,
+                            "agent_name": agent_name,
+                            "agent_index": index,
+                            "agent_outputs": [],
+                        },
+                    )
+                    for index, agent_name in enumerate(state["active_agents"])
+                ]
+
+            graph.add_node("fanout", lambda state: {})
+            graph.add_node("run_agent", run_agent_node)
+            graph.add_edge(START, "fanout")
+            graph.add_conditional_edges("fanout", fanout, ["run_agent"])
+            graph.add_edge("run_agent", END)
+        else:
+            agents_to_run = active_agents[:3] if mode == "debate" else active_agents
+            previous_node = START
+            for index, agent_name in enumerate(agents_to_run):
+                node_name = f"run_{index}_{agent_name}"
+
+                async def sequential_node(
+                    state: StageAgentGraphState,
+                    *,
+                    current_agent: str = agent_name,
+                    current_index: int = index,
+                ) -> StageAgentGraphState:
+                    next_state: StageAgentGraphState = {
+                        **state,
+                        "agent_name": current_agent,
+                        "agent_index": current_index,
+                    }
+                    return await run_agent_node(next_state)
+
+                graph.add_node(node_name, sequential_node)
+                graph.add_edge(previous_node, node_name)
+                previous_node = node_name
+                if mode == "single":
+                    break
+            graph.add_edge(previous_node, END)
+
+        compiled = graph.compile()
+        result = await compiled.ainvoke({
+            "active_agents": active_agents,
+            "subagents": subagents,
+            "message": message,
+            "plan": plan,
+            "context": context,
+            "mode": mode,
+            "events": [],
+            "final_sections": [],
+            "processing_summaries": [],
+            "agent_outputs": [],
+        })
+
+        return {
+            "events": result.get("events", []),
+            "final_sections": result.get("final_sections", []),
+            "processing_summaries": result.get("processing_summaries", []),
+            "graph_runtime": (
+                "langgraph_stategraph_send"
+                if mode == "parallel" and len(active_agents) > 1
+                else "langgraph_stategraph_sequence"
+            ),
+        }
+
+    async def _collect_stage_agent_events(
+        self,
+        *,
+        agent_name: str,
+        index: int,
+        subagents: Dict[str, Dict[str, Any]],
+        message: str,
+        plan: Dict[str, Any],
+        context: Dict[str, Any],
+        previous_outputs: Dict[str, str],
+        mode: str,
+    ) -> Dict[str, Any]:
+        label = SUBAGENT_LABELS.get(agent_name, agent_name)
+        section_prefix = self._section_prefix(mode=mode, agent_name=agent_name, index=index)
+        events: List[Dict[str, Any]] = []
+        processing_summaries: List[str] = []
+        agent_output = ""
+
+        if section_prefix:
+            events.append({"type": "output", "agent": agent_name, "label": label, "content": section_prefix})
+        events.append({"type": "output_start", "agent": agent_name, "label": label})
+        async for event in self._stream_single_agent(
+            agent_def=subagents[agent_name],
+            message=message,
+            instruction=(plan.get("agent_instructions") or {}).get(agent_name, ""),
+            context=context,
+            previous_outputs=previous_outputs,
+            mode=mode,
+        ):
+            if event["type"] == "output":
+                agent_output += event.get("content", "")
+            elif event["type"] == "thinking":
+                processing_summaries.append(f"{label}: {event.get('content', '').strip()}")
+            events.append(event)
+        events.append({"type": "output_end", "agent": agent_name, "label": label})
+
+        return {
+            "events": events,
+            "agent_output": agent_output.strip(),
+            "section_text": (section_prefix or "") + agent_output.strip(),
+            "processing_summaries": processing_summaries,
+        }
+
+    def _merge_agent_execution_results(
+        self,
+        *,
+        results: List[Any],
+        active_agents: List[str],
+        mode: str,
+    ) -> Dict[str, Any]:
+        events: List[Dict[str, Any]] = []
+        final_sections: List[str] = []
+        processing_summaries: List[str] = []
+
+        for index, result in enumerate(results):
+            agent_name = active_agents[index]
+            label = SUBAGENT_LABELS.get(agent_name, agent_name)
+            if isinstance(result, Exception):
+                fallback_text = f"**{label}**\n\n本轮{label}暂时无法生成完整回应，请先围绕当前问题补充依据并明确下一步分工。"
+                events.extend([
+                    {"type": "output_start", "agent": agent_name, "label": label},
+                    {"type": "output", "agent": agent_name, "label": label, "content": fallback_text, "error": str(result)},
+                    {"type": "output_end", "agent": agent_name, "label": label},
+                ])
+                final_sections.append(fallback_text)
+                continue
+            events.extend(result["events"])
+            processing_summaries.extend(result["processing_summaries"])
+            if result["section_text"].strip():
+                final_sections.append(result["section_text"])
+
+        return {
+            "events": events,
+            "final_sections": final_sections,
+            "processing_summaries": processing_summaries,
+            "graph_runtime": "legacy_fallback",
+        }
 
     async def _stream_single_agent(
         self,
@@ -573,6 +883,24 @@ class AgentService:
         mode: str,
     ) -> str:
         diagnosis = context.get("collaboration_diagnosis") or {}
+        rag_context = context.get("rag_context")
+        rag_citations = context.get("rag_citations") or []
+        if rag_context or rag_citations:
+            web_citation_count = len([
+                citation for citation in rag_citations
+                if (citation.get("resource_type") or citation.get("source_type")) == "web"
+            ])
+            if web_citation_count and web_citation_count == len(rag_citations):
+                source_availability_note = "本轮项目资料/Wiki没有命中，已使用联网搜索作为外部资料兜底；回答时要明确这是外部网页线索，需要学习者核验。"
+            elif web_citation_count:
+                source_availability_note = "本轮同时检索到项目资料/Wiki和外部网页线索；优先使用项目内材料，网页线索只作补充核验。"
+            else:
+                source_availability_note = "本轮已检索到项目资料或 Wiki 引用，可基于这些来源提出核验和整理建议。"
+        else:
+            source_availability_note = (
+                "本轮没有检索到项目资料或 Wiki 引用。不得暗示资源库/Wiki 已有内容可搜索；"
+                "如需证据支持，应建议学习者先上传资料、创建 Wiki 卡片、补充选中文本或在协作文档中记录材料线索。"
+            )
         previous_text = "\n\n".join(
             f"【{SUBAGENT_LABELS.get(agent, agent)}】\n{output}"
             for agent, output in previous_outputs.items()
@@ -590,17 +918,21 @@ class AgentService:
 - 回答策略：{diagnosis.get("answer_policy") or "brief_actionable"}
 
 上下文材料：
-项目任务说明：{self._clip_context(context.get("project_task_context"), 900)}
-阶段滚动记忆：{self._clip_context(context.get("stage_memory_context"), 700)}
-小组同伴讨论记忆：{self._clip_context(context.get("group_peer_context") or context.get("group_chat_context"), 700)}
-小组 AI 互动记忆：{self._clip_context(context.get("group_ai_context"), 420)}
-检索材料：{self._clip_context(context.get("rag_context"), 1600)}
-前序智能体输出：{self._clip_context(previous_text, 1000)}
+平台功能速查：{AISCL_PLATFORM_GUIDE}
+项目任务说明：{self._clip_context(context.get("project_task_context"), 1800)}
+小组当前状态记忆：{self._clip_context(context.get("group_state_context"), 1800)}
+阶段滚动记忆：{self._clip_context(context.get("stage_memory_context"), 1600)}
+小组同伴讨论记忆：{self._clip_context(context.get("group_peer_context") or context.get("group_chat_context"), 1800)}
+小组 AI 互动记忆：{self._clip_context(context.get("group_ai_context"), 1400)}
+资料/Wiki可用性：{source_availability_note}
+检索材料：{self._clip_context(rag_context, 2600)}
+前序智能体输出：{self._clip_context(previous_text, 1800)}
 
 输出要求：
 - 先用 <think>...</think> 包裹一条 20-50 字的“处理摘要”，只说明你将从哪个角度支持学习者；不要展示详细推理链。
-- 正式回答必须使用中文，默认 120-220 字。
-- 回答要包含：当前需要处理的判断点、一个具体下一步行动、一个可继续讨论的问题。
+- 正式回答必须使用中文；普通问题默认 220-420 字，复杂整合、平台操作或多智能体接力可到 500-700 字。
+- 根据问题类型组织回答，不要每次机械套用同一结构；平台操作问题优先给清晰步骤，协作论证问题优先给判断点、依据和下一步。
+- 回答可以包含：当前需要处理的判断点、具体下一步行动、可继续讨论的问题；但不要为了凑结构重复无关提醒。
 - 不替学习者完成最终答案，不暴露实验条件、graph_version、规则 ID 或内部路由细节。
 """
 
@@ -712,6 +1044,7 @@ class AgentService:
         context: Dict[str, Any],
         plan: Dict[str, Any],
         retrieval_mode: str,
+        graph_runtime: Optional[str] = None,
     ) -> None:
         await research_event_service.record_batch_events(
             events=[
@@ -728,6 +1061,7 @@ class AgentService:
                     "payload": {
                         **plan,
                         "retrieval_mode": retrieval_mode,
+                        "graph_runtime": graph_runtime,
                         "session_id": session_id,
                         "message_length": len(message or ""),
                     },

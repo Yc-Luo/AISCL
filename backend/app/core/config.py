@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     RAG_CHUNK_SIZE: int = 900
     RAG_CHUNK_OVERLAP: int = 120
 
+    # Optional web search fallback for RAG.
+    WEB_SEARCH_ENABLED: bool = False
+    WEB_SEARCH_PROVIDER: str = "searxng"
+    WEB_SEARCH_API_KEY: str = ""
+    WEB_SEARCH_BASE_URL: str = ""
+    WEB_SEARCH_MAX_RESULTS: int = 3
+
     # Analytics
     ANALYTICS_LLM_ENABLED: bool = False
 
@@ -89,6 +96,7 @@ class Settings(BaseSettings):
 
     # File Upload
     MAX_FILE_SIZE: int = 52428800  # 50MB
+    MAX_TASK_ARTIFACT_SIZE: int = 314572800  # 300MB
     MAX_PROJECT_STORAGE: int = 5368709120  # 5GB
 
     # Project Limits

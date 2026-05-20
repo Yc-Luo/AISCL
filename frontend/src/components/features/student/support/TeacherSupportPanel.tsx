@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, HelpCircle, Loader2, MessageSquareText, RefreshCw, SendHorizontal } from 'lucide-react'
 import { chatService, TeacherHelpRequest } from '../../../../services/api/chat'
 import { useContextStore } from '../../../../stores/contextStore'
+import { formatStageLabel } from '../../../../lib/stageModel'
 
 interface TeacherSupportPanelProps {
   projectId: string
@@ -179,7 +180,7 @@ export default function TeacherSupportPanel({ projectId, isActive = true, onUnre
             <span>允许教师将回应公开发送到小组聊天。未勾选时，教师回复只在本页显示。</span>
           </label>
           <div className="mt-3 rounded-xl bg-indigo-50 px-3 py-2 text-[11px] leading-5 text-indigo-700">
-            当前来源：{SOURCE_LABEL[activeTab || ''] || activeTab || '未知页面'}；当前阶段：{currentStage || '未配置'}
+            当前来源：{SOURCE_LABEL[activeTab || ''] || activeTab || '未知页面'}；当前阶段：{formatStageLabel(currentStage)}
           </div>
           <button
             type="button"
@@ -217,7 +218,7 @@ export default function TeacherSupportPanel({ projectId, isActive = true, onUnre
                   <div>
                     <div className="text-sm font-bold text-slate-900">{request.help_type || '一般求助'}</div>
                     <div className="mt-1 text-[11px] text-slate-400">
-                      {formatTime(request.created_at)} · {SOURCE_LABEL[request.page_source || ''] || request.page_source || '未知页面'} · {request.stage_id || '未配置阶段'}
+                      {formatTime(request.created_at)} · {SOURCE_LABEL[request.page_source || ''] || request.page_source || '未知页面'} · {formatStageLabel(request.stage_id)}
                     </div>
                   </div>
                   <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${request.status === 'resolved'

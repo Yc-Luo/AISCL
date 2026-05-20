@@ -22,7 +22,7 @@ import { usePresenceStore } from '../../../../stores/presenceStore'
 import { projectService } from '../../../../services/api/project'
 import { userService } from '../../../../services/api/user'
 import api from '../../../../services/api/client'
-import { ExperimentVersion, User } from '../../../../types'
+import { User } from '../../../../types'
 import { useChatSync } from '../../../../hooks/chat/useChatSync'
 import { ChatMessage, getChatTimestampMs, normalizeChatTimestamp } from '../../../../modules/chat/ChatPersistence' // Use shared type
 import { trackingService } from '../../../../services/tracking/TrackingService'
@@ -41,6 +41,7 @@ interface ChatPanelProps {
 const getMessageKey = (message: ChatMessage): string => message.client_message_id || message.id
 const AI_TYPING_LABEL = 'AISCL智能助手'
 const AI_TYPING_ALIASES = ['AISCL智能助手', '智能助手', 'AI智能助手']
+const AI_ASSISTANT_NAME = 'AISCL智能助手'
 const MAX_CHAT_IMAGE_BYTES = 10 * 1024 * 1024
 const compareChatMessages = (currentUserId?: string) => (a: ChatMessage, b: ChatMessage) => {
   const timeDiff = getChatTimestampMs(a.timestamp) - getChatTimestampMs(b.timestamp)
@@ -58,11 +59,9 @@ const compareChatMessages = (currentUserId?: string) => (a: ChatMessage, b: Chat
 export default function ChatPanel({ projectId, isActive = true, onUnreadChange, onMentionNotification }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState('')
   const [showMentionMenu, setShowMentionMenu] = useState(false)
-  const [showAIMenu, setShowAIMenu] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [members, setMembers] = useState<User[]>([])
-  const [experimentVersion, setExperimentVersion] = useState<ExperimentVersion | null>(null)
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
 
   // New States for Lightbox, Context Menu, and Reply
@@ -169,8 +168,6 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
           const memberUsers = await userService.getUsers(memberIds)
           setMembers(memberUsers.filter((member) => member.role === 'student'))
         }
-        const version = await projectService.getExperimentVersion(projectId)
-        setExperimentVersion(version)
       } catch (error) {
         console.error('Failed to fetch members:', error)
       }
@@ -257,25 +254,15 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     })
   }, [messages])
 
-
-
-  const isMultiAIMode = experimentVersion?.ai_scaffold_mode === 'multi_agent'
-  const AI_AGENTS = isMultiAIMode
-    ? [
-      { id: 'ai-research', name: '资料研究员', description: '提供资料线索与出处支持' },
-      { id: 'ai-challenge', name: '观点挑战者', description: '暴露反驳与替代解释' },
-      { id: 'ai-feedback', name: '反馈追问者', description: '追问证据与修订依据' },
-      { id: 'ai-progress', name: '问题推进者', description: '推进任务澄清与下一步' }
-    ]
-    : [
-      { id: 'ai-single', name: 'AI智能助手', description: '围绕任务提供学习支持' },
-    ]
-
   const EMOJIS = ['😊', '😂', '🥰', '😍', '🤔', '😎', '😭', '😮', '👍', '🔥', '🙌', '✨', '🎉', '💡', '✅', '❌']
 
-  const handleSelectAI = (agent: any) => {
-    setInputValue(prev => prev.endsWith(' ') || prev === '' ? `${prev}@${agent.name} ` : `${prev} @${agent.name} `)
-    setShowAIMenu(false)
+  const insertAIMention = () => {
+    setInputValue(prev => {
+      if (prev.includes(`@${AI_ASSISTANT_NAME}`)) return prev
+      return prev.endsWith(' ') || prev === '' ? `${prev}@${AI_ASSISTANT_NAME} ` : `${prev} @${AI_ASSISTANT_NAME} `
+    })
+    setShowMentionMenu(false)
+    setShowEmojiPicker(false)
     inputRef.current?.focus()
   }
 
@@ -483,7 +470,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     const sendContent = inputValue.replace(/＠/g, '@')
 
     // Extract mentions...
-    const mentionRegex = /@(\w+)/g
+    const mentionRegex = /@([\w\u4e00-\u9fa5]+)/g
     const mentionedUsernames: string[] = []
     let match
     while ((match = mentionRegex.exec(sendContent)) !== null) {
@@ -495,7 +482,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
       const member = members.find(m => m.username === username)
       if (member) mentions.push(member.id)
     })
-    const isAIAddressed = AI_AGENTS.some(agent => sendContent.includes(`@${agent.name}`))
+    const isAIAddressed = sendContent.includes(`@${AI_ASSISTANT_NAME}`)
     if (isAIAddressed && !mentions.includes('ai_assistant')) {
       mentions.push('ai_assistant')
     }
@@ -517,7 +504,6 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     setInputValue('')
     setReplyingTo(null)
     setShowMentionMenu(false)
-    setShowAIMenu(false)
     setShowEmojiPicker(false)
   }
 
@@ -527,7 +513,6 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
       handleSend()
     } else if (e.key === 'Escape') {
       setShowMentionMenu(false)
-      setShowAIMenu(false)
       setShowEmojiPicker(false)
     }
   }
@@ -781,7 +766,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                             {msg.content}
                           </ReactMarkdown>
                         ) : (
-                          msg.content.split(/(@\w+)/g).map((part: string, index: number) => {
+                          msg.content.split(/(@[\w\u4e00-\u9fa5]+)/g).map((part: string, index: number) => {
                             if (part.startsWith('@')) {
                               return (
                                 <span
@@ -868,30 +853,6 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                 </button>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* AI Agents Menu */}
-        {showAIMenu && (
-          <div className="absolute bottom-[calc(100%-8px)] left-16 w-60 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-            <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500">
-              {isMultiAIMode ? '选择智能体助手' : '选择 AI 助手'}
-            </div>
-            {AI_AGENTS.map((agent) => (
-              <button
-                key={agent.id}
-                onClick={() => handleSelectAI(agent)}
-                className="w-full px-4 py-3 text-left hover:bg-indigo-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-0"
-              >
-                <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600">
-                  <Bot className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-900">{agent.name}</div>
-                  <div className="text-[11px] text-gray-500">{agent.description}</div>
-                </div>
-              </button>
-            ))}
           </div>
         )}
 
@@ -982,7 +943,6 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                 }`}
               onClick={() => {
                 setShowEmojiPicker(!showEmojiPicker)
-                setShowAIMenu(false)
                 setShowMentionMenu(false)
               }}
               title="Emoji"
@@ -990,14 +950,9 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
               <Smile className="w-5 h-5" />
             </button>
             <button
-              className={`p-2 rounded-xl transition-all shadow-sm flex items-center justify-center ${showAIMenu ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-                }`}
-              onClick={() => {
-                setShowAIMenu(!showAIMenu)
-                setShowMentionMenu(false)
-                setShowEmojiPicker(false)
-              }}
-              title="Call AI"
+              className="p-2 rounded-xl transition-all shadow-sm flex items-center justify-center bg-white border border-gray-200 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600"
+              onClick={insertAIMention}
+              title="提及 AISCL智能助手"
             >
               <Bot className="w-5 h-5" />
             </button>
@@ -1006,7 +961,6 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                 }`}
               onClick={() => {
                 setShowMentionMenu(!showMentionMenu)
-                setShowAIMenu(false)
                 setShowEmojiPicker(false)
               }}
               title="Mention"

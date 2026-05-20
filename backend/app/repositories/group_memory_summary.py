@@ -13,7 +13,11 @@ class GroupMemorySummary(Document):
     project_id: str = Field(..., index=True)
     group_id: Optional[str] = Field(default=None, index=True)
     stage_id: Optional[str] = Field(default=None, index=True)
-    memory_type: str = Field(default="stage_rolling_summary", pattern="^stage_rolling_summary$", index=True)
+    memory_type: str = Field(
+        default="stage_rolling_summary",
+        pattern="^(stage_rolling_summary|group_state_memory)$",
+        index=True,
+    )
     content: Dict[str, Any] = Field(default_factory=dict)
     source_chat_log_ids: List[str] = Field(default_factory=list)
     source_research_event_ids: List[str] = Field(default_factory=list)

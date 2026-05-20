@@ -416,7 +416,12 @@ class AgentService:
 
     def _is_stage_aware_graph(self, context: Optional[Dict[str, Any]]) -> bool:
         graph_version = str((context or {}).get("graph_version") or "").strip()
-        return graph_version == "research-graph-v3-stage-aware"
+        ai_scaffold_mode = str((context or {}).get("ai_scaffold_mode") or "").strip()
+        if graph_version == "research-graph-v3-stage-aware":
+            return True
+        # Older local/cloud projects often have multi_agent enabled before graph_version existed.
+        # Treat the missing value as the current v3 graph, while preserving explicit legacy versions.
+        return ai_scaffold_mode == "multi_agent" and not graph_version
 
     async def _chat_stream_stage_aware(
         self,

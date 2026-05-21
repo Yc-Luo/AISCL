@@ -88,7 +88,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
     const {
         currentStage,
     } = useContextStore()
-    const isSingleAIMode = experimentVersion?.ai_scaffold_mode === 'single_agent'
+    const isSingleAIMode = experimentVersion?.ai_scaffold_mode !== 'multi_agent'
 
     const getStageDefaultRole = (stage?: string | null): ScaffoldRoleKey => {
         const normalizedStage = normalizeStageId(stage)
@@ -165,11 +165,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
     const buildProcessingSummary = (content: string) => {
         const inferredRole = inferTutorRole(content)
         if (isSingleAIMode) {
-            return [
-                '正在识别当前任务阶段与提问意图',
-                '正在结合项目任务和当前协作记录生成回应',
-                '正在生成面向当前任务的学习建议',
-            ]
+            return []
         }
         const summary = [
             '正在识别当前任务阶段与提问意图',
@@ -422,11 +418,13 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     role: 'assistant',
                     content: '',
                     timestamp: new Date(),
-                    aiMeta: {
-                        primaryView,
-                        rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
-                        processingSummary: initialProcessingSummary,
-                    }
+                    aiMeta: isSingleAIMode
+                        ? undefined
+                        : {
+                            primaryView,
+                            rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
+                            processingSummary: initialProcessingSummary,
+                        }
                 }
                 setMessages(prev => [...prev, assistantMsg]);
 
@@ -437,6 +435,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                         rationaleSummary?: string
                     }
                 ) => {
+                    if (isSingleAIMode) return
                     processingStepsRef.current = nextSteps
                     setProcessingSummary(nextSteps)
                     setMessages(prev => prev.map(msg =>
@@ -473,7 +472,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                     preferred_subagent: isSingleAIMode ? undefined : roleKeyToPreferredSubagent(inferredRole),
                 }
                 setProcessingSummary(initialProcessingSummary)
-                setShowProcessingSummary(true)
+                setShowProcessingSummary(!isSingleAIMode && initialProcessingSummary.length > 0)
                 setProcessingCollapsed(false)
                 rawStreamContentRef.current = ''
 
@@ -488,11 +487,13 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                     ? {
                                         ...msg,
                                         content: displayText,
-                                        aiMeta: {
-                                            primaryView: msg.aiMeta?.primaryView || primaryView,
-                                            rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
-                                            processingSummary: processingStepsRef.current,
-                                        }
+                                        aiMeta: isSingleAIMode
+                                            ? undefined
+                                            : {
+                                                primaryView: msg.aiMeta?.primaryView || primaryView,
+                                                rationaleSummary: buildTutorRationaleSummary(inferredRole, currentStage),
+                                                processingSummary: processingStepsRef.current,
+                                            }
                                     }
                                     : msg
                             ))
@@ -501,7 +502,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             appendProcessingStep(status.message)
                         },
                         onMeta: (meta) => {
-                            if (!meta.ai_meta) return
+                            if (isSingleAIMode || !meta.ai_meta) return
                             const mergedSteps = [
                                 ...processingStepsRef.current,
                                 ...(meta.ai_meta.processing_summary || []),
@@ -513,10 +514,10 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                             })
                         },
                         onDone: () => {
-                            appendProcessingStep('回答生成完成')
+                            if (!isSingleAIMode) appendProcessingStep('回答生成完成')
                         },
                         onError: (error) => {
-                            appendProcessingStep(error.message || 'AI 服务处理失败')
+                            if (!isSingleAIMode) appendProcessingStep(error.message || 'AI 服务处理失败')
                         },
                     })
                     finalMessage = stripThinkBlocksForDisplay(rawStreamContentRef.current).trim()
@@ -545,7 +546,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                         }
                     )
                     finalMessage = (fallbackResponse.content || fallbackResponse.message || '').trim()
-                    if (fallbackResponse.ai_meta) {
+                    if (!isSingleAIMode && fallbackResponse.ai_meta) {
                         setMessages(prev => prev.map(msg =>
                             msg.id === assistantMsgId
                                 ? {
@@ -608,16 +609,22 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                         ? {
                             ...msg,
                             content: finalMessage,
-                            aiMeta: {
-                                primaryView: msg.aiMeta?.primaryView || primaryView,
-                                rationaleSummary: msg.aiMeta?.rationaleSummary || buildTutorRationaleSummary(inferredRole, currentStage),
-                                processingSummary: processingStepsRef.current,
-                            },
+                            aiMeta: isSingleAIMode
+                                ? undefined
+                                : {
+                                    primaryView: msg.aiMeta?.primaryView || primaryView,
+                                    rationaleSummary: msg.aiMeta?.rationaleSummary || buildTutorRationaleSummary(inferredRole, currentStage),
+                                    processingSummary: processingStepsRef.current,
+                                },
                             citations: msg.citations,
                         }
                         : msg
                 ));
                 setProcessingCollapsed(true)
+                if (isSingleAIMode) {
+                    setShowProcessingSummary(false)
+                    setProcessingSummary([])
+                }
 
                 // If this was the first message exchange, refresh the history list
                 if (messages.length <= 1) {
@@ -763,7 +770,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm">🧭</span>
                                     <span className="text-sm font-medium text-indigo-700">
-                                        {isTyping ? 'AI 导师正在处理' : '处理摘要'}
+                                        {isTyping ? 'AI 导师正在组织回应' : '本轮思考路径'}
                                     </span>
                                 </div>
                                 <span className="text-xs text-indigo-500">
@@ -808,7 +815,7 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                         {msg.aiMeta.processingSummary && msg.aiMeta.processingSummary.length > 0 && (
                                             <details className="mt-2">
                                                 <summary className="cursor-pointer text-[11px] font-medium text-indigo-600">
-                                                    查看处理摘要
+                                                    查看本轮思考路径
                                                 </summary>
                                                 <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-indigo-700">
                                                     {msg.aiMeta.processingSummary.map((item, index) => (

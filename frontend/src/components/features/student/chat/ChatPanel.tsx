@@ -721,7 +721,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                         </div>
                         {(msg.ai_meta.routing_summary?.length || msg.ai_meta.processing_summary?.length) ? (
                           <details className="mt-1">
-                            <summary className="cursor-pointer select-none text-[11px] font-medium text-indigo-600">查看本轮编排摘要</summary>
+                            <summary className="cursor-pointer select-none text-[11px] font-medium text-indigo-600">查看本轮思考路径</summary>
                             <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-5 text-indigo-700">
                               {[...(msg.ai_meta.routing_summary || []), ...(msg.ai_meta.processing_summary || [])].slice(0, 6).map((item, idx) => (
                                 <li key={`${item}-${idx}`}>{item}</li>

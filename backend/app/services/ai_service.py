@@ -2,6 +2,7 @@
 
 
 from dataclasses import dataclass
+from datetime import datetime
 import re
 from typing import AsyncIterator, List, Optional
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -41,6 +42,26 @@ class AIService:
     MAX_CONTEXT_TOKENS = 12000  # Maximum context tokens
     MAX_RESPONSE_TOKENS = 3500  # Maximum response tokens
     TOKEN_BUDGET_PER_USER = 100000  # Daily token budget per user
+
+    @staticmethod
+    def _direct_conversation_title(message: str) -> str:
+        title = " ".join((message or "").split())
+        if not title:
+            return "新对话"
+        return title[:32] + ("..." if len(title) > 32 else "")
+
+    @staticmethod
+    def _coerce_raw_context_messages(context_messages: Optional[List[dict]]) -> List[HumanMessage | AIMessage]:
+        messages: List[HumanMessage | AIMessage] = []
+        for item in context_messages or []:
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content") or "").strip()
+            if not content:
+                continue
+            role = str(item.get("role") or "user").strip().lower()
+            messages.append(AIMessage(content=content) if role == "assistant" else HumanMessage(content=content))
+        return messages
 
     FALLBACK_ROLES = {
         "default": FallbackAIRole(
@@ -192,6 +213,27 @@ class AIService:
             else:
                 break
 
+        return truncated
+
+    @staticmethod
+    def truncate_raw_messages(messages: List, max_tokens: int) -> List:
+        """Truncate direct LLM messages without assuming a system prompt exists."""
+        total_tokens = sum(
+            AIService.estimate_tokens(str(msg.content)) for msg in messages
+        )
+        if total_tokens <= max_tokens:
+            return messages
+
+        truncated: list = []
+        remaining_tokens = max_tokens
+        for msg in reversed(messages):
+            msg_tokens = AIService.estimate_tokens(str(msg.content))
+            if msg_tokens <= remaining_tokens:
+                truncated.insert(0, msg)
+                remaining_tokens -= msg_tokens
+            elif not truncated:
+                truncated.insert(0, msg)
+                break
         return truncated
 
     @staticmethod
@@ -516,6 +558,156 @@ class AIService:
             metadata=message_metadata,
         )
         await ai_message.insert()
+
+    @staticmethod
+    async def raw_completion_stream(
+        message: str,
+        *,
+        model_id: Optional[str] = None,
+        temperature: float = 0.7,
+        context_messages: Optional[List[dict]] = None,
+    ) -> AsyncIterator[str]:
+        """Direct LLM stream for control/default AI with optional neutral chat context."""
+        messages = AIService._coerce_raw_context_messages(context_messages)
+        messages.append(HumanMessage(content=message))
+        messages = AIService.truncate_raw_messages(messages, AIService.MAX_CONTEXT_TOKENS)
+
+        llm = await get_llm(temperature=temperature, model_id=model_id)
+        async for chunk in llm.astream(messages):
+            content = AIService.sanitize_model_output(
+                chunk.content if hasattr(chunk, "content") else str(chunk)
+            )
+            if content:
+                yield content
+
+    @staticmethod
+    async def raw_chat(
+        project_id: str,
+        user_id: str,
+        message: str,
+        conversation_id: Optional[str] = None,
+        category: str = "chat",
+        model_id: Optional[str] = None,
+        context_messages: Optional[List[dict]] = None,
+    ) -> dict:
+        """Direct non-streaming chat: preserve conversation history but add no system prompt."""
+        if conversation_id:
+            conversation = await AIConversation.get(conversation_id)
+            if not conversation:
+                raise ValueError("Conversation not found")
+        else:
+            conversation = AIConversation(
+                project_id=project_id,
+                user_id=user_id,
+                persona_id="builtin:direct-llm",
+                category=category,
+            )
+            await conversation.insert()
+
+        history = await AIMessageModel.find(
+            {"conversation_id": str(conversation.id)}
+        ).sort("created_at").to_list()
+
+        if len(history) == 0:
+            conversation.title = AIService._direct_conversation_title(message)
+            await conversation.save()
+
+        messages = AIService._coerce_raw_context_messages(context_messages)
+        for msg in history:
+            messages.append(HumanMessage(content=msg.content) if msg.role == "user" else AIMessage(content=msg.content))
+        messages.append(HumanMessage(content=message))
+        messages = AIService.truncate_raw_messages(messages, AIService.MAX_CONTEXT_TOKENS)
+
+        llm = await get_llm(temperature=0.7, model_id=model_id)
+        response = await llm.ainvoke(messages)
+        response_text = AIService.sanitize_model_output(
+            response.content if hasattr(response, "content") else str(response)
+        )
+
+        await AIMessageModel(
+            conversation_id=str(conversation.id),
+            role="user",
+            content=message,
+        ).insert()
+        ai_message = AIMessageModel(
+            conversation_id=str(conversation.id),
+            role="assistant",
+            content=response_text,
+        )
+        await ai_message.insert()
+        conversation.updated_at = datetime.utcnow()
+        await conversation.save()
+
+        return {
+            "conversation_id": str(conversation.id),
+            "message": response_text,
+            "citations": [],
+            "suggestions": [],
+            "ai_meta": None,
+        }
+
+    @staticmethod
+    async def raw_chat_stream(
+        project_id: str,
+        user_id: str,
+        message: str,
+        conversation_id: Optional[str] = None,
+        category: str = "chat",
+        model_id: Optional[str] = None,
+        context_messages: Optional[List[dict]] = None,
+    ) -> AsyncIterator[str]:
+        """Direct streaming chat: preserve history but add no role prompt, RAG, or process summary."""
+        if conversation_id:
+            conversation = await AIConversation.get(conversation_id)
+            if not conversation:
+                raise ValueError("Conversation not found")
+        else:
+            conversation = AIConversation(
+                project_id=project_id,
+                user_id=user_id,
+                persona_id="builtin:direct-llm",
+                category=category,
+            )
+            await conversation.insert()
+
+        history = await AIMessageModel.find(
+            {"conversation_id": str(conversation.id)}
+        ).sort("created_at").to_list()
+
+        if len(history) == 0:
+            conversation.title = AIService._direct_conversation_title(message)
+            await conversation.save()
+
+        messages = AIService._coerce_raw_context_messages(context_messages)
+        for msg in history:
+            messages.append(HumanMessage(content=msg.content) if msg.role == "user" else AIMessage(content=msg.content))
+        messages.append(HumanMessage(content=message))
+        messages = AIService.truncate_raw_messages(messages, AIService.MAX_CONTEXT_TOKENS)
+
+        await AIMessageModel(
+            conversation_id=str(conversation.id),
+            role="user",
+            content=message,
+        ).insert()
+
+        llm = await get_llm(temperature=0.7, model_id=model_id)
+        full_response = ""
+        async for chunk in llm.astream(messages):
+            content = AIService.sanitize_model_output(
+                chunk.content if hasattr(chunk, "content") else str(chunk)
+            )
+            if not content:
+                continue
+            full_response += content
+            yield content
+
+        await AIMessageModel(
+            conversation_id=str(conversation.id),
+            role="assistant",
+            content=full_response,
+        ).insert()
+        conversation.updated_at = datetime.utcnow()
+        await conversation.save()
 
 
 ai_service = AIService()

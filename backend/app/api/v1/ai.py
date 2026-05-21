@@ -48,6 +48,40 @@ SUBAGENT_VIEW_LABELS: Dict[str, str] = {
 }
 
 
+def _ai_scaffold_mode(experiment_version: Optional[dict]) -> str:
+    return str((experiment_version or {}).get("ai_scaffold_mode") or "single_agent").strip().lower()
+
+
+def _is_multi_agent_mode(experiment_version: Optional[dict]) -> bool:
+    return _ai_scaffold_mode(experiment_version) == "multi_agent"
+
+
+def _default_chat_model_id(experiment_version: Optional[dict]) -> Optional[str]:
+    return (
+        (experiment_version or {}).get("default_chat_model")
+        or (experiment_version or {}).get("defaultChatModel")
+        or "follow_system_default"
+    )
+
+
+def _group_multi_agent_model_id(experiment_version: Optional[dict]) -> Optional[str]:
+    return (
+        (experiment_version or {}).get("group_multi_agent_model")
+        or (experiment_version or {}).get("group_chat_model")
+        or (experiment_version or {}).get("groupChatModel")
+        or "follow_system_default"
+    )
+
+
+def _tutor_multi_agent_model_id(experiment_version: Optional[dict]) -> Optional[str]:
+    return (
+        (experiment_version or {}).get("tutor_multi_agent_model")
+        or (experiment_version or {}).get("tutor_model")
+        or (experiment_version or {}).get("tutorModel")
+        or "follow_system_default"
+    )
+
+
 def _sse_event(event: str, data: dict | str) -> str:
     """Build a standards-compliant SSE frame with explicit event names."""
     if isinstance(data, str):
@@ -223,6 +257,37 @@ async def _build_project_ai_context(
     }
 
 
+async def _build_direct_ai_context(
+    *,
+    project: Project,
+    chat_data: AIChatRequest,
+) -> List[dict]:
+    """Build neutral task/page context for generic LLM without RAG or scaffolds."""
+    context_messages: List[dict] = []
+    project_task_context = await group_memory_service.get_project_task_context(project)
+    if project_task_context:
+        context_messages.append({
+            "role": "user",
+            "content": f"当前项目任务说明：\n{project_task_context}",
+        })
+
+    page_context = []
+    if chat_data.current_stage:
+        page_context.append(f"当前任务阶段：{chat_data.current_stage}")
+    if chat_data.active_tab:
+        page_context.append(f"当前页面：{chat_data.active_tab}")
+    if chat_data.context_source:
+        page_context.append(f"提问来源：{chat_data.context_source}")
+    if chat_data.selected_text:
+        page_context.append(f"学习者选中的文本：\n{chat_data.selected_text.strip()[:2000]}")
+    if page_context:
+        context_messages.append({
+            "role": "user",
+            "content": "当前提问上下文：\n" + "\n".join(page_context),
+        })
+    return context_messages
+
+
 @router.post("/chat", response_model=AIChatResponse)
 @limiter.limit("30/minute")
 async def chat(
@@ -241,7 +306,31 @@ async def chat(
 
     await ensure_project_access(current_user, project)
 
-    # Retrieve context using RAG if enabled
+    experiment_version = (
+        project.experiment_version or {}
+        if getattr(project, "experiment_version", None)
+        else {}
+    )
+    if not _is_multi_agent_mode(experiment_version):
+        direct_context = await _build_direct_ai_context(project=project, chat_data=chat_data)
+        response = await ai_service.raw_chat(
+            project_id=chat_data.project_id,
+            user_id=str(current_user.id),
+            message=chat_data.message or "",
+            conversation_id=chat_data.conversation_id,
+            model_id=_default_chat_model_id(experiment_version),
+            context_messages=direct_context,
+        )
+        return AIChatResponse(
+            conversation_id=response["conversation_id"],
+            message=response["message"],
+            citations=[],
+            suggestions=[],
+            ai_meta=None,
+        )
+
+    # Retrieve context using RAG if enabled. Only multi-agent experimental
+    # conditions use platform context and support metadata.
     context = None
     if chat_data.use_rag:
         try:
@@ -265,12 +354,7 @@ async def chat(
         chat_data=chat_data,
         base_context=context,
     )
-    experiment_version = (
-        project.experiment_version or {}
-        if getattr(project, "experiment_version", None)
-        else {}
-    )
-    use_role_view = experiment_version.get("ai_scaffold_mode") != "single_agent"
+    use_role_view = True
 
     # Chat with AI
     response = await ai_service.chat(
@@ -418,6 +502,44 @@ async def chat_stream(
             except Exception as exc:
                 print(f"Conversation title generation skipped: {exc}")
 
+        experiment_version = (
+            project.experiment_version or {}
+            if getattr(project, "experiment_version", None)
+            else {}
+        )
+        graph_version = experiment_version.get("graph_version")
+        full_response = ""
+
+        if not _is_multi_agent_mode(experiment_version):
+            try:
+                direct_context = await _build_direct_ai_context(project=project, chat_data=chat_data)
+                async for chunk in ai_service.raw_chat_stream(
+                    project_id=chat_data.project_id,
+                    user_id=str(current_user.id),
+                    message=chat_data.message or "",
+                    conversation_id=str(conversation.id),
+                    model_id=_default_chat_model_id(experiment_version),
+                    context_messages=direct_context,
+                ):
+                    full_response += chunk
+                    yield _sse_event("delta", chunk)
+
+                conversation.updated_at = datetime.utcnow()
+                await conversation.save()
+                yield _sse_event(
+                    "done",
+                    {
+                        "conversation_id": str(conversation.id),
+                        "citation_count": 0,
+                    },
+                )
+            except Exception as exc:
+                yield _sse_event(
+                    "error",
+                    {"message": "通用 LLM 暂时无法回应，请稍后重试。", "detail": str(exc)},
+                )
+            return
+
         yield _sse_event(
             "status",
             {
@@ -425,20 +547,14 @@ async def chat_stream(
                 "message": "已收到问题，正在准备 AI 导师回应。",
             },
         )
-
-        experiment_version = (
-            project.experiment_version or {}
-            if getattr(project, "experiment_version", None)
-            else {}
-        )
-        use_role_view = experiment_version.get("ai_scaffold_mode") != "single_agent"
+        use_role_view = True
         tutor_meta = _build_tutor_ai_meta(chat_data, use_role_view=use_role_view)
         yield _sse_event("meta", {"ai_meta": tutor_meta})
 
         # Retrieve context inside the SSE generator so the client receives
         # progress feedback during potentially slow RAG calls.
         context = None
-        if chat_data.use_rag:
+        if chat_data.use_rag and graph_version != "research-graph-v3-stage-aware":
             yield _sse_event(
                 "status",
                 {
@@ -492,45 +608,7 @@ async def chat_stream(
         if context:
             final_message = f"Context:\n{context['content']}\n\nUser Question: {chat_data.message}"
         
-        full_response = ""
         try:
-            if experiment_version.get("ai_scaffold_mode") == "single_agent":
-                yield _sse_event(
-                    "status",
-                    {
-                        "step": "generating",
-                        "message": "正在结合项目任务和当前协作记录生成回应。",
-                    },
-                )
-                async for chunk in ai_service.chat_stream(
-                    project_id=chat_data.project_id,
-                    user_id=str(current_user.id),
-                    message=chat_data.message or "",
-                    role_id=chat_data.role_id,
-                    conversation_id=str(conversation.id),
-                    context=context,
-                    category="chat",
-                    message_metadata=(
-                        {"ai_meta": tutor_meta}
-                        if chat_data.role_id == "default-tutor"
-                        else None
-                    ),
-                ):
-                    full_response += chunk
-                    yield _sse_event("delta", chunk)
-
-                conversation.updated_at = datetime.utcnow()
-                await refresh_conversation_title_if_needed()
-                await conversation.save()
-                yield _sse_event(
-                    "done",
-                    {
-                        "conversation_id": str(conversation.id),
-                        "citation_count": len(context.get("citations", [])) if context else 0,
-                    },
-                )
-                return
-
             # Multi-agent mode uses graph routing. The Supervisor handles intent
             # and delegates to the constrained research sub-agent when needed.
             primary_view = tutor_meta.get("primary_view") or "AI 导师"
@@ -550,6 +628,8 @@ async def chat_stream(
                     else None
                 ),
                 "graph_version": experiment_version.get("graph_version"),
+                "ai_scaffold_mode": experiment_version.get("ai_scaffold_mode"),
+                "process_scaffold_mode": experiment_version.get("process_scaffold_mode"),
                 "current_stage": chat_data.current_stage,
                 "enabled_rule_set": chat_data.enabled_rule_set,
                 "enabled_scaffold_roles": chat_data.enabled_scaffold_roles,
@@ -562,6 +642,7 @@ async def chat_stream(
                 "stage_memory_updated_at": context.get("stage_memory_updated_at") if context else None,
                 "stage_memory_id": context.get("stage_memory_id") if context else None,
                 "stage_memory_version": context.get("stage_memory_version") if context else None,
+                "runtime_model_id": _tutor_multi_agent_model_id(experiment_version),
             }
 
             user_message = AIMessage(
@@ -581,7 +662,7 @@ async def chat_stream(
             final_event_meta = {}
             stream_message = (
                 chat_data.message
-                if experiment_version.get("graph_version") == "research-graph-v3-stage-aware"
+                if graph_version == "research-graph-v3-stage-aware"
                 else final_message
             )
             async for event in agent_service.chat_stream(
@@ -609,13 +690,15 @@ async def chat_stream(
                 if event_type in {"status"}:
                     yield _sse_event("status", {"message": event.get("message", ""), "detail": event.get("detail")})
                     continue
-                if event_type in {"thinking_start", "thinking", "thinking_end"}:
-                    if event_type == "thinking" and event.get("content"):
-                        summary = f"{event.get('label', 'AI导师')}: {event.get('content')}"
+                if event_type in {"process_start", "process_step", "retrieval_step", "routing_step", "process_done"}:
+                    message = event.get("message") or ""
+                    if message:
                         existing = tutor_meta.get("processing_summary", [])
-                        if summary not in existing:
-                            tutor_meta["processing_summary"] = [*existing, summary]
-                    yield _sse_event("thinking", event)
+                        if message not in existing:
+                            tutor_meta["processing_summary"] = [*existing, message]
+                    yield _sse_event("process", event)
+                    continue
+                if event_type in {"thinking_start", "thinking", "thinking_end"}:
                     continue
                 if event_type == "output":
                     chunk = event.get("content", "")

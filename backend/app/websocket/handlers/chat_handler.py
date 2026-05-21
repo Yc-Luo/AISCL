@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 ROLE_MENTION_MAP = {}
 
 GENERAL_AI_MENTIONS = {
+    "@AISCL智能助手",
     "@AISCL",
     "@AI",
     "@AI智能助手",
@@ -97,6 +98,23 @@ def _normalize_ai_scaffold_mode(value: Optional[str]) -> str:
     if normalized in {"single_agent", "single", "singleai", "single_ai", "general_ai"}:
         return "single_agent"
     return "single_agent"
+
+
+def _default_chat_model_id(experiment_version: Optional[dict]) -> str:
+    return (
+        (experiment_version or {}).get("default_chat_model")
+        or (experiment_version or {}).get("defaultChatModel")
+        or "follow_system_default"
+    )
+
+
+def _group_multi_agent_model_id(experiment_version: Optional[dict]) -> str:
+    return (
+        (experiment_version or {}).get("group_multi_agent_model")
+        or (experiment_version or {}).get("group_chat_model")
+        or (experiment_version or {}).get("groupChatModel")
+        or "follow_system_default"
+    )
 
 
 def _detect_preferred_subagent(content: str) -> str | None:
@@ -597,7 +615,6 @@ async def _process_ai_reply(
         from app.services.agents.agent_service import agent_service
         from app.services.agents.deep_agents_shim import derive_routing_decision_from_context
         from app.services.ai_service import ai_service
-        from app.services.rag_service import rag_service
         from app.repositories.project import Project
         from app.repositories.chat_log import ChatLog
         from app.services.activity_service import activity_service
@@ -620,22 +637,25 @@ async def _process_ai_reply(
         ai_scaffold_mode = _normalize_ai_scaffold_mode(
             experiment_version.get("ai_scaffold_mode") or (routing_context or {}).get("ai_scaffold_mode")
         )
-        group_memory = await _build_recent_group_chat_context(
+        group_memory: Dict[str, Any] = await _build_recent_group_chat_context(
             project_id=project_id,
             current_message_id=current_message_id,
         )
-        stage_memory = await group_memory_service.get_stage_memory_context(
-            project_id=project_id,
-            group_id=room_id,
-            stage_id=current_stage,
-        )
-        group_state = await group_memory_service.refresh_and_get_group_state_context(
-            project_id=project_id,
-            group_id=room_id,
-            stage_id=current_stage,
-            project=project,
-        )
+        stage_memory: Dict[str, Any] = {}
+        group_state: Dict[str, Any] = {}
         project_task_context = await group_memory_service.get_project_task_context(project)
+        if ai_scaffold_mode == "multi_agent":
+            stage_memory = await group_memory_service.get_stage_memory_context(
+                project_id=project_id,
+                group_id=room_id,
+                stage_id=current_stage,
+            )
+            group_state = await group_memory_service.refresh_and_get_group_state_context(
+                project_id=project_id,
+                group_id=room_id,
+                stage_id=current_stage,
+                project=project,
+            )
         # Using project_id as session_id for continuity within the project
         graph_context = {
             **(routing_context or {}),
@@ -659,23 +679,28 @@ async def _process_ai_reply(
             "group_peer_message_count": group_memory.get("peer_message_count", 0),
             "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
             "graph_version": experiment_version.get("graph_version"),
+            "ai_scaffold_mode": ai_scaffold_mode,
+            "process_scaffold_mode": experiment_version.get("process_scaffold_mode"),
+            "runtime_model_id": _group_multi_agent_model_id(experiment_version),
         }
         ai_user_id = "ai_assistant"
         message_id = str(uuid.uuid4())
         message_timestamp = _utc_iso_timestamp()
         last_emit_time = 0.0
         routing_decision = {}
-        ai_meta = {
-            "primary_agent": "AI智能助手",
-            "rationale_summary": "我会结合项目任务、当前阶段和小组近期讨论进行回应。",
-            "routing_summary": [
-                "已读取项目任务说明" if project_task_context else "暂无项目任务说明",
-                f"阶段滚动记忆：{'已读取' if stage_memory.get('content') else '暂无'}",
-                f"小组状态记忆：{'已读取' if group_state.get('content') else '暂无'}",
-                f"小组讨论记忆：最近{group_memory.get('peer_message_count', 0)}条",
-                f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",
-            ],
-        }
+        ai_meta = None
+        if ai_scaffold_mode == "multi_agent":
+            ai_meta = {
+                "primary_agent": "AI智能助手",
+                "rationale_summary": "我会结合项目任务、当前阶段和小组近期讨论进行回应。",
+                "routing_summary": [
+                    "已读取项目任务说明" if project_task_context else "暂无项目任务说明",
+                    f"阶段滚动记忆：{'已读取' if stage_memory.get('content') else '暂无'}",
+                    f"小组状态记忆：{'已读取' if group_state.get('content') else '暂无'}",
+                    f"小组讨论记忆：最近{group_memory.get('peer_message_count', 0)}条",
+                    f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",
+                ],
+            }
 
         async def emit_partial(content: str) -> None:
             response_op = {
@@ -700,86 +725,27 @@ async def _process_ai_reply(
             await sio.emit("operation", response_op, room=room_id)
 
         if ai_scaffold_mode == "single_agent":
-            context = None
-            try:
-                context = await rag_service.retrieve_context(
-                    project_id,
-                    user_content,
-                    max_results=3,
-                    group_id=room_id,
-                    stage_id=experiment_version.get("current_stage"),
-                    actor_type="ai_assistant",
-                )
-                context = {
-                    **(context or {"content": "", "citations": []}),
-                    "project_task_context": project_task_context,
-                    "group_state_context": group_state.get("content"),
-                    "group_state_updated_at": group_state.get("updated_at"),
-                    "group_state_memory_id": group_state.get("memory_id"),
-                    "group_state_memory_version": group_state.get("version"),
-                }
-                if group_memory.get("content"):
-                    context = {
-                        **context,
-                        "stage_memory_context": stage_memory.get("content"),
-                        "stage_memory_updated_at": stage_memory.get("updated_at"),
-                        "stage_memory_id": stage_memory.get("memory_id"),
-                        "stage_memory_version": stage_memory.get("version"),
-                        "group_state_context": group_state.get("content"),
-                        "group_state_updated_at": group_state.get("updated_at"),
-                        "group_state_memory_id": group_state.get("memory_id"),
-                        "group_state_memory_version": group_state.get("version"),
-                        "group_chat_context": group_memory["content"],
-                        "group_peer_context": group_memory.get("peer_context"),
-                        "group_ai_context": group_memory.get("ai_context"),
-                        "group_memory_message_count": group_memory.get("message_count", 0),
-                        "group_peer_message_count": group_memory.get("peer_message_count", 0),
-                        "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
-                    }
-                elif stage_memory.get("content"):
-                    context = {
-                        **context,
-                        "stage_memory_context": stage_memory.get("content"),
-                        "stage_memory_updated_at": stage_memory.get("updated_at"),
-                        "stage_memory_id": stage_memory.get("memory_id"),
-                        "stage_memory_version": stage_memory.get("version"),
-                        "group_state_context": group_state.get("content"),
-                        "group_state_updated_at": group_state.get("updated_at"),
-                        "group_state_memory_id": group_state.get("memory_id"),
-                        "group_state_memory_version": group_state.get("version"),
-                    }
-            except Exception as exc:
-                logger.warning("Group chat single-AI RAG unavailable: %s", exc)
-                if group_memory.get("content") or stage_memory.get("content") or group_state.get("content") or project_task_context:
-                    context = {
-                        "content": "",
-                        "citations": [],
-                        "project_task_context": project_task_context,
-                        "stage_memory_context": stage_memory.get("content"),
-                        "stage_memory_updated_at": stage_memory.get("updated_at"),
-                        "stage_memory_id": stage_memory.get("memory_id"),
-                        "stage_memory_version": stage_memory.get("version"),
-                        "group_state_context": group_state.get("content"),
-                        "group_state_updated_at": group_state.get("updated_at"),
-                        "group_state_memory_id": group_state.get("memory_id"),
-                        "group_state_memory_version": group_state.get("version"),
-                        "group_chat_context": group_memory.get("content"),
-                        "group_peer_context": group_memory.get("peer_context"),
-                        "group_ai_context": group_memory.get("ai_context"),
-                        "group_memory_message_count": group_memory.get("message_count", 0),
-                        "group_peer_message_count": group_memory.get("peer_message_count", 0),
-                        "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
-                    }
+            direct_context_messages = []
+            if project_task_context:
+                direct_context_messages.append({
+                    "role": "user",
+                    "content": f"本小组任务说明：\n{project_task_context}",
+                })
+            if group_memory.get("peer_context"):
+                direct_context_messages.append({
+                    "role": "user",
+                    "content": group_memory["peer_context"],
+                })
+            if group_memory.get("ai_context"):
+                direct_context_messages.append({
+                    "role": "user",
+                    "content": group_memory["ai_context"],
+                })
 
-            async for chunk in ai_service.chat_stream(
-                project_id=project_id,
-                user_id=ai_user_id,
-                message=user_content,
-                role_id=None,
-                conversation_id=None,
-                context=context,
-                category="group_chat",
-                message_metadata={"ai_meta": ai_meta},
+            async for chunk in ai_service.raw_completion_stream(
+                user_content,
+                model_id=_default_chat_model_id(experiment_version),
+                context_messages=direct_context_messages,
             ):
                 full_response += chunk
                 candidate_display = _sanitize_stream_display_content(full_response)
@@ -825,6 +791,14 @@ async def _process_ai_reply(
                         routing_decision = event.get("routing_decision") or routing_decision
                         if event.get("ai_meta"):
                             ai_meta = {**ai_meta, **event["ai_meta"]}
+                        continue
+                    if event_type in {"process_start", "process_step", "retrieval_step", "routing_step", "process_done"}:
+                        message = (event.get("message") or "").strip()
+                        if message:
+                            summary = list(ai_meta.get("processing_summary") or [])
+                            if message not in summary:
+                                ai_meta["processing_summary"] = [*summary, message]
+                            await emit_partial(displayed_response or " ")
                         continue
                     if event_type in {"thinking_start", "thinking", "thinking_end", "output_start", "output_end", "status"}:
                         continue
@@ -899,23 +873,24 @@ async def _process_ai_reply(
         if final_response != displayed_response:
             await emit_partial(final_response)
 
-        asyncio.create_task(
-            group_memory_service.maybe_refresh_stage_memory(
-                project_id=project_id,
-                group_id=room_id,
-                stage_id=current_stage,
-                trigger="on_ai_request",
+        if ai_scaffold_mode == "multi_agent":
+            asyncio.create_task(
+                group_memory_service.maybe_refresh_stage_memory(
+                    project_id=project_id,
+                    group_id=room_id,
+                    stage_id=current_stage,
+                    trigger="on_ai_request",
+                )
             )
-        )
-        asyncio.create_task(
-            group_memory_service.maybe_refresh_group_state_memory(
-                project_id=project_id,
-                group_id=room_id,
-                stage_id=current_stage,
-                project=project,
-                trigger="on_ai_request",
+            asyncio.create_task(
+                group_memory_service.maybe_refresh_group_state_memory(
+                    project_id=project_id,
+                    group_id=room_id,
+                    stage_id=current_stage,
+                    project=project,
+                    trigger="on_ai_request",
+                )
             )
-        )
         
     except Exception as e:
         logger.exception("Error processing AI reply for project %s: %s", project_id, e)

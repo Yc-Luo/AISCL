@@ -85,6 +85,7 @@ export default function ContextualAIAssistant({
     const activeTab = useContextStore((state) => state.activeTab);
     const currentStage = useContextStore((state) => state.currentStage);
     const activeTabLabel = getTabLabel(activeTab || 'document');
+    const isSingleAIMode = experimentVersion?.ai_scaffold_mode !== 'multi_agent';
 
     const quickPrompts = [
         '基于当前页面，提醒我下一步最重要的行动。',
@@ -270,7 +271,7 @@ export default function ContextualAIAssistant({
         setPendingImage(null);
         setIsStreaming(true);
         setError(null);
-        setProcessingSummary(['正在读取当前页面与任务阶段', '正在组织简短学习建议']);
+        setProcessingSummary(isSingleAIMode ? [] : ['正在判断当前页面问题需要哪类学习支持。']);
         rawContentRef.current = '';
 
         trackingService.trackResearchEvent({
@@ -310,12 +311,14 @@ export default function ContextualAIAssistant({
                     ));
                 },
                 onStatus: (status) => {
+                    if (isSingleAIMode) return;
                     if (!status.message) return;
                     setProcessingSummary((prev) =>
                         prev.includes(status.message) ? prev : [...prev, status.message]
                     );
                 },
                 onDone: () => {
+                    if (isSingleAIMode) return;
                     setProcessingSummary((prev) =>
                         prev.includes('回答生成完成') ? prev : [...prev, '回答生成完成']
                     );
@@ -433,7 +436,7 @@ export default function ContextualAIAssistant({
 
                 {processingSummary.length > 0 ? (
                     <details className="rounded-2xl border border-slate-100 bg-white px-3 py-2 text-xs text-slate-500">
-                        <summary className="cursor-pointer font-semibold text-slate-600">处理摘要</summary>
+                        <summary className="cursor-pointer font-semibold text-slate-600">本轮思考路径</summary>
                         <ul className="mt-2 list-disc space-y-1 pl-4">
                             {processingSummary.slice(-5).map((step, index) => (
                                 <li key={`${step}-${index}`}>{step}</li>

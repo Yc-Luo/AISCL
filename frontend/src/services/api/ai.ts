@@ -228,17 +228,16 @@ export const aiService = {
                 handlers?.onDone?.(payload)
                 return
             }
+            if (event === 'process') {
+                handlers?.onStatus?.(parseJsonPayload<AIStreamStatus>(data, { message: data }))
+                return
+            }
             if (event === 'error') {
                 handlers?.onError?.(parseJsonPayload<AIStreamStatus>(data, { message: data }))
                 return
             }
             if (event === 'thinking') {
-                const payload = parseJsonPayload<Record<string, unknown>>(data, {})
-                const label = typeof payload.label === 'string' ? payload.label : 'AI导师'
-                const content = typeof payload.content === 'string' ? payload.content.trim() : ''
-                if (content) {
-                    handlers?.onStatus?.({ message: `${label}: ${content}` })
-                }
+                // Raw model thinking is intentionally not shown to learners.
                 return
             }
             if (event === 'output') {

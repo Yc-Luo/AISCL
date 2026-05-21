@@ -330,6 +330,25 @@ class ResearchConfigService:
                 "template_label": template_label,
                 "template_source": template_source,
                 "graph_version": graph_version,
+                "default_chat_model": template.get("default_chat_model")
+                or template.get("defaultChatModel")
+                or "follow_system_default",
+                "group_multi_agent_model": template.get("group_multi_agent_model")
+                or template.get("group_chat_model")
+                or template.get("groupChatModel")
+                or "follow_system_default",
+                "group_chat_model": template.get("group_chat_model")
+                or template.get("group_multi_agent_model")
+                or template.get("groupChatModel")
+                or "follow_system_default",
+                "tutor_multi_agent_model": template.get("tutor_multi_agent_model")
+                or template.get("tutor_model")
+                or template.get("tutorModel")
+                or "follow_system_default",
+                "tutor_model": template.get("tutor_model")
+                or template.get("tutor_multi_agent_model")
+                or template.get("tutorModel")
+                or "follow_system_default",
             }
         )
         return payload

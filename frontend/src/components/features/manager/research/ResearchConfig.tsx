@@ -93,6 +93,11 @@ interface ResolvedExperimentVersionSnapshot {
     template_label: string
     template_source: string
     graph_version: string
+    default_chat_model: string
+    group_multi_agent_model: string
+    group_chat_model: string
+    tutor_multi_agent_model: string
+    tutor_model: string
 }
 
 interface ReleasedTemplateSnapshot extends ExperimentTemplateConfig {
@@ -1267,6 +1272,11 @@ function buildResolvedExperimentVersionSnapshot(
         template_label: template.label.trim() || template.id.trim(),
         template_source: 'admin_release',
         graph_version: orchestration.graphVersion.trim() || 'research-graph-v3-stage-aware',
+        default_chat_model: 'follow_system_default',
+        group_multi_agent_model: orchestration.groupChatModel.trim() || 'follow_system_default',
+        group_chat_model: orchestration.groupChatModel.trim() || 'follow_system_default',
+        tutor_multi_agent_model: orchestration.tutorModel.trim() || 'follow_system_default',
+        tutor_model: orchestration.tutorModel.trim() || 'follow_system_default',
     }
 }
 

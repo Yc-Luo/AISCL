@@ -452,9 +452,21 @@ class AgentService:
             plan = {**plan, "active_agents": active_agents}
 
         rag_plan = self._resolve_stage_aware_rag_plan(plan=plan, context=context)
+        yield {
+            "type": "process_start",
+            "message": "正在判断当前问题需要哪类学习支持。",
+        }
+        yield {
+            "type": "process_step",
+            "message": f"当前更接近“{plan.get('knowledge_construct_label')}”，需要关注“{plan.get('regulation_construct_label')}”。",
+        }
         rag_results = {"content": "", "citations": []}
         if rag_plan["should_retrieve"]:
             try:
+                yield {
+                    "type": "retrieval_step",
+                    "message": "正在检查项目资料、Wiki 和任务说明是否能支持本轮回答。",
+                }
                 rag_results = await rag_service.retrieve_context(
                     project_id=resolved_project_id,
                     query=message,
@@ -468,13 +480,26 @@ class AgentService:
                     source_types=rag_plan.get("source_types"),
                     wiki_item_types=rag_plan.get("wiki_item_types"),
                 )
+                yield {
+                    "type": "retrieval_step",
+                    "message": (
+                        "已找到可引用的项目资料或知识卡片。"
+                        if rag_results.get("citations")
+                        else "项目资料暂未命中，本轮不会假设资源库或 Wiki 已有内容。"
+                    ),
+                }
             except Exception as exc:
                 rag_results = {"content": "", "citations": []}
                 yield {
-                    "type": "status",
+                    "type": "retrieval_step",
                     "message": "项目资料检索暂不可用，正在基于当前任务与协作记忆回应。",
                     "detail": str(exc),
                 }
+        else:
+            yield {
+                "type": "retrieval_step",
+                "message": "本轮优先基于任务说明、阶段记忆和小组状态回应，不额外检索资料。",
+            }
 
         merged_context = {
             **context,
@@ -492,6 +517,7 @@ class AgentService:
                 "primary_subagent": plan["selected_subagent"],
             },
         }
+        mode = plan["orchestration_mode"]
         ai_meta = self._build_ai_meta(plan=plan, rag_plan=rag_plan)
         yield {
             "type": "routing",
@@ -500,8 +526,11 @@ class AgentService:
             "retrieval_mode": rag_plan["retrieval_mode"],
             "citation_count": len(rag_results.get("citations", [])),
         }
+        yield {
+            "type": "routing_step",
+            "message": f"本轮采用“{self._mode_label(mode)}”，主要由“{SUBAGENT_LABELS.get(plan.get('selected_subagent'), 'AI智能助手')}”组织回应。",
+        }
 
-        mode = plan["orchestration_mode"]
         if mode == "parallel" and len(active_agents) > 1:
             yield {
                 "type": "status",
@@ -536,6 +565,10 @@ class AgentService:
         ai_meta["processing_summary"] = self._dedupe_processing_summary(
             ai_meta.get("processing_summary", []) + processing_summaries
         )
+        yield {
+            "type": "process_done",
+            "message": "已完成支架选择和回答生成。",
+        }
         yield {
             "type": "done",
             "final_content": final_content,
@@ -790,7 +823,9 @@ class AgentService:
             if event["type"] == "output":
                 agent_output += event.get("content", "")
             elif event["type"] == "thinking":
-                processing_summaries.append(f"{label}: {event.get('content', '').strip()}")
+                # Do not expose raw model thinking. Public process steps are
+                # generated deterministically by the orchestration layer.
+                continue
             events.append(event)
         events.append({"type": "output_end", "agent": agent_name, "label": label})
 
@@ -861,7 +896,11 @@ class AgentService:
             )),
             ("human", "{input}"),
         ])
-        chain = prompt | self.llm
+        runtime_llm = await get_llm(
+            temperature=0.7,
+            model_id=context.get("runtime_model_id"),
+        )
+        chain = prompt | runtime_llm
         try:
             async for chunk in chain.astream({"input": message}):
                 content = getattr(chunk, "content", "") or ""
@@ -955,8 +994,8 @@ class AgentService:
 前序智能体输出：{self._clip_context(previous_text, 1800)}
 
 输出要求：
-- 先用 <think>...</think> 包裹一条 20-50 字的“处理摘要”，只说明你将从哪个角度支持学习者；不要展示详细推理链。
-- 如果使用 <think>，必须在 50 字内关闭标签，然后继续输出正式回答；不要把正式回答放进 <think>。
+- 不要输出 <think>、JSON、内部路由或调试字段；系统会单独生成学习者可读的“思考路径”。
+- 无需展示详细推理链，直接给出面向学习者的正式回答。
 - 正式回答必须使用中文；普通问题默认 220-420 字，复杂整合、平台操作或多智能体接力可到 500-700 字。
 - 根据问题类型组织回答，不要每次机械套用同一结构；平台操作问题优先给清晰步骤，协作论证问题优先给判断点、依据和下一步。
 - 回答可以包含：当前需要处理的判断点、具体下一步行动、可继续讨论的问题；但不要为了凑结构重复无关提醒。
@@ -1039,6 +1078,9 @@ class AgentService:
 
     def _build_ai_meta(self, *, plan: Dict[str, Any], rag_plan: Dict[str, Any]) -> Dict[str, Any]:
         primary_agent = SUBAGENT_LABELS.get(plan.get("selected_subagent"), "AI智能助手")
+        mode_label = self._mode_label(plan.get("orchestration_mode"))
+        support_label = self._support_need_label(plan.get("support_need"))
+        retrieval_label = self._retrieval_label(rag_plan.get("retrieval_mode"))
         return {
             "primary_agent": primary_agent,
             "primary_view": primary_agent,
@@ -1048,12 +1090,13 @@ class AgentService:
             ),
             "routing_summary": [
                 f"主要视角：{primary_agent}",
-                f"支架需要：{plan.get('support_need')}",
-                f"检索策略：{rag_plan.get('retrieval_mode')}",
+                f"支架重点：{support_label}",
+                f"资料判断：{retrieval_label}",
             ],
             "processing_summary": [
-                f"识别当前过程：{plan.get('knowledge_construct_label')}",
-                f"选择支持方式：{self._mode_label(plan.get('orchestration_mode'))}",
+                f"先判断当前问题更接近“{plan.get('knowledge_construct_label')}”。",
+                f"再确认本轮需要关注“{support_label}”。",
+                f"因此采用“{mode_label}”方式组织回应。",
             ],
             "orchestration_mode": plan.get("orchestration_mode"),
             "active_agents": plan.get("active_agents"),
@@ -1076,6 +1119,34 @@ class AgentService:
             "debate": "观点碰撞",
             "pipeline": "串联接力",
         }.get(mode or "", "协作支架")
+
+    def _support_need_label(self, support_need: Optional[str]) -> str:
+        return {
+            "problem_framing": "澄清核心问题",
+            "task_clarification": "澄清任务要求",
+            "evidence_gap": "补充证据线索",
+            "criteria_or_ai_peer_comparison": "明确比较标准",
+            "multiple_view_generation": "生成多种观点",
+            "counterargument_missing": "补充反例或反驳",
+            "reasoning_or_integration_need": "整合理由与证据",
+            "deep_inquiry_scaffold": "形成深度探究路径",
+            "application_boundary_check": "检验方案边界",
+            "strategy_or_action_need": "推进分工和行动",
+            "emotion_or_participation_risk": "维持建设性参与",
+            "platform_operation_help": "解决平台操作问题",
+        }.get(support_need or "", "推进当前协作问题")
+
+    def _retrieval_label(self, retrieval_mode: Optional[str]) -> str:
+        mode = retrieval_mode or ""
+        if "skip" in mode or "memory_only" in mode:
+            return "优先使用任务说明和协作记忆，不额外检索资料"
+        if "targeted" in mode:
+            return "定向检查观点、争议和证据线索"
+        if "revision" in mode:
+            return "检查阶段结论和可修订材料"
+        if "stage_aware" in mode or "full" in mode:
+            return "检查项目资料、Wiki 和资源库是否有可用依据"
+        return "按当前问题判断是否需要资料支持"
 
     def _clip_context(self, value: Any, limit: int) -> str:
         text = str(value or "").strip()

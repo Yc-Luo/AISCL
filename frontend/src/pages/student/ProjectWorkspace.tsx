@@ -25,7 +25,14 @@ import { useContextStore } from '../../stores/contextStore'
 import { usePresenceStore } from '../../stores/presenceStore'
 import { trackingService } from '../../services/tracking/TrackingService'
 import { isProcessScaffoldActive, isTutorTabEnabled } from '../../lib/experimentScaffold'
-import { formatStageLabel, getStageToolGuidance, getTabLabel } from '../../lib/stageModel'
+import {
+  CANONICAL_STAGES,
+  formatStageLabel,
+  getStageToolGuidance,
+  getTabLabel,
+  normalizeStageId,
+  type CanonicalStageId,
+} from '../../lib/stageModel'
 import { ConfirmDialog, useToast } from '../../components/ui'
 import { ClipboardList, MessagesSquare, PanelLeftOpen } from 'lucide-react'
 
@@ -73,6 +80,24 @@ const getVisiblePrimaryTabForStage = (stageId: string | null, version: Experimen
   const primaryTab = getStageToolGuidance(stageId).primaryTab
   if (primaryTab === 'ai' && !isTutorTabEnabled(version)) return 'document'
   return primaryTab
+}
+
+const getVisibleStageSteps = (stageSequence?: string[]) => {
+  const firstStageByCanonical = new Map<CanonicalStageId, string>()
+
+  ;(stageSequence || []).forEach((stageId) => {
+    const canonicalStage = normalizeStageId(stageId)
+    if (canonicalStage && !firstStageByCanonical.has(canonicalStage)) {
+      firstStageByCanonical.set(canonicalStage, stageId)
+    }
+  })
+
+  return CANONICAL_STAGES
+    .filter((stageId) => firstStageByCanonical.has(stageId))
+    .map((stageId) => ({
+      canonicalStage: stageId,
+      stageId: firstStageByCanonical.get(stageId) || stageId,
+    }))
 }
 
 export default function Main() {
@@ -671,6 +696,8 @@ export default function Main() {
   const stageToolGuidance = getStageToolGuidance(currentStage)
   const stageControlMode = experimentVersion?.stage_control_mode || 'soft_guidance'
   const hasConfiguredStages = (experimentVersion?.stage_sequence?.length || 0) > 0
+  const visibleStageSteps = getVisibleStageSteps(experimentVersion?.stage_sequence)
+  const currentCanonicalStage = normalizeStageId(currentStage)
   const showProcessGuidance = Boolean(hasConfiguredStages && currentStage && isProcessScaffoldActive(experimentVersion))
   const tutorTabEnabled = isTutorTabEnabled(experimentVersion)
   const hiddenTabs = tutorTabEnabled ? [] : ['ai']
@@ -686,7 +713,12 @@ export default function Main() {
   const stageRenderKey = `${currentProjectId || 'no-project'}:${currentStage || 'no-stage'}`
 
   const handleStageSelect = (stageId: string) => {
-    if (!currentProjectId || !experimentVersion || stageId === currentStage) return
+    if (
+      !currentProjectId
+      || !experimentVersion
+      || stageId === currentStage
+      || normalizeStageId(stageId) === currentCanonicalStage
+    ) return
 
     if (!isGroupLeader) {
       setStageActionNotice('当前任务阶段由小组组长推进。请先在小组内协商后，由组长统一切换阶段。')
@@ -893,12 +925,12 @@ export default function Main() {
               </div>
 
               <div className="mt-1.5 flex items-center gap-2 overflow-x-auto pb-0.5">
-                {(experimentVersion?.stage_sequence || []).map((stageId, index) => {
-                  const isActive = currentStage === stageId
+                {visibleStageSteps.map(({ canonicalStage, stageId }, index) => {
+                  const isActive = currentCanonicalStage === canonicalStage
                   const isStageButtonDisabled = stageChanging || isActive || !isGroupLeader
                   return (
                     <button
-                      key={stageId}
+                      key={canonicalStage}
                       type="button"
                       onClick={() => handleStageSelect(stageId)}
                       disabled={isStageButtonDisabled}
@@ -910,7 +942,7 @@ export default function Main() {
                         }`}
                       title={!isGroupLeader ? '当前任务阶段由小组组长推进。' : undefined}
                     >
-                      {index + 1}. {formatStageLabel(stageId)}
+                      {index + 1}. {formatStageLabel(canonicalStage)}
                     </button>
                   )
                 })}

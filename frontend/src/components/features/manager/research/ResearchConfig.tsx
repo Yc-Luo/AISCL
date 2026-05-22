@@ -529,7 +529,7 @@ export default function ResearchConfig() {
                 aiMode: 'single_agent',
                 processMode: 'on',
                 ruleSet: 'research-default',
-                stageSequence: ['orientation', 'planning', 'inquiry', 'argumentation', 'revision'],
+                stageSequence: ['problem_construction', 'meaning_exploration', 'explanation_integration', 'application_solution'],
                 teacherSummary: '请补充该模板的实验用途与适用班级。',
                 published: false,
             },

@@ -255,31 +255,41 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
             退出登录
           </button>
 
-          {confirmLogout && (
-            <div className="mt-4 rounded-2xl border border-red-100 bg-red-50/70 p-4">
-              <div className="text-sm font-bold text-red-700">确认退出当前账号？</div>
-              <p className="mt-1 text-xs leading-5 text-red-600">
-                退出后需要重新登录才能继续进入学习空间。
-              </p>
-              <div className="mt-3 flex justify-end gap-2">
+        </div>
+
+        {confirmLogout && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-3xl border border-red-100 bg-white p-5 shadow-2xl">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-red-50 p-3 text-red-600">
+                  <LogOut size={22} />
+                </div>
+                <div>
+                  <div className="text-base font-black text-slate-900">确认退出当前账号？</div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    退出后需要重新登录才能继续进入学习空间。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setConfirmLogout(false)}
-                  className="rounded-xl bg-white px-4 py-2 text-xs font-bold text-slate-600 ring-1 ring-slate-100 hover:bg-slate-50"
+                  className="rounded-xl bg-slate-50 px-4 py-2 text-xs font-bold text-slate-600 ring-1 ring-slate-100 hover:bg-slate-100"
                 >
                   取消
                 </button>
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-red-100 hover:bg-red-700"
                 >
                   确认退出
                 </button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )

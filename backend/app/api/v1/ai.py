@@ -129,6 +129,7 @@ def _infer_tutor_subagent_from_message(
         ("viewpoint_challenger", r"反驳|质疑|不同意见|替代方案|反方|反例|漏洞|站不住脚|局限|偏见|争议|挑战|对立观点|另一种解释", 3),
         ("feedback_prompter", r"修改|优化|改进|完善|修订|修正|调整|反馈|评价标准|标准|不足|薄弱|怎么改|如何改进|如何完善|如何修正|证据够吗|充分吗", 3),
         ("problem_progressor", r"下一步|推进|计划|步骤|先做什么|怎么开始|如何开展|如何推进|任务|分工|安排|进展|卡住|梳理|路线|流程", 3),
+        ("problem_progressor", r"焦虑|压力|紧张|害怕|担心|烦|崩溃|冲突|争吵|沉默|没人参与|不配合|没动力|不想做|做不下去|太难|不会|放弃|拖延", 3),
         ("evidence_researcher", r"资料|证据|出处|来源|文献|背景|概念|什么是|材料|案例|信息|查找|搜集|搜索|依据|数据", 3),
         ("feedback_prompter", r"学习重点|收获|哪里需要注意|怎么提升|如何提高", 2),
         ("problem_progressor", r"目前进展|现在到哪一步|当前情况|整体情况", 2),
@@ -147,11 +148,11 @@ def _infer_tutor_subagent_from_message(
         return best_subagent
 
     stage = current_stage or ""
-    if any(keyword in stage for keyword in ["argumentation", "论证", "协商"]):
+    if any(keyword in stage for keyword in ["explanation_integration", "解释整合", "argumentation", "论证", "协商"]):
         return "viewpoint_challenger"
-    if any(keyword in stage for keyword in ["revision", "reflection", "修订", "反思"]):
+    if any(keyword in stage for keyword in ["application_solution", "应用解决", "revision", "reflection", "修订", "反思"]):
         return "feedback_prompter"
-    if any(keyword in stage for keyword in ["inquiry", "evidence", "证据", "探究"]):
+    if any(keyword in stage for keyword in ["meaning_exploration", "意义探索", "inquiry", "evidence", "证据", "探究"]):
         return "evidence_researcher"
     return "problem_progressor"
 
@@ -264,6 +265,17 @@ async def _build_direct_ai_context(
 ) -> List[dict]:
     """Build neutral task/page context for generic LLM without RAG or scaffolds."""
     context_messages: List[dict] = []
+    context_messages.append({
+        "role": "user",
+        "content": (
+            "请按 AISCL 学习支架方式回应：先识别学习者处境，再温和回应，追问 1-2 个关键缺口，"
+            "给出下一步支架，并提醒小组如何协作。"
+            "四阶段重点：问题构建=澄清任务/界定问题/识别分歧；意义探索=扩展资料/比较观点/判断证据质量；"
+            "解释整合=组织证据链/形成解释/处理反驳；应用解决=落地方案/检验边界/修订成果。"
+            "如果出现焦虑、没动力、冲突、沉默、怕做错或觉得太难，先降低压力，把任务切成一个 10 分钟内可完成的小动作，"
+            "再回到学习任务。不要空泛鼓励，不要替学生完成最终答案。"
+        ),
+    })
     project_task_context = await group_memory_service.get_project_task_context(project)
     if project_task_context:
         context_messages.append({

@@ -32,6 +32,7 @@ REGULATION_CONSTRUCT_LABELS = {
     "process_monitoring": "过程监控",
     "strategy_coordination": "策略协同",
     "emotion_coordination": "情绪协调",
+    "emotion_motivation_coordination": "情绪与动机协调",
 }
 
 STAGE_ALIASES = {
@@ -93,7 +94,35 @@ class OrchestrationPlanner:
             "deep_inquiry_scaffold",
         ),
         IntentPattern("platform_help", ["怎么上传", "如何上传", "上传到", "上传资料", "怎么提交", "如何提交", "提交按钮", "上传成果", "按钮", "在哪里", "怎么用", "资源库", "wiki", "协作文档", "论证空间", "知识沉淀", "教师支持", "归档", "图片", "文件", "平台", "系统", "功能", "操作"], "platform_operation_help"),
-        IntentPattern("emotion_support", ["焦虑", "冲突", "争吵", "没人", "沉默", "情绪", "不愿意"], "emotion_or_participation_risk"),
+        IntentPattern(
+            "emotion_support",
+            [
+                "焦虑",
+                "压力",
+                "紧张",
+                "害怕",
+                "担心",
+                "烦",
+                "崩溃",
+                "冲突",
+                "争吵",
+                "没人",
+                "沉默",
+                "情绪",
+                "不愿意",
+                "没动力",
+                "不想做",
+                "不想写",
+                "做不下去",
+                "太难",
+                "不会",
+                "放弃",
+                "拖延",
+                "没人参与",
+                "不配合",
+            ],
+            "emotion_or_motivation_risk",
+        ),
         IntentPattern("clarify_task", ["做什么", "任务", "下一步", "怎么开始", "目标", "计划", "阶段"], "problem_framing"),
         IntentPattern("seek_evidence", ["证据", "资料", "来源", "数据", "文献", "案例", "依据", "背景", "概念", "什么是"], "evidence_gap"),
         IntentPattern("explore_perspectives", ["有哪些", "哪些角度", "不同角度", "不同观点", "多种可能", "多种观点", "其他观点", "还能怎么看"], "multiple_view_generation"),
@@ -115,17 +144,20 @@ class OrchestrationPlanner:
         ("problem_construction", "clarify_task"): ("single", ["problem_progressor"]),
         ("problem_construction", "platform_help"): ("single", ["problem_progressor"]),
         ("problem_construction", "deep_inquiry"): ("pipeline", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter", "problem_progressor"]),
+        ("problem_construction", "emotion_support"): ("pipeline", ["problem_progressor", "feedback_prompter"]),
         ("problem_construction", "seek_evidence"): ("single", ["evidence_researcher"]),
         ("problem_construction", "explore_perspectives"): ("parallel", ["problem_progressor", "evidence_researcher"]),
         ("meaning_exploration", "platform_help"): ("single", ["problem_progressor"]),
         ("meaning_exploration", "clarify_task"): ("single", ["problem_progressor"]),
         ("meaning_exploration", "deep_inquiry"): ("pipeline", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter", "problem_progressor"]),
+        ("meaning_exploration", "emotion_support"): ("pipeline", ["problem_progressor", "evidence_researcher", "feedback_prompter"]),
         ("meaning_exploration", "seek_evidence"): ("single", ["evidence_researcher"]),
         ("meaning_exploration", "explore_perspectives"): ("parallel", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter"]),
         ("meaning_exploration", "challenge_view"): ("debate", ["evidence_researcher", "viewpoint_challenger"]),
         ("meaning_exploration", "compare_views"): ("parallel", ["viewpoint_challenger", "evidence_researcher", "feedback_prompter"]),
         ("explanation_integration", "platform_help"): ("single", ["problem_progressor"]),
         ("explanation_integration", "deep_inquiry"): ("pipeline", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter", "problem_progressor"]),
+        ("explanation_integration", "emotion_support"): ("pipeline", ["problem_progressor", "feedback_prompter", "viewpoint_challenger"]),
         ("explanation_integration", "seek_evidence"): ("single", ["evidence_researcher"]),
         ("explanation_integration", "challenge_view"): ("debate", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter"]),
         ("explanation_integration", "compare_views"): ("debate", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter"]),
@@ -133,6 +165,7 @@ class OrchestrationPlanner:
         ("explanation_integration", "seek_synthesis"): ("pipeline", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter", "problem_progressor"]),
         ("application_solution", "platform_help"): ("single", ["problem_progressor"]),
         ("application_solution", "deep_inquiry"): ("pipeline", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter", "problem_progressor"]),
+        ("application_solution", "emotion_support"): ("pipeline", ["problem_progressor", "feedback_prompter"]),
         ("application_solution", "seek_evidence"): ("single", ["evidence_researcher"]),
         ("application_solution", "challenge_view"): ("debate", ["evidence_researcher", "viewpoint_challenger"]),
         ("application_solution", "seek_synthesis"): ("pipeline", ["evidence_researcher", "viewpoint_challenger", "feedback_prompter", "problem_progressor"]),
@@ -144,6 +177,8 @@ class OrchestrationPlanner:
         "counterargument_missing": ("debate", ["evidence_researcher", "viewpoint_challenger"], "counterargument_missing"),
         "revision_stall": ("single", ["feedback_prompter"], "reasoning_or_integration_need"),
         "responsibility_risk": ("single", ["problem_progressor"], "strategy_or_action_need"),
+        "emotion": ("pipeline", ["problem_progressor", "feedback_prompter"], "emotion_or_motivation_risk"),
+        "silence": ("pipeline", ["problem_progressor", "feedback_prompter"], "emotion_or_motivation_risk"),
     }
 
     SUPPORT_TO_CONSTRUCTS = {
@@ -158,6 +193,7 @@ class OrchestrationPlanner:
         "application_boundary_check": ("application_solution", "process_monitoring"),
         "strategy_or_action_need": ("application_solution", "strategy_coordination"),
         "emotion_or_participation_risk": ("problem_construction", "emotion_coordination"),
+        "emotion_or_motivation_risk": ("problem_construction", "emotion_motivation_coordination"),
         "platform_operation_help": ("problem_construction", "strategy_coordination"),
     }
 
@@ -302,6 +338,7 @@ class OrchestrationPlanner:
             "application_boundary_check": "check_assumptions_and_boundaries",
             "strategy_or_action_need": "actionable_plan",
             "emotion_or_participation_risk": "coordinate_participation",
+            "emotion_or_motivation_risk": "emotion_motivation_scaffold",
             "platform_operation_help": "platform_operation_guidance",
         }.get(support_need, "brief_actionable")
 
@@ -331,6 +368,8 @@ class OrchestrationPlanner:
             instructions[agent] = (
                 f"{prefix}本轮协作知识建构为“{construct}”，共享调节为“{regulation}”，"
                 f"支架需要为 {support_need}。请以“{label}”身份给出具体、有层次且贴合问题类型的支架回应，"
-                "不要机械重复同一种建议。"
+                "必须遵循“识别处境 -> 温和回应 -> 追问关键缺口 -> 下一步支架 -> 小组协作提醒”的回应顺序。"
+                "如果检测到焦虑、沉默、没动力、冲突或觉得太难，先把压力降下来，把任务切成一个可在 10 分钟内完成的小动作，"
+                "再回到证据、观点、修订或分工。不要机械重复同一种建议。"
             )
         return instructions

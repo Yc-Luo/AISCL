@@ -72,15 +72,15 @@ def _diagnose_collaboration_state(
         "answer_policy": "brief_next_step",
     }
 
-    if _contains_any(text, ["焦虑", "冲突", "争吵", "不愿意", "没人", "沉默", "参与", "分歧太大", "情绪"]):
+    if _contains_any(text, ["焦虑", "压力", "紧张", "害怕", "担心", "烦", "崩溃", "冲突", "争吵", "不愿意", "没人", "沉默", "参与", "分歧太大", "情绪", "没动力", "不想做", "做不下去", "太难", "不会", "放弃", "拖延", "不配合"]):
         diagnosis.update({
             "knowledge_construct": "problem_construction",
             "knowledge_construct_label": KNOWLEDGE_CONSTRUCT_LABELS["problem_construction"],
-            "regulation_construct": "emotion_coordination",
-            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["emotion_coordination"],
-            "support_need": "emotion_or_participation_risk",
+            "regulation_construct": "emotion_motivation_coordination",
+            "regulation_construct_label": REGULATION_CONSTRUCT_LABELS["emotion_motivation_coordination"],
+            "support_need": "emotion_or_motivation_risk",
             "primary_subagent": progress_agent_name,
-            "answer_policy": "coordinate_participation",
+            "answer_policy": "emotion_motivation_scaffold",
         })
         return diagnosis
 
@@ -320,13 +320,13 @@ def _infer_stage_constrained_subagent(
     stage = (current_stage or "").strip()
     if not stage:
         return ""
-    if any(keyword in stage for keyword in ["任务导入", "问题规划", "任务", "规划", "导入", "问题"]):
+    if any(keyword in stage for keyword in ["problem_construction", "问题构建", "任务导入", "问题规划", "任务", "规划", "导入", "问题"]):
         return progress_agent_name
-    if any(keyword in stage for keyword in ["证据探究", "证据", "资料", "来源"]):
+    if any(keyword in stage for keyword in ["meaning_exploration", "意义探索", "证据探究", "证据", "资料", "来源"]):
         return evidence_agent_name
-    if any(keyword in stage for keyword in ["论证协商", "论证", "协商", "反驳", "比较"]):
+    if any(keyword in stage for keyword in ["explanation_integration", "解释整合", "论证协商", "论证", "协商", "反驳", "比较"]):
         return challenger_agent_name
-    if any(keyword in stage for keyword in ["反思修订", "修订", "反思", "评价标准", "修正"]):
+    if any(keyword in stage for keyword in ["application_solution", "应用解决", "反思修订", "修订", "反思", "评价标准", "修正"]):
         return feedback_agent_name
     return ""
 
@@ -394,6 +394,8 @@ def _select_constrained_subagent(
         "counterargument_missing": challenger_agent_name,
         "revision_stall": feedback_agent_name,
         "responsibility_risk": progress_agent_name,
+        "emotion": progress_agent_name,
+        "silence": progress_agent_name,
     }
     rule_target = rule_mapping.get(rule_type or "")
     if _is_available(rule_target):

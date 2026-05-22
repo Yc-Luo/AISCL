@@ -972,7 +972,7 @@ class GroupMemoryService:
         if task_counts.get("todo", 0) > 0 and task_counts.get("doing", 0) == 0:
             collaboration_risks.append("任务多处于待办状态，可能需要明确谁负责、先做哪一步。")
         if peer_chat_count < 2:
-            collaboration_risks.append("近期同伴讨论较少，可能需要先激活小组成员对任务焦点的共同确认。")
+            collaboration_risks.append("近期同伴讨论较少，可能需要先激活成员之间的接话、补充和共同确认。")
         if event_counts.get("inquiry_structure", 0) == 0:
             collaboration_risks.append("近期论证空间操作较少，可提醒学习者把观点、证据和反例结构化。")
 
@@ -984,7 +984,7 @@ class GroupMemoryService:
         if active_tasks:
             recommended_support.append("围绕当前待办任务给出短步骤建议，并提示截止时间。")
         if stage_id:
-            recommended_support.append("结合当前协作阶段给出支架：问题构建重在澄清焦点，意义探索重在扩展材料，解释整合重在证据化，应用解决重在落地检验。")
+            recommended_support.append("结合当前协作阶段给出同伴式支架：问题构建重在共同澄清焦点，意义探索重在成员互补资料，解释整合重在共同整理证据链，应用解决重在协作检验和修订。")
 
         task_focus = ""
         if project:

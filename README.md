@@ -313,9 +313,20 @@ docker compose -f docker-compose.server.yml up -d backend frontend nginx
 
 ```bash
 git pull
+# 只改后端时，例如后端提示词、接口、服务逻辑：
+docker compose -f docker-compose.images.yml pull backend
+docker compose -f docker-compose.images.yml up -d --no-deps backend
+
+# 只改前端时，例如页面、交互、样式：
+docker compose -f docker-compose.images.yml pull frontend
+docker compose -f docker-compose.images.yml up -d --no-deps frontend
+
+# 前后端都改了才同时更新：
 docker compose -f docker-compose.images.yml pull backend frontend
-docker compose -f docker-compose.images.yml up -d
+docker compose -f docker-compose.images.yml up -d --no-deps backend frontend
 ```
+
+`Publish Docker Images` workflow 会按变更路径构建镜像：`backend/` 变化只发布后端镜像，`frontend/` 变化只发布前端镜像。文档或部署说明变化不会触发应用镜像重建。手动运行 workflow 或发布 `v*` tag 时仍会构建前后端完整镜像。
 
 如修改了基础设施配置，再执行：
 

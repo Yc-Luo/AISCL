@@ -328,6 +328,21 @@ docker compose -f docker-compose.images.yml up -d --no-deps backend frontend
 
 `Publish Docker Images` workflow 会按变更路径构建镜像：`backend/` 变化只发布后端镜像，`frontend/` 变化只发布前端镜像。文档或部署说明变化不会触发应用镜像重建。手动运行 workflow 或发布 `v*` tag 时仍会构建前后端完整镜像。
 
+如果云服务器从 GHCR 拉取后端镜像很慢，并且本次只修改了后端 Python 代码或提示词，没有修改 `backend/pyproject.toml`、`backend/poetry.lock`、`backend/Dockerfile` 或系统依赖，可以使用后端代码快速覆盖模式：
+
+```bash
+git pull
+docker compose -f docker-compose.images.yml -f docker-compose.backend-code.yml up -d --no-deps backend
+```
+
+这个模式不拉取新的 backend 镜像，只把服务器当前 git 工作区的 `backend/app` 和 `backend/scripts` 挂载进容器，然后重启 backend。适合频繁更新智能体提示词、后端接口逻辑、小修复。若改了依赖或 Dockerfile，仍需要先拉一次镜像：
+
+```bash
+git pull
+docker compose -f docker-compose.images.yml pull backend
+docker compose -f docker-compose.images.yml -f docker-compose.backend-code.yml up -d --no-deps backend
+```
+
 如修改了基础设施配置，再执行：
 
 ```bash
@@ -338,6 +353,12 @@ docker compose -f docker-compose.server.yml up -d
 
 ```bash
 docker compose -f docker-compose.images.yml up -d
+```
+
+如果已启用后端代码快速覆盖模式，并且基础设施配置也要重新应用：
+
+```bash
+docker compose -f docker-compose.images.yml -f docker-compose.backend-code.yml up -d
 ```
 
 ## 6. 模型配置

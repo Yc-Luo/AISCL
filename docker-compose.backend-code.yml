@@ -1,0 +1,18 @@
+# Optional fast-update overlay for backend-only code changes.
+#
+# Use together with docker-compose.images.yml on servers where pulling the
+# backend image is slow. The image still provides Python dependencies and the
+# runtime environment, while the current git checkout provides backend source.
+#
+# Example:
+#   git pull
+#   docker compose -f docker-compose.images.yml -f docker-compose.backend-code.yml up -d --no-deps backend
+#
+# If backend dependencies, Dockerfile, or system packages changed, do not rely on
+# this overlay alone. Pull the backend image once, then restart with this overlay.
+
+services:
+  backend:
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/scripts:/app/scripts:ro

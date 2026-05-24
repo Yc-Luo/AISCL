@@ -44,65 +44,7 @@ const FALLBACK_EXPERIMENT_TEMPLATE_OPTIONS: TemplateSelectOption[] = [
 
 const DEFAULT_TASK_TITLE = '项目说明';
 
-type TaskTemplateSections = {
-    background: string;
-    coreQuestions: string;
-    collaborationRequirements: string;
-    deliverables: string;
-    evaluationCriteria: string;
-};
-
-const DEFAULT_TASK_TEMPLATE_SECTIONS: TaskTemplateSections = {
-    background: '请简要说明本次开放性任务的主题情境、学习目标与基本问题。',
-    coreQuestions: '1. 本组需要围绕哪些关键问题展开探究与讨论？\n2. 需要回答或解决的核心挑战是什么？',
-    collaborationRequirements: '1. 请结合小组讨论、资料检索、证据比较与观点协商推进任务。\n2. 在形成结论前，请说明证据来源，并对不同观点进行比较或回应。',
-    deliverables: '请明确本组最终需要提交的成果形式，例如：研究报告、方案设计、论证说明、展示文稿或其他作品。',
-    evaluationCriteria: '请结合任务要求说明评价关注点，例如：问题理解是否准确、证据是否充分、论证是否清晰、协作过程是否完整、成果是否具有说服力。',
-};
-
-const composeTaskTemplate = (sections: TaskTemplateSections): string => `一、任务背景
-${sections.background.trim()}
-
-二、核心问题
-${sections.coreQuestions.trim()}
-
-三、协作要求
-${sections.collaborationRequirements.trim()}
-
-四、提交成果
-${sections.deliverables.trim()}
-
-五、评价要点
-${sections.evaluationCriteria.trim()}`;
-
-const parseTaskTemplate = (content?: string | null): TaskTemplateSections => {
-    if (!content?.trim()) return { ...DEFAULT_TASK_TEMPLATE_SECTIONS };
-
-    const extract = (startLabel: string, endLabel?: string) => {
-        const start = content.indexOf(startLabel);
-        if (start === -1) return '';
-        const from = start + startLabel.length;
-        const end = endLabel ? content.indexOf(endLabel, from) : -1;
-        const raw = end === -1 ? content.slice(from) : content.slice(from, end);
-        return raw.trim();
-    };
-
-    const parsed: TaskTemplateSections = {
-        background: extract('一、任务背景', '二、核心问题'),
-        coreQuestions: extract('二、核心问题', '三、协作要求'),
-        collaborationRequirements: extract('三、协作要求', '四、提交成果'),
-        deliverables: extract('四、提交成果', '五、评价要点'),
-        evaluationCriteria: extract('五、评价要点'),
-    };
-
-    return {
-        background: parsed.background || DEFAULT_TASK_TEMPLATE_SECTIONS.background,
-        coreQuestions: parsed.coreQuestions || DEFAULT_TASK_TEMPLATE_SECTIONS.coreQuestions,
-        collaborationRequirements: parsed.collaborationRequirements || DEFAULT_TASK_TEMPLATE_SECTIONS.collaborationRequirements,
-        deliverables: parsed.deliverables || DEFAULT_TASK_TEMPLATE_SECTIONS.deliverables,
-        evaluationCriteria: parsed.evaluationCriteria || DEFAULT_TASK_TEMPLATE_SECTIONS.evaluationCriteria,
-    };
-};
+const DEFAULT_TASK_CONTENT = '请在这里填写本次活动或项目的完整说明，包括活动背景、目标任务、协作方式、成果要求、提交方式或其他需要学生提前了解的内容。';
 
 export default function ClassManagement() {
     const navigate = useNavigate();
@@ -121,7 +63,7 @@ export default function ClassManagement() {
     const [description, setDescription] = useState('');
     const [experimentTemplateKey, setExperimentTemplateKey] = useState('');
     const [initialTaskTitle, setInitialTaskTitle] = useState(DEFAULT_TASK_TITLE);
-    const [taskTemplate, setTaskTemplate] = useState<TaskTemplateSections>({ ...DEFAULT_TASK_TEMPLATE_SECTIONS });
+    const [initialTaskContent, setInitialTaskContent] = useState(DEFAULT_TASK_CONTENT);
     const [submitting, setSubmitting] = useState(false);
     const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     const [pendingDeleteCourse, setPendingDeleteCourse] = useState<Course | null>(null);
@@ -194,7 +136,7 @@ export default function ClassManagement() {
                 description,
                 experiment_template_key: experimentTemplateKey || undefined,
                 initial_task_document_title: initialTaskTitle || undefined,
-                initial_task_document_content: composeTaskTemplate(taskTemplate),
+                initial_task_document_content: initialTaskContent,
             });
             setIsCreateOpen(false);
             resetForm();
@@ -218,7 +160,7 @@ export default function ClassManagement() {
                 description,
                 experiment_template_key: experimentTemplateKey || undefined,
                 initial_task_document_title: initialTaskTitle || undefined,
-                initial_task_document_content: composeTaskTemplate(taskTemplate),
+                initial_task_document_content: initialTaskContent,
             });
             setIsEditOpen(false);
             resetForm();
@@ -254,7 +196,7 @@ export default function ClassManagement() {
         setDescription('');
         setExperimentTemplateKey('');
         setInitialTaskTitle(DEFAULT_TASK_TITLE);
-        setTaskTemplate({ ...DEFAULT_TASK_TEMPLATE_SECTIONS });
+        setInitialTaskContent(DEFAULT_TASK_CONTENT);
         setSelectedCourse(null);
     };
 
@@ -265,12 +207,8 @@ export default function ClassManagement() {
         setDescription(course.description || '');
         setExperimentTemplateKey(course.experiment_template_key || '');
         setInitialTaskTitle(course.initial_task_document_title || DEFAULT_TASK_TITLE);
-        setTaskTemplate(parseTaskTemplate(course.initial_task_document_content));
+        setInitialTaskContent(course.initial_task_document_content || DEFAULT_TASK_CONTENT);
         setIsEditOpen(true);
-    };
-
-    const updateTaskTemplate = (key: keyof TaskTemplateSections, value: string) => {
-        setTaskTemplate(prev => ({ ...prev, [key]: value }));
     };
 
     const filteredCourses = courses.filter(course =>
@@ -539,12 +477,17 @@ export default function ClassManagement() {
                                 className="rounded-xl bg-slate-50 border-none"
                             />
                         </div>
-                        <TaskTemplateAccordion
-                            sections={taskTemplate}
-                            onChange={updateTaskTemplate}
-                            defaultOpenKey="background"
-                            hint="这些内容会自动组合成学生端小组文档中的“项目说明”页面，作为进入任务前的前置支架。"
-                        />
+                        <div className="space-y-2">
+                            <label htmlFor="create-task-content" className="text-sm font-bold text-slate-800">项目说明内容</label>
+                            <textarea
+                                id="create-task-content"
+                                value={initialTaskContent}
+                                onChange={e => setInitialTaskContent(e.target.value)}
+                                className="min-h-56 w-full rounded-xl border-none bg-slate-50 px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="填写完整项目说明，可包含活动背景、任务目标、协作方式、成果要求、提交方式等。"
+                            />
+                            <p className="text-xs leading-5 text-slate-500">这里会作为整体内容同步到学生端小组文档，不再强制拆成固定条目。</p>
+                        </div>
                         <DialogFooter className="pt-4">
                             <Button type="button" variant="ghost" onClick={() => setIsCreateOpen(false)} className="rounded-xl">取消</Button>
                             <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-8 shadow-lg shadow-indigo-100">
@@ -607,12 +550,17 @@ export default function ClassManagement() {
                                 className="rounded-xl bg-slate-50 border-none"
                             />
                         </div>
-                        <TaskTemplateAccordion
-                            sections={taskTemplate}
-                            onChange={updateTaskTemplate}
-                            defaultOpenKey="background"
-                            hint="这些内容会自动组合成学生端小组文档中的“项目说明”页面。"
-                        />
+                        <div className="space-y-2">
+                            <label htmlFor="edit-task-content" className="text-sm font-bold text-slate-800">项目说明内容</label>
+                            <textarea
+                                id="edit-task-content"
+                                value={initialTaskContent}
+                                onChange={e => setInitialTaskContent(e.target.value)}
+                                className="min-h-56 w-full rounded-xl border-none bg-slate-50 px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="填写完整项目说明，可包含活动背景、任务目标、协作方式、成果要求、提交方式等。"
+                            />
+                            <p className="text-xs leading-5 text-slate-500">这里会作为整体内容同步到学生端小组文档，不再强制拆成固定条目。</p>
+                        </div>
                         <DialogFooter className="pt-4">
                             <Button type="button" variant="ghost" onClick={() => setIsEditOpen(false)} className="rounded-xl">取消</Button>
                             <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-8 shadow-lg shadow-indigo-100">
@@ -633,66 +581,6 @@ export default function ClassManagement() {
                 loading={deletingCourse}
                 onConfirm={confirmDeleteCourse}
             />
-        </div>
-    );
-}
-
-const TASK_TEMPLATE_FIELDS: Array<{
-    key: keyof TaskTemplateSections;
-    label: string;
-    placeholder: string;
-}> = [
-    { key: 'background', label: '任务背景', placeholder: '说明本次任务的主题情境、学习目标与基本问题。' },
-    { key: 'coreQuestions', label: '核心问题', placeholder: '列出本组需要重点解决或回应的开放性问题。' },
-    { key: 'collaborationRequirements', label: '协作要求', placeholder: '说明小组如何组织讨论、资料检索、证据比较与观点协商。' },
-    { key: 'deliverables', label: '提交成果', placeholder: '说明本组需要提交的成果形式和最低完成要求。' },
-    { key: 'evaluationCriteria', label: '评价要点', placeholder: '说明教师或小组自评时关注的核心评价标准。' },
-];
-
-function TaskTemplateAccordion({
-    sections,
-    onChange,
-    defaultOpenKey,
-    hint,
-}: {
-    sections: TaskTemplateSections;
-    onChange: (key: keyof TaskTemplateSections, value: string) => void;
-    defaultOpenKey: keyof TaskTemplateSections;
-    hint: string;
-}) {
-    const [openKey, setOpenKey] = useState<keyof TaskTemplateSections>(defaultOpenKey);
-
-    return (
-        <div className="space-y-3">
-            {TASK_TEMPLATE_FIELDS.map((field) => {
-                const value = sections[field.key] || '';
-                const isOpen = openKey === field.key;
-                return (
-                    <div key={field.key} className="rounded-2xl border border-slate-100 bg-slate-50/70">
-                        <button
-                            type="button"
-                            onClick={() => setOpenKey(isOpen ? defaultOpenKey : field.key)}
-                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                        >
-                            <span className="text-sm font-bold text-slate-800">{isOpen ? '▼' : '▶'} {field.label}</span>
-                            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${value.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-white text-slate-400'}`}>
-                                {value.trim() ? `已填写，${value.trim().length} 字` : '未填写'}
-                            </span>
-                        </button>
-                        {isOpen && (
-                            <div className="border-t border-slate-100 px-4 pb-4">
-                                <textarea
-                                    value={value}
-                                    onChange={e => onChange(field.key, e.target.value)}
-                                    className="mt-3 h-28 w-full rounded-xl border-none bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                                    placeholder={field.placeholder}
-                                />
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-            <p className="text-xs leading-5 text-slate-500">{hint}</p>
         </div>
     );
 }

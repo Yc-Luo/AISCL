@@ -178,6 +178,7 @@ class ResearchEventService:
             "recent_revision_count": recent_revision_count,
             "last_revision_time": last_revision_time,
             "session_elapsed_seconds": session_elapsed_seconds,
+            "student_dialogue_count": student_dialogue_count,
             "ai_assistance_ratio": ai_assistance_ratio,
         }
 

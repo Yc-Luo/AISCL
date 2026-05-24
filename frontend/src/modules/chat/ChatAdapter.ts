@@ -74,12 +74,12 @@ export class ChatAdapter {
             } : undefined
         };
 
-        // 注意：不在这里调用 onMessageReceived，因为 sendOperation 
-        // 会触发本地 broadcast 从而由 handleRemoteOperation 处理
+        this.onMessageReceived(message);
 
         try {
             await syncService.sendOperation(op);
             message.isPending = false;
+            this.onMessageReceived({ ...message, isPending: false });
         } catch (e) {
             console.error('Failed to send message:', e);
         }

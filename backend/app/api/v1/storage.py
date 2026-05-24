@@ -9,7 +9,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status, BackgroundTasks
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 
 from app.api.v1.auth import get_current_user
@@ -793,7 +793,7 @@ async def download_resource(
     resource_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Download resource."""
+    """Download resource through the backend after permission checks."""
     resource = await Resource.get(resource_id)
     if not resource:
         raise HTTPException(
@@ -801,8 +801,32 @@ async def download_resource(
             detail="Resource not found",
         )
     await _ensure_resource_download_access(current_user, resource)
-    
-    # Generate fresh presigned URL
-    download_url = storage_service.generate_presigned_get_url(resource.file_key)
-    
-    return RedirectResponse(url=download_url)
+
+    try:
+        response = storage_service.client.get_object(
+            settings.MINIO_BUCKET_NAME,
+            resource.file_key,
+        )
+
+        def iter_file():
+            try:
+                yield from response.stream(64 * 1024)
+            finally:
+                response.close()
+                response.release_conn()
+
+        return StreamingResponse(
+            iter_file(),
+            media_type=_normalize_mime_type(resource.mime_type) or "application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{sanitize_filename(resource.filename)}"',
+                "Cache-Control": "private, max-age=300",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as e:
+        print(f"Error downloading resource: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to stream resource",
+        )

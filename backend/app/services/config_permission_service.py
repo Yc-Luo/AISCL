@@ -16,9 +16,9 @@ class ConfigPermissionService:
 
     @staticmethod
     def _permissions(user: Optional[User]) -> Optional[Dict[str, Any]]:
-        if not user or user.role == "admin":
+        if not user or getattr(user, "role", None) == "admin":
             return None
-        permissions = user.config_permissions
+        permissions = getattr(user, "config_permissions", None)
         if not permissions:
             return None
         return permissions

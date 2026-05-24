@@ -36,6 +36,21 @@ AUTO_GROUP_PROMPT_RULE_TYPES = {
     "revision_stall",
 }
 
+AUTO_PROMPT_STAGE_RULES = {
+    "evidence_gap": {"meaning_exploration", "explanation_integration", "application_solution"},
+    "counterargument_missing": {"explanation_integration", "application_solution"},
+    "revision_stall": {"explanation_integration", "application_solution"},
+}
+
+AUTO_PROMPT_MIN_DIALOGUE_COUNT = {
+    "evidence_gap": 4,
+    "counterargument_missing": 5,
+    "revision_stall": 6,
+}
+
+AUTO_PROMPT_MIN_ELAPSED_SECONDS = 240
+AUTO_PROMPT_REVISION_MIN_ELAPSED_SECONDS = 600
+
 RULE_TYPE_TO_SUBAGENT = {
     "evidence_gap": "evidence_researcher",
     "counterargument_missing": "viewpoint_challenger",
@@ -54,6 +69,34 @@ SUBAGENT_LABELS = {
 def _utc_iso_timestamp() -> str:
     """Return an ISO timestamp that browsers unambiguously parse as UTC."""
     return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _is_rule_eligible_for_live_group_prompt(
+    *,
+    rule_type: str,
+    stage_id: Optional[str],
+    intervention_context: Dict[str, Any],
+) -> tuple[bool, Optional[str]]:
+    """Gate live group prompts so early or off-stage discussion is not over-prompted."""
+    allowed_stages = AUTO_PROMPT_STAGE_RULES.get(rule_type)
+    if allowed_stages and stage_id not in allowed_stages:
+        return False, "stage_not_eligible"
+
+    dialogue_count = int(intervention_context.get("student_dialogue_count") or 0)
+    min_dialogue_count = AUTO_PROMPT_MIN_DIALOGUE_COUNT.get(rule_type, 4)
+    if dialogue_count < min_dialogue_count:
+        return False, "insufficient_peer_dialogue"
+
+    elapsed_seconds = int(intervention_context.get("session_elapsed_seconds") or 0)
+    required_elapsed = (
+        AUTO_PROMPT_REVISION_MIN_ELAPSED_SECONDS
+        if rule_type == "revision_stall"
+        else AUTO_PROMPT_MIN_ELAPSED_SECONDS
+    )
+    if elapsed_seconds < required_elapsed:
+        return False, "discussion_too_short"
+
+    return True, None
 
 STAGE_LABELS = {
     "task_import": "任务导入",
@@ -399,7 +442,10 @@ async def _evaluate_shadow_prompt_candidates(
     online_learner_count = await _count_online_learners(room_id)
     shadow_events = []
     live_prompt_candidate: Optional[Dict[str, Any]] = None
-    live_group_prompt_enabled = intervention_service.is_group_chat_live_enabled(enabled_rule_set)
+    live_group_prompt_enabled = (
+        is_multi_agent_mode
+        and intervention_service.is_group_chat_live_enabled(enabled_rule_set)
+    )
 
     for intervention in matched_interventions:
         rule_type = intervention.get("rule_type")
@@ -417,6 +463,12 @@ async def _evaluate_shadow_prompt_candidates(
         )
         if not policy.get("should_record"):
             continue
+
+        eligible_for_live_prompt, eligibility_block_reason = _is_rule_eligible_for_live_group_prompt(
+            rule_type=rule_type,
+            stage_id=current_stage,
+            intervention_context=intervention_context,
+        )
 
         recommended_subagent = RULE_TYPE_TO_SUBAGENT.get(rule_type) if is_multi_agent_mode else None
         shadow_events.append(
@@ -437,6 +489,8 @@ async def _evaluate_shadow_prompt_candidates(
                     "matched": True,
                     "would_send": policy.get("would_send", False),
                     "block_reason": policy.get("block_reason"),
+                    "eligibility_block_reason": eligibility_block_reason,
+                    "live_prompt_eligible": eligible_for_live_prompt,
                     "enabled_rule_set": enabled_rule_set,
                     "online_learner_count": online_learner_count,
                     "cooldown_minutes": 10,
@@ -456,6 +510,7 @@ async def _evaluate_shadow_prompt_candidates(
         if (
             live_group_prompt_enabled
             and policy.get("would_send")
+            and eligible_for_live_prompt
             and live_prompt_candidate is None
         ):
             recommended_subagent = RULE_TYPE_TO_SUBAGENT.get(rule_type) if is_multi_agent_mode else None

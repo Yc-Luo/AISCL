@@ -50,6 +50,13 @@ async def ensure_project_staff_access(current_user: User, project: Project, deta
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
+async def ensure_project_submission_access(current_user: User, project: Project, detail: str) -> None:
+    """Allow staff and the current group leader to submit/archive group work."""
+    if await has_project_stage_control_access(current_user, project):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
 async def has_project_stage_control_access(current_user: User, project: Project) -> bool:
     """Return whether the user can advance the learning stage for a group.
 
@@ -778,10 +785,10 @@ async def archive_project(
             detail="Project not found",
         )
 
-    await ensure_project_staff_access(
+    await ensure_project_submission_access(
         current_user,
         project,
-        "Only project owner or scoped teacher can archive project",
+        "Only project owner, scoped teacher, or group leader can archive project",
     )
 
     from datetime import datetime
@@ -832,10 +839,10 @@ async def unarchive_project(
             detail="Project not found",
         )
 
-    await ensure_project_staff_access(
+    await ensure_project_submission_access(
         current_user,
         project,
-        "Only project owner or scoped teacher can unarchive project",
+        "Only project owner, scoped teacher, or group leader can unarchive project",
     )
 
     from datetime import datetime

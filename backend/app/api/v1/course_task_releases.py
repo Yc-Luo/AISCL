@@ -300,8 +300,8 @@ async def create_course_task_release(
         await activity_service.log_activity(
             project_id=str(project.id),
             user_id=str(current_user.id),
-            module="teacher_task_release",
-            action="publish",
+            module="task",
+            action="teacher_task_release_publish",
             target_id=str(release.id),
             metadata={
                 "course_id": course_id,

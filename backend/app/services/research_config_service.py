@@ -41,7 +41,7 @@ class ResearchConfigService:
             "groupCondition": "multi_agent_process_on",
             "aiMode": "multi_agent",
             "processMode": "on",
-            "ruleSet": "research-default",
+            "ruleSet": "research-default+group-chat-live",
             "stageSequence": ["problem_construction", "meaning_exploration", "explanation_integration", "application_solution"],
         },
         "exp-single-process-off-v1": {

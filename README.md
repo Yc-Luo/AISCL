@@ -251,11 +251,14 @@ docker compose -f docker-compose.images.yml ps
 docker compose -f docker-compose.images.yml logs -f backend
 ```
 
-如果需要固定到某一次发布版本，在根目录 `.env` 中设置：
+如果需要固定到某一次发布版本，推荐分别固定前后端镜像，避免只改一个服务时另一个服务也被迫检查或拉取：
 
 ```env
-AISCL_IMAGE_TAG=sha-xxxxxxx
+AISCL_BACKEND_IMAGE_TAG=sha-后端提交
+AISCL_FRONTEND_IMAGE_TAG=sha-前端提交
 ```
+
+旧的 `AISCL_IMAGE_TAG=sha-xxxxxxx` 仍可用于前后端同一个版本号的发布，但日常更新更建议使用上面两个独立变量。
 
 ### 5.5 配置 HTTPS 域名反代
 
@@ -315,11 +318,11 @@ docker compose -f docker-compose.server.yml up -d backend frontend nginx
 
 ```bash
 git pull
-# 只改后端时，例如后端提示词、接口、服务逻辑：
+# 只改后端镜像时，例如依赖、Dockerfile、后端运行环境确实变化：
 docker compose -f docker-compose.images.yml pull backend
 docker compose -f docker-compose.images.yml up -d --no-deps backend
 
-# 只改前端时，例如页面、交互、样式：
+# 只改前端镜像时，例如页面、交互、样式：
 docker compose -f docker-compose.images.yml pull frontend
 docker compose -f docker-compose.images.yml up -d --no-deps frontend
 
@@ -328,9 +331,11 @@ docker compose -f docker-compose.images.yml pull backend frontend
 docker compose -f docker-compose.images.yml up -d --no-deps backend frontend
 ```
 
-`Publish Docker Images` workflow 会按变更路径构建镜像：`backend/` 变化只发布后端业务镜像，`frontend/` 变化只发布前端镜像。后端依赖文件或后端底座 Dockerfile 变化时，才会先发布 `aiscl-backend-base`，再发布 `aiscl-backend`。文档或部署说明变化不会触发应用镜像重建。手动运行 workflow 或发布 `v*` tag 时仍会构建前后端镜像。
+不要在日常小改后执行 `docker compose -f docker-compose.images.yml pull` 或 `docker compose -f docker-compose.images.yml pull backend frontend`，否则 Docker 会检查所有指定镜像，网络慢时会把未改动服务也拖慢。`docker-compose.images.yml` 已设置 `pull_policy: missing`，普通 `up -d` 会优先使用本地已有镜像；需要拉新镜像时，显式 `pull` 对应服务即可。
 
-如果云服务器从 GHCR 拉取后端业务层仍然偏慢，并且本次只修改了后端 Python 代码或提示词，没有修改 `backend/pyproject.toml`、`backend/poetry.lock`、`backend/Dockerfile.base`、`backend/Dockerfile.app` 或系统依赖，可以使用后端代码快速覆盖模式：
+`Publish Docker Images` workflow 会按变更路径构建镜像：`backend/` 变化只发布后端业务镜像，`frontend/` 变化只发布前端镜像。后端依赖文件或后端底座 Dockerfile 变化时，才会先发布 `aiscl-backend-base`，再发布 `aiscl-backend`。文档、部署说明或 workflow 自身变化不会触发应用镜像重建。手动运行 workflow 时要选择目标：`backend`、`frontend`、`backend-base` 或 `all`；只有选择 `backend-base` 或 `all` 才会重建 260MB 级别的后端底座。发布 `v*` tag 时仍会构建前后端完整镜像。
+
+如果本次只修改了后端 Python 代码、提示词、智能体逻辑或接口，没有修改 `backend/pyproject.toml`、`backend/poetry.lock`、`backend/Dockerfile.base`、`backend/Dockerfile.app` 或系统依赖，优先使用后端代码快速覆盖模式。这个模式完全不拉 backend 镜像，只重启 backend 容器：
 
 ```bash
 git pull
@@ -344,6 +349,8 @@ git pull
 docker compose -f docker-compose.images.yml pull backend
 docker compose -f docker-compose.images.yml -f docker-compose.backend-code.yml up -d --no-deps backend
 ```
+
+当前 backend 镜像的大层主要来自 Python 依赖、LibreOffice 和中文字体。后续若要进一步压缩日常后端部署，可以把 Office/PDF 预览转换拆成独立 `preview` 服务：backend 主镜像不再安装 LibreOffice，只在需要预览 Office 文件时调用 preview 服务。这样首次部署仍需拉一次 preview 大镜像，但日常后端更新不会再携带 260MB 级别的 Office 层。
 
 如修改了基础设施配置，再执行：
 

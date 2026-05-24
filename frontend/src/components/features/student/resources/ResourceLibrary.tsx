@@ -1,5 +1,23 @@
 import { useEffect, useState, useCallback } from 'react'
-import { BookOpen, Eye, Download, Trash2, CheckCircle2, Clock3, Loader2, AlertTriangle, MinusCircle } from 'lucide-react'
+import {
+  Archive,
+  BookOpen,
+  CheckCircle2,
+  Clock3,
+  Download,
+  Eye,
+  File,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  MinusCircle,
+  Music,
+  Presentation,
+  Trash2,
+  TriangleAlert,
+  Video,
+} from 'lucide-react'
 import { storageService } from '../../../../services/api/storage'
 import { wikiService } from '../../../../services/api/wiki'
 import { Resource } from '../../../../types'
@@ -23,11 +41,23 @@ interface ResourceLibraryProps {
 
 const MAX_RESOURCE_BYTES = 50 * 1024 * 1024
 
+type PreviewKind = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'unsupported'
+
+interface PreviewState {
+  resource: Resource
+  kind: PreviewKind
+  url?: string
+  text?: string
+  loading: boolean
+  error?: string
+}
+
 export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
   const [resources, setResources] = useState<Resource[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
+  const [preview, setPreview] = useState<PreviewState | null>(null)
   const { user } = useAuthStore()
 
   // Custom dialog state
@@ -66,6 +96,12 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     }, 10000)
     return () => window.clearInterval(timer)
   }, [projectId, resources, fetchResources])
+
+  useEffect(() => {
+    return () => {
+      if (preview?.url) window.URL.revokeObjectURL(preview.url)
+    }
+  }, [preview?.url])
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -158,6 +194,40 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     }
   }
 
+  const handlePreview = async (resource: Resource) => {
+    const kind = getPreviewKind(resource)
+    if (preview?.url) window.URL.revokeObjectURL(preview.url)
+    setPreview({ resource, kind, loading: kind !== 'unsupported' })
+
+    trackingService.track({
+      module: 'resources',
+      action: 'resource_view',
+      metadata: { projectId, resourceId: resource.id, filename: resource.filename, previewKind: kind }
+    })
+
+    if (kind === 'unsupported') return
+
+    try {
+      const blob = await storageService.downloadResource(resource.id)
+      if (kind === 'text') {
+        const text = await blob.text()
+        setPreview({ resource, kind, text, loading: false })
+        return
+      }
+
+      const url = window.URL.createObjectURL(blob)
+      setPreview({ resource, kind, url, loading: false })
+    } catch (error) {
+      console.error('Failed to preview resource:', error)
+      setPreview({ resource, kind, loading: false, error: '预览加载失败，请下载后查看。' })
+    }
+  }
+
+  const closePreview = () => {
+    if (preview?.url) window.URL.revokeObjectURL(preview.url)
+    setPreview(null)
+  }
+
   const handleAddResourceToWiki = async (resource: Resource) => {
     try {
       await wikiService.createItem({
@@ -190,24 +260,101 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
   }
 
-  const getFileIcon = (mimeType: string): string => {
-    if (mimeType.startsWith('image/')) return '🖼️'
-    if (mimeType.startsWith('video/')) return '🎥'
-    if (mimeType.startsWith('audio/')) return '🎵'
-    if (mimeType === 'application/pdf') return '📄'
-    if (mimeType.includes('word')) return '📝'
-    if (mimeType.includes('excel') || mimeType.includes('spreadsheet')) return '📊'
-    if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return '📽️'
-    return '📎'
+  const getExtension = (filename: string) => {
+    const ext = filename.split('.').pop()
+    return ext ? ext.toLowerCase() : ''
   }
 
-  const canPreview = (mimeType: string): boolean => {
-    return (
-      mimeType.startsWith('image/') ||
-      mimeType.startsWith('video/') ||
-      mimeType === 'application/pdf'
-    )
+  const getResourceKind = (resource: Resource) => {
+    const mimeType = (resource.mime_type || '').toLowerCase()
+    const ext = getExtension(resource.filename)
+    if (mimeType.startsWith('image/')) return 'image'
+    if (mimeType.startsWith('video/')) return 'video'
+    if (mimeType.startsWith('audio/')) return 'audio'
+    if (mimeType === 'application/pdf' || ext === 'pdf') return 'pdf'
+    if (mimeType.includes('word') || ['doc', 'docx'].includes(ext)) return 'word'
+    if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || ['xls', 'xlsx', 'csv'].includes(ext)) return ext === 'csv' ? 'csv' : 'sheet'
+    if (mimeType.includes('presentation') || mimeType.includes('powerpoint') || ['ppt', 'pptx'].includes(ext)) return 'slides'
+    if (mimeType.includes('zip') || ['zip', 'rar', '7z'].includes(ext)) return 'archive'
+    if (mimeType.startsWith('text/') || ['txt', 'md', 'json'].includes(ext)) return 'text'
+    return 'file'
   }
+
+  const getPreviewKind = (resource: Resource): PreviewKind => {
+    const kind = getResourceKind(resource)
+    if (kind === 'image') return 'image'
+    if (kind === 'video') return 'video'
+    if (kind === 'audio') return 'audio'
+    if (kind === 'pdf') return 'pdf'
+    if (kind === 'text' || kind === 'csv') return 'text'
+    return 'unsupported'
+  }
+
+  const getFileIcon = (resource: Resource) => {
+    const kind = getResourceKind(resource)
+    const className = 'h-5 w-5'
+    if (kind === 'image') return <ImageIcon className={className} />
+    if (kind === 'video') return <Video className={className} />
+    if (kind === 'audio') return <Music className={className} />
+    if (kind === 'pdf' || kind === 'word' || kind === 'text') return <FileText className={className} />
+    if (kind === 'sheet' || kind === 'csv') return <FileSpreadsheet className={className} />
+    if (kind === 'slides') return <Presentation className={className} />
+    if (kind === 'archive') return <Archive className={className} />
+    return <File className={className} />
+  }
+
+  const getIconClassName = (resource: Resource) => {
+    const kind = getResourceKind(resource)
+    if (kind === 'word') return 'bg-blue-600 text-white'
+    if (kind === 'sheet' || kind === 'csv') return 'bg-emerald-600 text-white'
+    if (kind === 'slides') return 'bg-orange-600 text-white'
+    if (kind === 'pdf') return 'bg-rose-600 text-white'
+    if (kind === 'video') return 'bg-violet-600 text-white'
+    if (kind === 'audio') return 'bg-fuchsia-600 text-white'
+    if (kind === 'image') return 'bg-sky-600 text-white'
+    if (kind === 'archive') return 'bg-amber-600 text-white'
+    return 'bg-slate-500 text-white'
+  }
+
+  const formatResourceTime = (value: string) => {
+    const time = new Date(value)
+    if (!Number.isFinite(time.getTime())) return '-'
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const startOfTime = new Date(time.getFullYear(), time.getMonth(), time.getDate()).getTime()
+    const label = startOfTime === startOfToday
+      ? '今天'
+      : startOfTime === startOfToday - 24 * 60 * 60 * 1000
+        ? '昨天'
+        : time.toLocaleDateString()
+    return `${label} ${time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  }
+
+  const getResourceDateGroup = (resource: Resource) => {
+    const time = new Date(resource.uploaded_at)
+    if (!Number.isFinite(time.getTime())) return '更早'
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const startOfTime = new Date(time.getFullYear(), time.getMonth(), time.getDate()).getTime()
+    if (startOfTime === startOfToday) return '今天'
+    if (startOfTime === startOfToday - 24 * 60 * 60 * 1000) return '昨天'
+    return '更早'
+  }
+
+  const getCreatorLabel = (resource: Resource) => {
+    if (resource.uploaded_by === user?.id) return '我'
+    if (resource.scope === 'course') return '教师'
+    return '小组成员'
+  }
+
+  const groupedResources = resources.reduce<Record<string, Resource[]>>((groups, resource) => {
+    const group = getResourceDateGroup(resource)
+    groups[group] = groups[group] || []
+    groups[group].push(resource)
+    return groups
+  }, {})
+
+  const orderedGroups = ['今天', '昨天', '更早'].filter(group => groupedResources[group]?.length)
 
   const getParseStatus = (resource: Resource) => {
     const status = resource.parse_status || 'pending'
@@ -218,7 +365,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
       return { title: '资源正在解析入库', icon: <Loader2 size={14} className="animate-spin" />, className: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100' }
     }
     if (status === 'failed') {
-      return { title: resource.parse_error || '解析失败，可稍后重试或联系教师', icon: <AlertTriangle size={14} />, className: 'bg-rose-50 text-rose-700 ring-1 ring-rose-100' }
+      return { title: resource.parse_error || '解析失败，可稍后重试或联系教师', icon: <TriangleAlert size={14} />, className: 'bg-rose-50 text-rose-700 ring-1 ring-rose-100' }
     }
     if (status === 'unsupported') {
       return { title: '该资源仅作为文件保存，暂未进入 AI 检索', icon: <MinusCircle size={14} />, className: 'bg-slate-50 text-slate-500 ring-1 ring-slate-100' }
@@ -275,9 +422,9 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
       )}
 
       {/* Resource List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-auto rounded-2xl border border-slate-100 bg-white">
         {resources.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-10 text-center text-slate-500">
+          <div className="m-4 rounded-3xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-10 text-center text-slate-500">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm">
               📁
             </div>
@@ -287,96 +434,173 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {resources.map((resource) => (
-              <div
-                key={resource.id}
-                className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-start space-x-3">
-                  <div className="text-3xl">{getFileIcon(resource.mime_type)}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-medium text-sm truncate" title={resource.filename}>
-                        {resource.filename}
-                      </h4>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        resource.scope === 'course'
-                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
-                          : 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
-                      }`}>
-                        {resource.scope === 'course' ? '教师资源' : '小组资源'}
-                      </span>
-                      {(() => {
-                        const parse = getParseStatus(resource)
-                        return (
-                          <span
-                            className={`inline-flex shrink-0 items-center justify-center rounded-full p-1 ${parse.className}`}
-                            title={parse.title}
+          <div className="min-w-[760px]">
+            <div className="sticky top-0 z-10 grid grid-cols-[minmax(280px,1.6fr)_minmax(110px,0.7fr)_minmax(88px,0.45fr)_minmax(120px,0.65fr)_80px_132px] items-center gap-3 border-b border-slate-100 bg-white px-4 py-3 text-xs font-bold text-slate-500">
+              <div>全部类型</div>
+              <div>文件位置</div>
+              <div>创建者</div>
+              <div>最近修改</div>
+              <div className="text-right">大小</div>
+              <div className="text-right">操作</div>
+            </div>
+            {orderedGroups.map((group) => (
+              <div key={group}>
+                <div className="px-4 pb-2 pt-5 text-sm font-black text-slate-800">{group}</div>
+                {groupedResources[group].map((resource) => {
+                  const parse = getParseStatus(resource)
+                  const location = resource.scope === 'course' ? '教师资源' : '小组资源'
+                  return (
+                    <div
+                      key={resource.id}
+                      className="grid grid-cols-[minmax(280px,1.6fr)_minmax(110px,0.7fr)_minmax(88px,0.45fr)_minmax(120px,0.65fr)_80px_132px] items-center gap-3 border-b border-slate-100 px-4 py-3 text-sm transition-colors hover:bg-slate-50/70"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${getIconClassName(resource)}`}>
+                          {getFileIcon(resource)}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handlePreview(resource)}
+                              className="truncate text-left font-medium text-slate-900 hover:text-indigo-700"
+                              title={resource.filename}
+                            >
+                              {resource.filename}
+                            </button>
+                            <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                              {getExtension(resource.filename).toUpperCase() || 'FILE'}
+                            </span>
+                            <span
+                              className={`inline-flex shrink-0 items-center justify-center rounded-full p-1 ${parse.className}`}
+                              title={parse.title}
+                            >
+                              {parse.icon}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="truncate text-slate-500" title={location}>{location}</div>
+                      <div className="truncate text-slate-500" title={getCreatorLabel(resource)}>{getCreatorLabel(resource)}</div>
+                      <div className="truncate text-slate-500">{formatResourceTime(resource.uploaded_at)}</div>
+                      <div className="text-right text-slate-500">{formatFileSize(resource.size)}</div>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handlePreview(resource)}
+                          className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                          title="预览"
+                        >
+                          <Eye size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleAddResourceToWiki(resource)}
+                          className="rounded-lg p-1.5 text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+                          title="加入 Wiki"
+                        >
+                          <BookOpen size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDownload(resource)}
+                          className="rounded-lg p-1.5 text-indigo-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+                          title="下载"
+                        >
+                          <Download size={16} />
+                        </button>
+                        {resource.scope !== 'course' && user?.id === resource.uploaded_by && (
+                          <button
+                            onClick={() => {
+                              setDeleteId(resource.id)
+                              setDeleteName(resource.filename)
+                            }}
+                            className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-700"
+                            title="删除"
                           >
-                            {parse.icon}
-                          </span>
-                        )
-                      })()}
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formatFileSize(resource.size)}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {new Date(resource.uploaded_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end space-x-2 mt-3">
-                  {canPreview(resource.mime_type) && (
-                    <button
-                      onClick={() => {
-                        window.open(resource.url, '_blank')
-                        trackingService.track({
-                          module: 'resources',
-                          action: 'resource_view',
-                          metadata: { projectId, resourceId: resource.id, filename: resource.filename }
-                        })
-                      }}
-                      className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                      title="预览"
-                    >
-                      <Eye size={16} />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleAddResourceToWiki(resource)}
-                    className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
-                    title="加入 Wiki"
-                  >
-                    <BookOpen size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleDownload(resource)}
-                    className="p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
-                    title="下载"
-                  >
-                    <Download size={16} />
-                  </button>
-                  {resource.scope !== 'course' && user?.id === resource.uploaded_by && (
-                    <button
-                      onClick={() => {
-                        setDeleteId(resource.id)
-                        setDeleteName(resource.filename)
-                      }}
-                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                      title="删除"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                </div>
+                  )
+                })}
               </div>
             ))}
           </div>
         )}
       </div>
+      <Dialog open={!!preview} onOpenChange={(open) => !open && closePreview()}>
+        <DialogContent className="max-h-[92vh] max-w-[min(96vw,64rem)] overflow-hidden rounded-2xl p-0">
+          {preview && (
+            <div className="flex max-h-[92vh] flex-col">
+              <DialogHeader className="border-b border-slate-100 px-5 py-4">
+                <DialogTitle className="truncate text-base font-bold text-slate-900" title={preview.resource.filename}>
+                  {preview.resource.filename}
+                </DialogTitle>
+                <DialogDescription>
+                  {preview.kind === 'unsupported'
+                    ? '该格式暂不支持直接在线渲染。'
+                    : '在线预览'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-[28rem] flex-1 overflow-auto bg-slate-50 p-4">
+                {preview.loading && (
+                  <div className="flex h-[28rem] items-center justify-center gap-2 text-sm text-slate-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    正在加载预览...
+                  </div>
+                )}
+                {!preview.loading && preview.error && (
+                  <div className="flex h-[28rem] items-center justify-center text-sm text-rose-600">
+                    {preview.error}
+                  </div>
+                )}
+                {!preview.loading && !preview.error && preview.kind === 'image' && preview.url && (
+                  <div className="flex min-h-[28rem] items-center justify-center">
+                    <img src={preview.url} alt={preview.resource.filename} className="max-h-[72vh] max-w-full rounded-lg object-contain shadow-sm" />
+                  </div>
+                )}
+                {!preview.loading && !preview.error && preview.kind === 'video' && preview.url && (
+                  <video src={preview.url} controls className="mx-auto max-h-[72vh] w-full rounded-lg bg-black" />
+                )}
+                {!preview.loading && !preview.error && preview.kind === 'audio' && preview.url && (
+                  <div className="flex min-h-[28rem] items-center justify-center">
+                    <audio src={preview.url} controls className="w-full max-w-xl" />
+                  </div>
+                )}
+                {!preview.loading && !preview.error && preview.kind === 'pdf' && preview.url && (
+                  <iframe src={preview.url} title={preview.resource.filename} className="h-[72vh] w-full rounded-lg border border-slate-200 bg-white" />
+                )}
+                {!preview.loading && !preview.error && preview.kind === 'text' && (
+                  <pre className="min-h-[28rem] whitespace-pre-wrap rounded-lg bg-white p-4 text-sm leading-6 text-slate-700 shadow-sm">
+                    {preview.text || ''}
+                  </pre>
+                )}
+                {!preview.loading && !preview.error && preview.kind === 'unsupported' && (
+                  <div className="flex min-h-[28rem] flex-col items-center justify-center rounded-lg bg-white px-8 text-center shadow-sm">
+                    <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl ${getIconClassName(preview.resource)}`}>
+                      {getFileIcon(preview.resource)}
+                    </div>
+                    <div className="text-base font-bold text-slate-900">暂不支持在线渲染此格式</div>
+                    <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                      Word、PPT、Excel 等文件需要后端转换服务或 OnlyOffice/LibreOffice 才能保持版式在线预览。当前可以先下载查看。
+                    </p>
+                    {preview.resource.parse_status === 'indexed' && (
+                      <p className="mt-2 max-w-md text-xs leading-5 text-slate-400">
+                        该文件已进入 AI 检索索引，但原版式预览仍需要文档转换服务。
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+              <DialogFooter className="border-t border-slate-100 px-5 py-3">
+                <Button variant="ghost" onClick={closePreview} className="rounded-xl">关闭</Button>
+                <Button onClick={() => handleDownload(preview.resource)} className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">
+                  下载
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <DialogContent className="sm:max-w-[425px]">

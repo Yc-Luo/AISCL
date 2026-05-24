@@ -165,6 +165,16 @@ def _sanitize_stream_display_content(raw_text: str) -> str:
     return cleaned.strip()
 
 
+def _build_empty_ai_reply_fallback(current_stage: Optional[str] = None) -> str:
+    stage_label = STAGE_LABELS.get(current_stage or "", "")
+    stage_clause = f"当前处在“{stage_label}”阶段，" if stage_label else ""
+    return (
+        f"AISCL智能助手本轮没有生成可显示的完整回应。{stage_clause}"
+        "你们可以先把当前问题收束成一句话，再补一条已有依据和一个下一步分工；"
+        "如果需要我继续支持，请直接说明“帮我们澄清问题/找证据/挑战观点/追问修改方向”。"
+    )
+
+
 def _truncate_memory_text(text: str, max_chars: int = GROUP_AI_MEMORY_MESSAGE_CHARS) -> str:
     """Keep group memory compact enough for every AI turn."""
     normalized = re.sub(r"\s+", " ", text or "").strip()
@@ -801,7 +811,33 @@ async def _process_ai_reply(
         final_response = _sanitize_stream_display_content(full_response)
 
         if not final_response:
-            return
+            logger.warning(
+                "AI reply generated empty display content; applying fallback "
+                "project=%s room=%s mode=%s stage=%s message_id=%s",
+                project_id,
+                room_id,
+                ai_scaffold_mode,
+                current_stage,
+                message_id,
+            )
+            final_response = _build_empty_ai_reply_fallback(current_stage)
+            ai_meta = dict(ai_meta or {})
+            processing_summary = list(ai_meta.get("processing_summary") or [])
+            fallback_note = "模型本轮没有返回可显示正文，已启用兜底提示。"
+            if fallback_note not in processing_summary:
+                processing_summary.append(fallback_note)
+            routing_summary = list(ai_meta.get("routing_summary") or [])
+            if "空回复兜底提示" not in routing_summary:
+                routing_summary.append("空回复兜底提示")
+            ai_meta.update(
+                {
+                    "primary_agent": ai_meta.get("primary_agent") or "AISCL智能助手",
+                    "rationale_summary": ai_meta.get("rationale_summary")
+                    or "模型本轮未返回可显示正文，先给出小组协作的最小支架。",
+                    "routing_summary": routing_summary,
+                    "processing_summary": processing_summary,
+                }
+            )
 
         # Save to DB
         chat_log = ChatLog(

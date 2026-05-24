@@ -33,6 +33,11 @@ PEDAGOGICAL_RESPONSE_CONTRACT = (
     "不要用课堂教师或裁判口吻，不要用空泛鼓励替代支架，不要责备成员，不要替小组完成最终判断。"
 )
 
+EMPTY_DIRECT_REPLY_FALLBACK = (
+    "本轮没有生成有效回应。你可以把当前问题、已有依据和希望我支持的方向再发一次，"
+    "我会继续帮你们澄清问题、补充证据、挑战观点或推进修订。"
+)
+
 
 @dataclass
 class FallbackAIRole:
@@ -712,6 +717,10 @@ class AIService:
                 continue
             full_response += content
             yield content
+
+        if not full_response.strip():
+            full_response = EMPTY_DIRECT_REPLY_FALLBACK
+            yield full_response
 
         await AIMessageModel(
             conversation_id=str(conversation.id),

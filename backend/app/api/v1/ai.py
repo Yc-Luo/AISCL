@@ -1,6 +1,7 @@
 """AI conversation and intervention API routes."""
 
 import json
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -39,6 +40,7 @@ from app.services.agents.agent_service import agent_service
 from app.services.group_memory_service import group_memory_service
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+logger = logging.getLogger(__name__)
 
 SUBAGENT_VIEW_LABELS: Dict[str, str] = {
     "evidence_researcher": "资料研究员",
@@ -94,6 +96,13 @@ def _sse_event(event: str, data: dict | str) -> str:
         f"data: {line}\n" for line in normalized_payload.split("\n")
     )
     return f"event: {event}\n{data_lines}\n"
+
+
+def _empty_ai_reply_fallback() -> str:
+    return (
+        "本轮没有生成有效回应。你可以把当前问题、已有依据和希望我支持的方向再发一次，"
+        "我会继续帮你们澄清问题、补充证据、挑战观点或推进修订。"
+    )
 
 
 async def ensure_project_access(current_user: User, project: Project) -> None:
@@ -730,10 +739,28 @@ async def chat_stream(
                         })
                     continue
 
+            assistant_content = ai_service.sanitize_model_output(full_response.strip())
+            if not assistant_content:
+                logger.warning(
+                    "AI tutor generated empty display content; applying fallback "
+                    "project=%s conversation=%s role=%s stage=%s",
+                    chat_data.project_id,
+                    conversation.id,
+                    chat_data.role_id,
+                    chat_data.current_stage,
+                )
+                assistant_content = _empty_ai_reply_fallback()
+                processing_summary = list(tutor_meta.get("processing_summary") or [])
+                fallback_note = "模型本轮没有返回可显示正文，已启用兜底提示。"
+                if fallback_note not in processing_summary:
+                    processing_summary.append(fallback_note)
+                tutor_meta["processing_summary"] = processing_summary
+                yield _sse_event("delta", assistant_content)
+
             ai_message = AIMessage(
                 conversation_id=str(conversation.id),
                 role="assistant",
-                content=ai_service.sanitize_model_output(full_response.strip()),
+                content=assistant_content,
                 citations=context.get("citations", []) if context else [],
                 metadata=(
                     {"ai_meta": tutor_meta}

@@ -212,12 +212,9 @@ export default function ProjectList() {
                     小组码：{project.group_code}
                   </div>
                 )}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center">
                   <div className="text-sm text-gray-500">
                     {getLearningMemberCount(project)} 名成员
-                  </div>
-                  <div className="text-sm font-medium text-indigo-600">
-                    {project.is_archived ? '已完成' : `进度: ${project.progress}%`}
                   </div>
                 </div>
               </div>

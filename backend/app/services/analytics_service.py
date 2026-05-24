@@ -2,6 +2,7 @@
 
 from collections import Counter
 from datetime import datetime, timedelta, date
+from html import unescape
 from typing import Dict, List, Optional, Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -13,6 +14,7 @@ from app.core.llm_config import get_llm
 import hashlib
 import json
 import logging
+import re
 from app.repositories.project import Project
 from app.repositories.document import Document
 from app.repositories.chat_log import ChatLog
@@ -57,6 +59,89 @@ class AnalyticsService:
     CREATIVITY_WEIGHTS = {
         "whiteboard_shapes": 0.5,
         "document_creations": 0.5,
+    }
+
+    PROCESS_STAGES = [
+        {
+            "key": "problem_construction",
+            "name": "问题建构",
+            "description": "明确问题与任务",
+        },
+        {
+            "key": "meaning_exploration",
+            "name": "意义探索",
+            "description": "收集资料与理解意义",
+        },
+        {
+            "key": "explanation_integration",
+            "name": "解释整合",
+            "description": "比较观点并整合解释",
+        },
+        {
+            "key": "application_solution",
+            "name": "应用解决",
+            "description": "迁移应用与方案提出",
+        },
+    ]
+
+    PROCESS_STAGE_ALIASES = {
+        "orientation": "problem_construction",
+        "task_import": "problem_construction",
+        "planning": "problem_construction",
+        "problem_planning": "problem_construction",
+        "问题构建": "problem_construction",
+        "问题建构": "problem_construction",
+        "inquiry": "meaning_exploration",
+        "evidence_exploration": "meaning_exploration",
+        "证据探究": "meaning_exploration",
+        "意义探索": "meaning_exploration",
+        "argumentation": "explanation_integration",
+        "论证协商": "explanation_integration",
+        "解释整合": "explanation_integration",
+        "revision": "application_solution",
+        "reflection_revision": "application_solution",
+        "summary": "application_solution",
+        "reflection": "application_solution",
+        "反思修订": "application_solution",
+        "应用解决": "application_solution",
+    }
+
+    PROCESS_GOAL_META = {
+        "problem_clarity": {
+            "name": "问题建构清晰性",
+            "strong": "核心问题、对象和判断标准已经较清楚。",
+            "developing": "已提出问题，但问题边界和判断标准还需要继续明确。",
+            "weak": "已有问题线索，但还需要用一句话确认共同问题。",
+            "empty": "尚未形成清晰的核心问题表述。",
+        },
+        "evidence_reliability": {
+            "name": "证据判断可靠性",
+            "strong": "证据来源、核查和观点支撑关系较充分。",
+            "developing": "已有证据与资料，但仍需补充来源核查和适用性说明。",
+            "weak": "部分资料来源未核查，证据与观点的匹配度需要提升。",
+            "empty": "尚未形成可追踪的证据来源。",
+        },
+        "viewpoint_comparison": {
+            "name": "观点比较合理性",
+            "strong": "不同观点已有比较、关联或反驳关系。",
+            "developing": "出现了不同观点，但比较依据与分析还不够充分。",
+            "weak": "已有观点表达，但缺少对比维度或反方观点。",
+            "empty": "尚未形成可比较的观点结构。",
+        },
+        "explanation_revision": {
+            "name": "解释修订开放性",
+            "strong": "能够根据反馈和证据修订解释，表现出开放态度。",
+            "developing": "已有解释或文档修订，但修订理由仍需说清。",
+            "weak": "已有初步解释，但回应反馈和修订痕迹较少。",
+            "empty": "尚未形成可修订的解释成果。",
+        },
+        "transfer_application": {
+            "name": "迁移应用适切性",
+            "strong": "已开始说明方案适用情境、限制或迁移应用。",
+            "developing": "已有应用或成果线索，但适用条件还需补充。",
+            "weak": "尚未充分说明结论的适用范围、迁移情境和限制。",
+            "empty": "尚未形成迁移应用或方案落地线索。",
+        },
     }
 
     @classmethod
@@ -1378,6 +1463,626 @@ JSON Output Format:
         
         await snapshot.save()
         return snapshot
+
+    @classmethod
+    def _normalize_process_stage(cls, stage_id: Optional[str]) -> Optional[str]:
+        raw = (stage_id or "").strip()
+        if not raw:
+            return None
+        if raw in cls.PROCESS_STAGE_ALIASES:
+            return cls.PROCESS_STAGE_ALIASES[raw]
+        lowered = raw.lower()
+        if lowered in cls.PROCESS_STAGE_ALIASES:
+            return cls.PROCESS_STAGE_ALIASES[lowered]
+        valid_keys = {stage["key"] for stage in cls.PROCESS_STAGES}
+        return raw if raw in valid_keys else None
+
+    @staticmethod
+    def _strip_markup(value: Optional[str]) -> str:
+        if not value:
+            return ""
+        text = re.sub(r"<[^>]+>", " ", value)
+        text = unescape(text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    @staticmethod
+    def _compact_text(value: Optional[str], max_length: int = 90) -> str:
+        text = re.sub(r"\s+", " ", value or "").strip()
+        if len(text) <= max_length:
+            return text
+        return f"{text[:max_length].rstrip()}..."
+
+    @staticmethod
+    def _process_level(score: int) -> str:
+        if score >= 75:
+            return "良好"
+        if score >= 45:
+            return "发展中"
+        if score >= 20:
+            return "需加强"
+        return "待开始"
+
+    @classmethod
+    def _goal_description(cls, key: str, score: int) -> str:
+        meta = cls.PROCESS_GOAL_META[key]
+        if score >= 75:
+            return meta["strong"]
+        if score >= 45:
+            return meta["developing"]
+        if score >= 20:
+            return meta["weak"]
+        return meta["empty"]
+
+    @classmethod
+    def _stage_tip(cls, current_stage: str) -> Dict[str, str]:
+        tips = {
+            "problem_construction": "你们正在明确共同问题，建议先确认任务对象、关键条件和判断标准。",
+            "meaning_exploration": "你们已进入“意义探索”阶段，建议继续收集并核查资料，理解信息含义，为后续观点比较与解释整合做准备。",
+            "explanation_integration": "你们正在进入“解释整合”阶段，建议比较不同观点的依据、适用条件和局限，形成可辩护的解释。",
+            "application_solution": "你们已进入“应用解决”阶段，建议说明方案适用情境、限制条件，并根据反馈修订最终成果。",
+        }
+        return {"title": "阶段提示", "content": tips.get(current_stage, tips["problem_construction"])}
+
+    @classmethod
+    def _infer_process_stage(
+        cls,
+        configured_stage: Optional[str],
+        stage_counts: Counter[str],
+        counts: Dict[str, int],
+    ) -> str:
+        normalized = cls._normalize_process_stage(configured_stage)
+        if normalized:
+            return normalized
+
+        if stage_counts:
+            return stage_counts.most_common(1)[0][0]
+
+        if counts["application_events"] or counts["completed_tasks"]:
+            return "application_solution"
+        if counts["revision_events"] or counts["counter_count"] or counts["rebuttal_count"]:
+            return "explanation_integration"
+        if counts["evidence_total"] or counts["resource_actions"] or counts["claim_count"]:
+            return "meaning_exploration"
+        return "problem_construction"
+
+    @classmethod
+    def _build_process_stages(
+        cls,
+        current_stage: str,
+        stage_counts: Counter[str],
+        counts: Dict[str, int],
+    ) -> List[Dict[str, str]]:
+        stage_order = [stage["key"] for stage in cls.PROCESS_STAGES]
+        current_index = stage_order.index(current_stage)
+
+        stage_evidence = {
+            "problem_construction": counts["question_signals"] + stage_counts["problem_construction"],
+            "meaning_exploration": counts["evidence_total"] + counts["resource_actions"] + stage_counts["meaning_exploration"],
+            "explanation_integration": counts["claim_count"] + counts["counter_count"] + counts["edge_count"] + counts["revision_events"],
+            "application_solution": counts["application_events"] + counts["completed_tasks"] + stage_counts["application_solution"],
+        }
+
+        stages = []
+        for index, stage in enumerate(cls.PROCESS_STAGES):
+            key = stage["key"]
+            evidence = stage_evidence.get(key, 0)
+            if key == current_stage:
+                status = "in_progress"
+            elif index < current_index:
+                status = "completed" if evidence >= 1 else "needs_more"
+            elif evidence > 0:
+                status = "needs_more"
+            else:
+                status = "pending"
+
+            stages.append({**stage, "status": status})
+        return stages
+
+    @classmethod
+    def _build_process_goals(cls, counts: Dict[str, int]) -> List[Dict[str, Any]]:
+        evidence_total = counts["evidence_total"]
+        checked_evidence = counts["checked_evidence"]
+        evidence_check_ratio = checked_evidence / evidence_total if evidence_total else 0.0
+
+        problem_score = min(
+            100,
+            counts["question_signals"] * 25
+            + counts["problem_stage_events"] * 12
+            + min(counts["chat_messages"], 8) * 3
+            + (15 if counts["document_count"] else 0),
+        )
+        evidence_score = min(
+            100,
+            (20 if evidence_total else 0)
+            + min(evidence_total, 6) * 8
+            + round(evidence_check_ratio * 35)
+            + min(counts["evidence_open_count"], 4) * 4,
+        )
+        comparison_score = min(
+            100,
+            min(counts["claim_count"], 4) * 16
+            + min(counts["counter_count"], 2) * 18
+            + min(counts["rebuttal_count"], 2) * 14
+            + min(counts["edge_count"], 4) * 5,
+        )
+        revision_score = min(
+            100,
+            (20 if counts["document_count"] else 0)
+            + min(counts["revision_events"], 5) * 12
+            + min(counts["comment_count"], 4) * 7
+            + min(counts["rebuttal_count"], 2) * 8,
+        )
+        transfer_score = min(
+            100,
+            counts["application_events"] * 18
+            + counts["completed_tasks"] * 18
+            + counts["solution_count"] * 18
+            + (12 if counts["stage_summary_count"] else 0),
+        )
+
+        scores = {
+            "problem_clarity": int(problem_score),
+            "evidence_reliability": int(evidence_score),
+            "viewpoint_comparison": int(comparison_score),
+            "explanation_revision": int(revision_score),
+            "transfer_application": int(transfer_score),
+        }
+
+        return [
+            {
+                "key": key,
+                "name": cls.PROCESS_GOAL_META[key]["name"],
+                "level": cls._process_level(score),
+                "score": score,
+                "description": cls._goal_description(key, score),
+            }
+            for key, score in scores.items()
+        ]
+
+    @classmethod
+    def _find_core_question(
+        cls,
+        project: Optional[Project],
+        text_sources: List[str],
+    ) -> str:
+        joined = "。".join(source for source in text_sources if source)
+        match = re.search(r"[^。！？!?]{4,80}[？?]", joined)
+        if match:
+            return cls._compact_text(match.group(0), 80)
+        if project and project.description:
+            return cls._compact_text(project.description, 80)
+        return "尚未形成清晰的核心问题。"
+
+    @classmethod
+    def _build_knowledge_structure(
+        cls,
+        project: Optional[Project],
+        docs: List[Dict[str, Any]],
+        wiki_items: List[Dict[str, Any]],
+        counts: Dict[str, int],
+    ) -> Dict[str, Any]:
+        text_sources = []
+        for doc in docs[:5]:
+            text_sources.append(str(doc.get("title") or ""))
+            text_sources.append(str(doc.get("preview_text") or ""))
+            text_sources.append(cls._strip_markup(doc.get("content"))[:500])
+        for item in wiki_items[:10]:
+            text_sources.append(str(item.get("title") or ""))
+            text_sources.append(str(item.get("summary") or item.get("content") or "")[:300])
+
+        claim_items = [
+            cls._compact_text(str(item.get("title") or item.get("summary") or item.get("content")), 42)
+            for item in wiki_items
+            if item.get("item_type") in {"claim", "controversy"}
+        ][:3]
+        if not claim_items and counts["claim_count"]:
+            claim_items = [f"已在论证空间形成 {counts['claim_count']} 个观点节点"]
+
+        explanation_source = next(
+            (
+                cls._compact_text(str(item.get("summary") or item.get("content")), 90)
+                for item in wiki_items
+                if item.get("item_type") == "stage_summary"
+            ),
+            "",
+        )
+        if not explanation_source and docs:
+            latest_doc = docs[0]
+            explanation_source = cls._compact_text(
+                str(latest_doc.get("preview_text") or cls._strip_markup(latest_doc.get("content")) or latest_doc.get("title") or ""),
+                90,
+            )
+
+        unchecked_evidence = max(0, counts["evidence_total"] - counts["checked_evidence"])
+        return {
+            "coreQuestion": {
+                "label": "核心问题",
+                "content": cls._find_core_question(project, text_sources),
+                "status": "已形成（需聚焦）" if counts["question_signals"] else "暂缺",
+            },
+            "mainViewpoints": {
+                "label": "主要观点",
+                "content": claim_items or ["尚未形成可比较的主要观点。"],
+                "status": f"已形成 {counts['claim_count']} 个观点" if counts["claim_count"] else "暂缺",
+            },
+            "evidence": {
+                "label": "支持/反对证据",
+                "content": {
+                    "supportingEvidence": counts["supporting_evidence"],
+                    "counterEvidence": counts["counter_count"],
+                    "uncheckedEvidence": unchecked_evidence,
+                },
+                "status": (
+                    "已核查"
+                    if counts["evidence_total"] and unchecked_evidence == 0
+                    else "部分证据待核查"
+                    if counts["checked_evidence"]
+                    else "待核查"
+                    if counts["evidence_total"]
+                    else "暂缺"
+                ),
+            },
+            "currentExplanation": {
+                "label": "当前解释",
+                "content": explanation_source or "尚未形成可展示的当前解释。",
+                "status": (
+                    f"已形成（已修订 {counts['revision_events']} 次）"
+                    if counts["revision_events"]
+                    else "已有草稿"
+                    if explanation_source
+                    else "暂缺"
+                ),
+            },
+            "transferApplication": {
+                "label": "迁移应用",
+                "content": (
+                    "已出现应用解决或成果提交线索，建议继续说明适用情境与限制。"
+                    if counts["application_events"] or counts["completed_tasks"]
+                    else "尚未说明在不同学科或学习情境中的迁移应用方案。"
+                ),
+                "status": "已有线索" if counts["application_events"] or counts["completed_tasks"] else "暂缺",
+            },
+        }
+
+    @classmethod
+    def _build_next_process_suggestion(
+        cls,
+        current_stage: str,
+        goals: List[Dict[str, Any]],
+        counts: Dict[str, int],
+    ) -> Dict[str, Any]:
+        goal_map = {goal["key"]: goal for goal in goals}
+        evidence_total = counts["evidence_total"]
+        unchecked_evidence = max(0, evidence_total - counts["checked_evidence"])
+        evidence_rate = round((counts["checked_evidence"] / evidence_total) * 100) if evidence_total else 0
+
+        if goal_map["problem_clarity"]["score"] < 45:
+            return {
+                "regulationType": "目标调节",
+                "currentObservation": "当前核心问题还不够清晰，可能影响后续资料选择和观点比较。",
+                "suggestedAction": "建议小组先用一句话重新确认本轮要解决的核心问题，并补充研究对象、关键条件和判断标准。",
+                "basis": [
+                    f"问题线索 {counts['question_signals']} 条",
+                    f"问题建构阶段事件 {counts['problem_stage_events']} 次",
+                    "需要先明确共同目标再推进后续探究",
+                ],
+            }
+
+        if goal_map["evidence_reliability"]["score"] < 60 and (evidence_total or current_stage != "problem_construction"):
+            return {
+                "regulationType": "过程监控",
+                "currentObservation": "当前证据核查还不充分，可能影响结论的可靠性。",
+                "suggestedAction": "请小组共同检查每条证据的来源和可信度，标记已核查/待核查，并说明证据如何支持当前观点。",
+                "basis": [
+                    f"待核查证据 {unchecked_evidence} 条",
+                    f"证据核查率 {evidence_rate}%",
+                    "证据与观点匹配度仍需通过讨论说明",
+                ],
+            }
+
+        if goal_map["viewpoint_comparison"]["score"] < 60 and counts["claim_count"] >= 1:
+            return {
+                "regulationType": "策略协同",
+                "currentObservation": "当前已有观点线索，但观点之间的比较、反驳或整合还不充分。",
+                "suggestedAction": "建议小组先合并相似材料，再共同比较不同观点的依据、适用条件和局限，最后修订当前解释。",
+                "basis": [
+                    f"观点节点 {counts['claim_count']} 个",
+                    f"反方观点 {counts['counter_count']} 个",
+                    f"论证关系 {counts['edge_count']} 条",
+                ],
+            }
+
+        if counts["active_member_count"] <= 1 or counts["chat_messages"] < 3:
+            return {
+                "regulationType": "情绪协调",
+                "currentObservation": "当前小组互动偏少，讨论可能还没有形成持续回应。",
+                "suggestedAction": "可以先把当前任务拆成一个更容易回答的小问题，请成员分别补充理由，再共同确认哪些分歧需要继续查证。",
+                "basis": [
+                    f"近期参与成员 {counts['active_member_count']} 人",
+                    f"近期小组消息 {counts['chat_messages']} 条",
+                    "建议先促进回应和接续讨论",
+                ],
+            }
+
+        return {
+            "regulationType": "策略协同",
+            "currentObservation": "小组已经形成一定过程基础，下一步需要把证据、观点和解释组织成更清晰的共同成果。",
+            "suggestedAction": "建议小组分工检查资料、比较观点并修订共享文档，确保结论、证据和适用条件能够相互对应。",
+            "basis": [
+                f"观点节点 {counts['claim_count']} 个",
+                f"证据线索 {counts['evidence_total']} 条",
+                f"修订记录 {counts['revision_events']} 次",
+            ],
+        }
+
+    @classmethod
+    def _temperature_label(cls, score: int) -> str:
+        if score >= 80:
+            return "较高"
+        if score >= 65:
+            return "中等偏上"
+        if score >= 45:
+            return "中等"
+        return "需关注"
+
+    @classmethod
+    def _qualitative_level(cls, score: int) -> str:
+        if score >= 75:
+            return "良好"
+        if score >= 55:
+            return "中等"
+        if score >= 35:
+            return "需加强"
+        return "暂弱"
+
+    @classmethod
+    def _build_collaboration_temperature(
+        cls,
+        member_count: int,
+        counts: Dict[str, int],
+        chat_text: str,
+    ) -> Dict[str, Any]:
+        participation = min(
+            100,
+            round((counts["active_member_count"] / max(member_count, 1)) * 70)
+            + min(30, counts["chat_messages"] * 3),
+        )
+        diversity = min(
+            100,
+            counts["claim_count"] * 15
+            + counts["counter_count"] * 20
+            + counts["evidence_total"] * 8
+            + counts["wiki_count"] * 5,
+        )
+        interaction_quality = min(
+            100,
+            counts["edge_count"] * 12
+            + counts["comment_count"] * 8
+            + counts["revision_events"] * 8
+            + counts["scaffold_accepts"] * 6,
+        )
+        negative_terms = ["不行", "没用", "算了", "不会", "烦", "错了", "离谱", "别说"]
+        support_terms = ["可以", "同意", "赞成", "补充", "我来", "谢谢", "有道理"]
+        negative_hits = sum(chat_text.count(term) for term in negative_terms)
+        support_hits = sum(chat_text.count(term) for term in support_terms)
+        emotional = max(35, min(90, 70 + support_hits * 3 - negative_hits * 8))
+
+        score = round(
+            participation * 0.30
+            + diversity * 0.25
+            + interaction_quality * 0.25
+            + emotional * 0.20
+        )
+        return {
+            "score": score,
+            "level": cls._temperature_label(score),
+            "indicators": [
+                {"name": "讨论参与度", "value": cls._qualitative_level(participation)},
+                {"name": "观点多样性", "value": cls._qualitative_level(diversity)},
+                {"name": "协作互动质量", "value": cls._qualitative_level(interaction_quality)},
+                {"name": "情绪氛围", "value": cls._qualitative_level(emotional)},
+            ],
+            "tip": "继续保持积极讨论，及时回应彼此观点，有助于提升学习效果。",
+        }
+
+    @classmethod
+    async def get_student_process_dashboard(
+        cls,
+        project_id: str,
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build a formative process dashboard for student-facing collaboration feedback."""
+        from app.core.db.mongodb import mongodb
+
+        db = mongodb.get_database()
+        project = await Project.get(project_id)
+        now = datetime.utcnow()
+        start_datetime = now - timedelta(days=14)
+
+        event_query = {"project_id": project_id, "event_time": {"$gte": start_datetime}}
+        events = await db["research_events"].find(event_query).sort("event_time", 1).to_list(length=1000)
+        if not events:
+            events = await db["research_events"].find({"project_id": project_id}).sort("event_time", -1).to_list(length=500)
+            events = list(reversed(events))
+
+        chat_logs = await db["chat_logs"].find(
+            {
+                "project_id": project_id,
+                "created_at": {"$gte": start_datetime},
+                "message_type": {"$in": ["text", "ai"]},
+            },
+            {"user_id": 1, "content": 1, "created_at": 1},
+        ).sort("created_at", 1).to_list(length=500)
+
+        docs = await db["documents"].find(
+            {"project_id": project_id, "is_archived": {"$ne": True}},
+            {"title": 1, "content": 1, "preview_text": 1, "updated_at": 1},
+        ).sort("updated_at", -1).to_list(length=20)
+
+        doc_ids = [str(doc["_id"]) for doc in docs]
+        comment_count = 0
+        if doc_ids:
+            comment_count = await db["doc_comments"].count_documents(
+                {
+                    "document_id": {"$in": doc_ids},
+                    "created_at": {"$gte": start_datetime},
+                }
+            )
+
+        wiki_items = await db["wiki_items"].find(
+            {"project_id": project_id},
+            {
+                "item_type": 1,
+                "title": 1,
+                "content": 1,
+                "summary": 1,
+                "confidence_level": 1,
+                "updated_at": 1,
+            },
+        ).sort("updated_at", -1).to_list(length=80)
+
+        tasks = await db["tasks"].find(
+            {"project_id": project_id},
+            {"column": 1, "submission_status": 1},
+        ).to_list(length=200)
+
+        event_counts: Counter[str] = Counter()
+        stage_counts: Counter[str] = Counter()
+        node_type_counts: Counter[str] = Counter()
+        active_member_ids: set[str] = set()
+
+        for event in events:
+            event_type = event.get("event_type")
+            if event_type:
+                event_counts[event_type] += 1
+            if event.get("actor_type") == "student" and event.get("user_id"):
+                active_member_ids.add(str(event.get("user_id")))
+            payload = event.get("payload") or {}
+            stage = cls._normalize_process_stage(
+                event.get("stage_id")
+                or payload.get("stage_id")
+                or payload.get("current_stage")
+            )
+            if stage:
+                stage_counts[stage] += 1
+            node_type = payload.get("node_type") or payload.get("to_type")
+            if node_type:
+                node_type_counts[str(node_type)] += 1
+
+        for chat in chat_logs:
+            if chat.get("user_id"):
+                active_member_ids.add(str(chat.get("user_id")))
+
+        wiki_type_counts = Counter(str(item.get("item_type")) for item in wiki_items)
+        verified_wiki_count = sum(1 for item in wiki_items if item.get("confidence_level") == "verified")
+        chat_text = "\n".join(str(chat.get("content") or "") for chat in chat_logs)
+        document_text = "\n".join(
+            f"{doc.get('title') or ''} {doc.get('preview_text') or ''} {cls._strip_markup(doc.get('content'))[:1000]}"
+            for doc in docs
+        )
+        question_signals = len(re.findall(r"[？?]", f"{chat_text}\n{document_text}"))
+        question_signals += node_type_counts.get("question", 0)
+
+        evidence_node_count = (
+            node_type_counts.get("evidence", 0)
+            + event_counts.get("card_to_node", 0)
+            + wiki_type_counts.get("evidence", 0)
+        )
+        evidence_bind_count = event_counts.get("evidence_source_bind", 0)
+        evidence_open_count = event_counts.get("evidence_source_open", 0)
+        evidence_total = max(evidence_node_count, evidence_bind_count + wiki_type_counts.get("evidence", 0))
+        checked_evidence = min(evidence_total, evidence_bind_count + evidence_open_count + verified_wiki_count)
+
+        claim_count = (
+            node_type_counts.get("claim", 0)
+            + wiki_type_counts.get("claim", 0)
+            + wiki_type_counts.get("controversy", 0)
+        )
+        counter_count = (
+            node_type_counts.get("counter-argument", 0)
+            + node_type_counts.get("counter_argument", 0)
+            + event_counts.get("counterargument_missing", 0)
+            + wiki_type_counts.get("controversy", 0)
+        )
+        rebuttal_count = node_type_counts.get("rebuttal", 0)
+        edge_count = event_counts.get("edge_add", 0) + event_counts.get("edge_relation_toggle", 0)
+        revision_events = (
+            event_counts.get("node_content_commit", 0)
+            + event_counts.get("shared_record_content_commit", 0)
+            + event_counts.get("shared_record_annotation_reply", 0)
+            + event_counts.get("shared_record_annotation_resolve", 0)
+        )
+        solution_count = node_type_counts.get("solution", 0)
+        completed_tasks = sum(
+            1
+            for task in tasks
+            if task.get("column") == "done" or task.get("submission_status")
+        )
+
+        member_ids = set()
+        for member in (project.members if project else []):
+            member_id = member.get("user_id") if isinstance(member, dict) else getattr(member, "user_id", None)
+            if member_id:
+                member_ids.add(str(member_id))
+        if project and project.owner_id:
+            member_ids.add(str(project.owner_id))
+        member_count = max(1, len(member_ids))
+
+        counts = {
+            "chat_messages": len(chat_logs),
+            "active_member_count": len(active_member_ids),
+            "document_count": len(docs),
+            "comment_count": comment_count,
+            "wiki_count": len(wiki_items),
+            "question_signals": question_signals,
+            "problem_stage_events": stage_counts["problem_construction"],
+            "resource_actions": event_counts.get("scrapbook_image_add", 0)
+            + event_counts.get("shared_record_extract_to_scrapbook", 0),
+            "evidence_total": evidence_total,
+            "supporting_evidence": evidence_node_count,
+            "checked_evidence": checked_evidence,
+            "evidence_open_count": evidence_open_count,
+            "claim_count": claim_count,
+            "counter_count": counter_count,
+            "rebuttal_count": rebuttal_count,
+            "edge_count": edge_count,
+            "revision_events": revision_events,
+            "application_events": stage_counts["application_solution"],
+            "solution_count": solution_count,
+            "stage_summary_count": wiki_type_counts.get("stage_summary", 0),
+            "completed_tasks": completed_tasks,
+            "scaffold_accepts": event_counts.get("scaffold_rule_recommendation_accept", 0),
+        }
+
+        configured_stage = (project.experiment_version or {}).get("current_stage") if project else None
+        current_stage = cls._infer_process_stage(configured_stage, stage_counts, counts)
+        stages = cls._build_process_stages(current_stage, stage_counts, counts)
+        goals = cls._build_process_goals(counts)
+
+        return {
+            "dashboardTitle": "小组协作学习状态面板",
+            "subtitle": "人智协同学习过程与批判性思维发展分析",
+            "updatedAt": now.isoformat(),
+            "algorithmVersion": "process_goal_shared_regulation_v1",
+            "currentStage": current_stage,
+            "stages": stages,
+            "stageTip": cls._stage_tip(current_stage),
+            "criticalThinkingGoals": goals,
+            "knowledgeStructure": cls._build_knowledge_structure(project, docs, wiki_items, counts),
+            "nextSuggestion": cls._build_next_process_suggestion(current_stage, goals, counts),
+            "collaborationTemperature": cls._build_collaboration_temperature(member_count, counts, chat_text),
+            "metadata": {
+                "windowDays": 14,
+                "memberCount": member_count,
+                "visibleEvidenceCounts": {
+                    "chatMessages": counts["chat_messages"],
+                    "evidenceTotal": counts["evidence_total"],
+                    "checkedEvidence": counts["checked_evidence"],
+                    "claimCount": counts["claim_count"],
+                    "revisionEvents": counts["revision_events"],
+                },
+            },
+        }
 
     @classmethod
     async def get_cached_dashboard_data(

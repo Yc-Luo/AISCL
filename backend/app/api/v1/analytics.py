@@ -531,7 +531,10 @@ async def get_dashboard_data(
 
     # Fetch cached dashboard data (pre-updated every 30 mins)
     dashboard_data = await analytics_service.get_cached_dashboard_data(
-        project_id, background_tasks=background_tasks, user_id=target_user_id
+        project_id,
+        background_tasks=background_tasks,
+        user_id=target_user_id,
+        include_feedback=current_user.role != "student",
     )
     
     if not dashboard_data:
@@ -545,6 +548,12 @@ async def get_dashboard_data(
         "project_id": project_id,
         "user_id": target_user_id
     })
+
+    if current_user.role == "student":
+        dashboard_data.pop("four_c", None)
+        dashboard_data.pop("personal_four_c", None)
+        dashboard_data.pop("four_c_evidence", None)
+        dashboard_data.pop("learning_suggestions", None)
 
     return dashboard_data
 
@@ -565,6 +574,15 @@ async def get_class_four_c_baseline(
         )
 
     await ensure_project_access(current_user, project)
+    if current_user.role == "student":
+        return {
+            "course_id": project.course_id,
+            "algorithm_version": "hidden_for_student",
+            "project_count": 0,
+            "class_average": {},
+            "group_deviation": {},
+            "last_updated": None,
+        }
     return await analytics_service.get_class_four_c_baseline(project_id)
 
 

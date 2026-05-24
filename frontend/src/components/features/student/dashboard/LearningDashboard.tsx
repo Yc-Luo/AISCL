@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-    Radar,
-    RadarChart,
-    PolarGrid,
-    PolarAngleAxis,
-    PolarRadiusAxis,
-    ComposedChart,
-    Line,
+    BarChart,
     Bar,
     XAxis,
     YAxis,
@@ -20,21 +14,8 @@ import { taskService } from '../../../../services/api/task'
 import { analyticsService } from '../../../../services/api/analytics'
 import KnowledgeGraph from './KnowledgeGraph'
 import InteractionNetwork from './InteractionNetwork'
-import LearningSuggestions from './LearningSuggestions'
 
 interface DashboardData {
-    fourC: {
-        communication: number
-        collaboration: number
-        critical_thinking: number
-        creativity: number
-    }
-    personal_four_c?: {
-        communication: number
-        collaboration: number
-        critical_thinking: number
-        creativity: number
-    }
     activityTrend: Array<{
         date: string
         active_minutes: number
@@ -56,35 +37,11 @@ interface DashboardData {
         nodes: Array<{ id: string; label: string; role: string }>
         links: Array<{ source: string; target: string; weight: number }>
     }
-    learning_suggestions: Array<{
-        id: string
-        title: string
-        content: string
-        type: 'critical' | 'important' | 'normal' | 'info'
-        suggestion_category?: string
-        target_construct?: string
-        evidence_items?: Array<{ label: string; value: number }>
-        algorithm_version?: string
-    }>
-    four_c_evidence?: {
-        window_days?: number
-        method?: string
-        group?: Record<string, any>
-        personal?: Record<string, any>
-    }
-    class_four_c_baseline?: {
-        course_id?: string | null
-        algorithm_version: string
-        project_count: number
-        class_average: Record<string, number>
-        group_deviation: Record<string, number>
-        last_updated?: string | null
-    }
     stats: {
         total_tasks: number
         completed_tasks: number
-        team_contributions: number
-        learning_hours: number
+        personal_active_minutes: number
+        group_active_minutes: number
     }
 }
 
@@ -103,22 +60,20 @@ export default function LearningDashboard() {
                 if (!dashboardData) setLoading(true)
 
                 // Fetch project analytics dashboard data
-                const [apiData, classBaseline] = await Promise.all([
-                    analyticsService.getDashboardData(projectId),
-                    analyticsService.getClassFourCBaseline(projectId).catch((error) => {
-                        console.error('Failed to fetch class 4C baseline:', error)
-                        return undefined
-                    }),
-                ])
+                const apiData = await analyticsService.getDashboardData(projectId)
                 if (!isMounted) return;
 
+                const activityTrend = apiData.activity_trend || []
+                const personalActiveMinutes = activityTrend.reduce(
+                    (sum: number, item: any) => sum + Number(item.personal_active_minutes || 0),
+                    0
+                )
+                const groupActiveMinutes = activityTrend.reduce(
+                    (sum: number, item: any) => sum + Number(item.active_minutes || 0),
+                    0
+                )
+
                 const data: DashboardData = {
-                    fourC: {
-                        communication: apiData.four_c?.communication ?? 0,
-                        collaboration: apiData.four_c?.collaboration ?? 0,
-                        critical_thinking: apiData.four_c?.critical_thinking ?? 0,
-                        creativity: apiData.four_c?.creativity ?? 0,
-                    },
                     activityTrend: apiData.activity_trend || [],
                     knowledge_graph: {
                         nodes: (apiData.knowledge_graph?.nodes || []).map((n: any) => ({
@@ -131,20 +86,11 @@ export default function LearningDashboard() {
                         links: apiData.knowledge_graph?.links || []
                     },
                     interaction_network: apiData.interaction_network || { nodes: [], links: [] },
-                    learning_suggestions: apiData.learning_suggestions || [],
-                    four_c_evidence: apiData.four_c_evidence,
-                    class_four_c_baseline: classBaseline,
-                    personal_four_c: apiData.personal_four_c ? {
-                        communication: apiData.personal_four_c.communication ?? 0,
-                        collaboration: apiData.personal_four_c.collaboration ?? 0,
-                        critical_thinking: apiData.personal_four_c.critical_thinking ?? 0,
-                        creativity: apiData.personal_four_c.creativity ?? 0,
-                    } : undefined,
                     stats: {
                         total_tasks: 0,
                         completed_tasks: 0,
-                        team_contributions: apiData.summary?.total_active_minutes ?? 0,
-                        learning_hours: apiData.summary?.total_active_minutes ?? 0,
+                        personal_active_minutes: personalActiveMinutes,
+                        group_active_minutes: groupActiveMinutes,
                     },
                 }
 
@@ -190,41 +136,11 @@ export default function LearningDashboard() {
         return <div className="p-4">无法加载仪表盘数据</div>
     }
 
-    // Prepare data for radar chart
-    const radarData = [
-        {
-            subject: '沟通',
-            group: dashboardData.fourC.communication,
-            personal: dashboardData.personal_four_c?.communication || 0,
-            fullMark: 100
-        },
-        {
-            subject: '协作',
-            group: dashboardData.fourC.collaboration,
-            personal: dashboardData.personal_four_c?.collaboration || 0,
-            fullMark: 100
-        },
-        {
-            subject: '批判性思维',
-            group: dashboardData.fourC.critical_thinking,
-            personal: dashboardData.personal_four_c?.critical_thinking || 0,
-            fullMark: 100
-        },
-        {
-            subject: '创造力',
-            group: dashboardData.fourC.creativity,
-            personal: dashboardData.personal_four_c?.creativity || 0,
-            fullMark: 100
-        },
-    ]
-    const evidenceSource = dashboardData.four_c_evidence?.personal || dashboardData.four_c_evidence?.group
-    const classBaseline = dashboardData.class_four_c_baseline
-    const evidenceItems = [
-        { key: 'communication', title: '沟通', color: 'indigo' },
-        { key: 'collaboration', title: '协作', color: 'emerald' },
-        { key: 'critical_thinking', title: '批判性思维', color: 'amber' },
-        { key: 'creativity', title: '创造力', color: 'rose' },
-    ]
+    const formatMinutes = (minutes: number) => {
+        if (minutes < 60) return `${Math.round(minutes)} 分钟`
+        const hours = minutes / 60
+        return `${hours.toFixed(hours >= 10 ? 0 : 1)} 小时`
+    }
 
     return (
         <div className="h-full overflow-y-auto p-6 space-y-6">
@@ -245,69 +161,26 @@ export default function LearningDashboard() {
                     </div>
                 </div>
                 <div className="bg-white rounded-lg shadow p-4">
-                    <div className="text-sm text-gray-600">团队贡献</div>
+                    <div className="text-sm text-gray-600">个人活跃时长</div>
                     <div className="text-2xl font-bold mt-2">
-                        {dashboardData.stats.team_contributions}
+                        {formatMinutes(dashboardData.stats.personal_active_minutes)}
                     </div>
                 </div>
                 <div className="bg-white rounded-lg shadow p-4">
-                    <div className="text-sm text-gray-600">学习时长</div>
+                    <div className="text-sm text-gray-600">小组活跃时长</div>
                     <div className="text-2xl font-bold mt-2">
-                        {Math.floor(dashboardData.stats.learning_hours / 60)} 小时
+                        {formatMinutes(dashboardData.stats.group_active_minutes)}
                     </div>
                 </div>
             </div>
 
             {/* Charts Grid (2x2) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* 4C Core Competencies Radar Chart */}
+                {/* Activity Trend */}
                 <div className="bg-white rounded-lg shadow p-6 h-full">
-                    <div className="flex items-start justify-between gap-4 mb-4">
-                        <div>
-                            <h3 className="text-lg font-semibold">4C 核心能力模型</h3>
-                            <p className="text-xs text-slate-500 mt-1">
-                                基于近 {dashboardData.four_c_evidence?.window_days || 7} 天真实协作过程数据生成，绿色为个人水平，紫色为小组平均。
-                                {classBaseline?.project_count ? ` 班级基准来自 ${classBaseline.project_count} 个小组。` : ''}
-                            </p>
-                        </div>
-                    </div>
+                    <h3 className="text-lg font-semibold mb-4">活跃时长趋势</h3>
                     <ResponsiveContainer width="100%" height={260}>
-                        <RadarChart data={radarData}>
-                            <PolarGrid stroke="#e2e8f0" />
-                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#64748b' }} />
-                            <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 8 }} axisLine={false} />
-                            <Radar
-                                name="小组平均"
-                                dataKey="group"
-                                stroke="#6366f1"
-                                fill="#6366f1"
-                                fillOpacity={0.3}
-                            />
-                            <Radar
-                                name="个人水平"
-                                dataKey="personal"
-                                stroke="#10b981"
-                                fill="#10b981"
-                                fillOpacity={0.5}
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    borderRadius: '8px',
-                                    border: 'none',
-                                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                                    fontSize: '12px'
-                                }}
-                            />
-                            <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
-                        </RadarChart>
-                    </ResponsiveContainer>
-                </div>
-
-                {/* Combined Activity Trend (Line + Bar) */}
-                <div className="bg-white rounded-lg shadow p-6 h-full">
-                    <h3 className="text-lg font-semibold mb-4">活跃度与时长趋势</h3>
-                    <ResponsiveContainer width="100%" height={260}>
-                        <ComposedChart data={dashboardData.activityTrend}>
+                        <BarChart data={dashboardData.activityTrend}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis
                                 dataKey="date"
@@ -316,23 +189,11 @@ export default function LearningDashboard() {
                                 tick={{ fontSize: 10, fill: '#94a3b8' }}
                                 tickMargin={10}
                             />
-                            {/* Left Y-axis for Activity Score */}
                             <YAxis
-                                yAxisId="left"
-                                orientation="left"
                                 axisLine={false}
                                 tickLine={false}
                                 tick={{ fontSize: 10, fill: '#94a3b8' }}
-                                label={{ value: '活跃度', angle: -90, position: 'insideLeft', fontSize: 10, fill: '#94a3b8' }}
-                            />
-                            {/* Right Y-axis for Active Minutes */}
-                            <YAxis
-                                yAxisId="right"
-                                orientation="right"
-                                axisLine={false}
-                                tickLine={false}
-                                tick={{ fontSize: 10, fill: '#94a3b8' }}
-                                label={{ value: '时长 (分)', angle: 90, position: 'insideRight', fontSize: 10, fill: '#94a3b8' }}
+                                label={{ value: '分钟', angle: -90, position: 'insideLeft', fontSize: 10, fill: '#94a3b8' }}
                             />
                             <Tooltip
                                 contentStyle={{
@@ -353,19 +214,15 @@ export default function LearningDashboard() {
                                     color: '#64748b'
                                 }}
                             />
-
-                            {/* Duration Data (Bars) - Linked to Right Axis */}
                             <Bar
-                                yAxisId="right"
                                 dataKey="active_minutes"
                                 fill="#a5b4fc"
-                                name="集体活跃时长 (分)"
+                                name="小组活跃时长 (分)"
                                 barSize={20}
                                 radius={[4, 4, 0, 0]}
                                 legendType="rect"
                             />
                             <Bar
-                                yAxisId="right"
                                 dataKey="personal_active_minutes"
                                 fill="#6ee7b7"
                                 name="个人活跃时长 (分)"
@@ -373,68 +230,9 @@ export default function LearningDashboard() {
                                 radius={[4, 4, 0, 0]}
                                 legendType="rect"
                             />
-
-                            {/* Activity Score Data (Lines) - Linked to Left Axis */}
-                            <Line
-                                yAxisId="left"
-                                type="monotone"
-                                dataKey="activity_score"
-                                stroke="#6366f1"
-                                strokeWidth={3}
-                                dot={{ r: 4, fill: '#6366f1' }}
-                                activeDot={{ r: 6 }}
-                                name="集体活跃度"
-                                legendType="line"
-                            />
-                            <Line
-                                yAxisId="left"
-                                type="monotone"
-                                dataKey="personal_activity_score"
-                                stroke="#10b981"
-                                strokeWidth={3}
-                                dot={{ r: 4, fill: '#10b981' }}
-                                activeDot={{ r: 6 }}
-                                name="个人活跃度"
-                                legendType="line"
-                            />
-                        </ComposedChart>
+                        </BarChart>
                     </ResponsiveContainer>
                 </div>
-
-                {classBaseline?.project_count ? (
-                    <div className="bg-white rounded-lg shadow p-6 h-full">
-                        <h3 className="text-lg font-semibold mb-2">班级 4C 基准线</h3>
-                        <p className="text-xs text-slate-500 mb-4">
-                            用于帮助小组判断当前协作状态与同班其他小组的相对位置。
-                        </p>
-                        <div className="space-y-3">
-                            {[
-                                ['communication', '沟通'],
-                                ['collaboration', '协作'],
-                                ['critical_thinking', '批判性思维'],
-                                ['creativity', '创造力'],
-                            ].map(([key, label]) => {
-                                const groupScore = dashboardData.fourC[key as keyof DashboardData['fourC']] || 0
-                                const classScore = classBaseline.class_average[key] || 0
-                                const deviation = classBaseline.group_deviation[key] || 0
-                                return (
-                                    <div key={key} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="font-semibold text-slate-700">{label}</span>
-                                            <span className={`font-bold ${deviation >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                                {deviation >= 0 ? '+' : ''}{Math.round(deviation)}
-                                            </span>
-                                        </div>
-                                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-500">
-                                            <div>本组：<span className="font-semibold text-slate-700">{Math.round(groupScore)}</span></div>
-                                            <div>班级均值：<span className="font-semibold text-slate-700">{Math.round(classScore)}</span></div>
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    </div>
-                ) : null}
 
                 {/* Knowledge Graph */}
                 <KnowledgeGraph data={dashboardData.knowledge_graph} />
@@ -442,46 +240,6 @@ export default function LearningDashboard() {
                 {/* Interaction Network */}
                 <InteractionNetwork data={dashboardData.interaction_network} />
             </div>
-
-            {evidenceSource && (
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="flex items-start justify-between gap-4 mb-5">
-                        <div>
-                            <h3 className="text-lg font-semibold">4C 分数依据</h3>
-                            <p className="text-sm text-slate-500 mt-1">
-                                {dashboardData.four_c_evidence?.method || '分数由系统记录的真实学习行为加权生成。'}
-                            </p>
-                        </div>
-                        <div className="text-xs text-slate-400 whitespace-nowrap">展示个人证据；无个人数据时回退小组证据</div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        {evidenceItems.map((item) => {
-                            const evidence = evidenceSource[item.key]
-                            if (!evidence) return null
-                            return (
-                                <div key={item.key} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
-                                    <div className="flex items-center justify-between">
-                                        <div className="font-semibold text-slate-800">{item.title}</div>
-                                        <div className="text-lg font-bold text-slate-900">{Math.round(evidence.score || 0)}</div>
-                                    </div>
-                                    <p className="text-xs text-slate-500 mt-2 leading-relaxed min-h-[48px]">{evidence.basis}</p>
-                                    <div className="mt-3 space-y-2">
-                                        {Object.entries(evidence.counts || {}).map(([label, value]) => (
-                                            <div key={label} className="flex items-center justify-between gap-2 text-xs">
-                                                <span className="text-slate-500 truncate">{label}</span>
-                                                <span className="font-semibold text-slate-800">{String(value)}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {/* Learning Suggestions */}
-            <LearningSuggestions suggestions={dashboardData.learning_suggestions} />
         </div>
     )
 }

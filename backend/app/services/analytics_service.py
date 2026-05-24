@@ -1380,7 +1380,13 @@ JSON Output Format:
         return snapshot
 
     @classmethod
-    async def get_cached_dashboard_data(cls, project_id: str, background_tasks: Optional[Any] = None, user_id: Optional[str] = None) -> Optional[Dict]:
+    async def get_cached_dashboard_data(
+        cls,
+        project_id: str,
+        background_tasks: Optional[Any] = None,
+        user_id: Optional[str] = None,
+        include_feedback: bool = True,
+    ) -> Optional[Dict]:
         """Retrieve the latest cached dashboard snapshot and optionally merge user specific stats."""
         snapshot = await DashboardSnapshot.find_one({"project_id": project_id})
         
@@ -1402,29 +1408,30 @@ JSON Output Format:
             "activity_trend": snapshot.activity_trend,
             "knowledge_graph": snapshot.knowledge_graph,
             "interaction_network": snapshot.interaction_network,
-            "learning_suggestions": snapshot.learning_suggestions,
+            "learning_suggestions": snapshot.learning_suggestions if include_feedback else [],
             "summary": snapshot.summary,
             "last_updated": snapshot.updated_at.isoformat()
         }
 
         end_datetime = datetime.utcnow()
         start_datetime = end_datetime - timedelta(days=7)
-        result["four_c_evidence"] = {
-            "window_days": 7,
-            "method": "4C 分数由近 7 天真实协作过程数据加权形成，包含聊天、文档、探究空间、支架采纳、Wiki/RAG 等行为证据。",
-            "group": await cls._build_four_c_evidence(
-                project_id,
-                None,
-                start_datetime,
-                end_datetime,
-            ),
-        }
-        result["learning_suggestions"] = await cls.get_learning_suggestions(
-            result["four_c"],
-            activity_summary=result.get("summary"),
-            evidence=result["four_c_evidence"]["group"],
-            scope="group",
-        )
+        if include_feedback:
+            result["four_c_evidence"] = {
+                "window_days": 7,
+                "method": "4C 分数由近 7 天真实协作过程数据加权形成，包含聊天、文档、探究空间、支架采纳、Wiki/RAG 等行为证据。",
+                "group": await cls._build_four_c_evidence(
+                    project_id,
+                    None,
+                    start_datetime,
+                    end_datetime,
+                ),
+            }
+            result["learning_suggestions"] = await cls.get_learning_suggestions(
+                result["four_c"],
+                activity_summary=result.get("summary"),
+                evidence=result["four_c_evidence"]["group"],
+                scope="group",
+            )
         
         # 3. If user_id is provided, merge personal stats into the trend
         if user_id:
@@ -1497,21 +1504,22 @@ JSON Output Format:
                 personal_four_c = curr
                 
             result["personal_four_c"] = personal_four_c
-            result["four_c_evidence"]["personal"] = await cls._build_four_c_evidence(
-                project_id,
-                user_id,
-                start_datetime,
-                end_datetime,
-            )
-            result["learning_suggestions"] = await cls.get_learning_suggestions(
-                personal_four_c,
-                activity_summary={
-                    "total_active_minutes": sum(stat.active_minutes for stat in personal_stats),
-                    "total_activity_score": sum(stat.activity_score for stat in personal_stats),
-                },
-                evidence=result["four_c_evidence"]["personal"],
-                scope="personal",
-            )
+            if include_feedback:
+                result["four_c_evidence"]["personal"] = await cls._build_four_c_evidence(
+                    project_id,
+                    user_id,
+                    start_datetime,
+                    end_datetime,
+                )
+                result["learning_suggestions"] = await cls.get_learning_suggestions(
+                    personal_four_c,
+                    activity_summary={
+                        "total_active_minutes": sum(stat.active_minutes for stat in personal_stats),
+                        "total_activity_score": sum(stat.activity_score for stat in personal_stats),
+                    },
+                    evidence=result["four_c_evidence"]["personal"],
+                    scope="personal",
+                )
             
         return result
 

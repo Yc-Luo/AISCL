@@ -1,15 +1,17 @@
+# syntax=docker/dockerfile:1.7
+
 # Multi-stage build for optimized Python application
-FROM python:3.12-slim as base
+FROM python:3.12-slim AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HOME=/app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,12 +22,13 @@ RUN groupadd -r AISCL && useradd -r -g AISCL -d /app AISCL
 WORKDIR /app
 
 # Install Python dependencies in a virtual environment
-FROM base as builder
+FROM base AS builder
 
 ARG PIP_INDEX_URL=https://pypi.org/simple
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -37,21 +40,24 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY pyproject.toml poetry.lock ./
 
 # Install Poetry
-RUN pip install --index-url "${PIP_INDEX_URL}" --upgrade pip setuptools wheel
-RUN pip install --index-url "${PIP_INDEX_URL}" poetry poetry-plugin-export
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --index-url "${PIP_INDEX_URL}" --upgrade pip setuptools wheel \
+    && pip install --index-url "${PIP_INDEX_URL}" poetry poetry-plugin-export
 
 # Configure poetry to not create virtual environment
 RUN poetry config virtualenvs.create false
 
 # Install dependencies
 RUN poetry export --format requirements.txt --output requirements.txt --without-hashes --without dev
-RUN pip install --index-url "${PIP_INDEX_URL}" --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --index-url "${PIP_INDEX_URL}" -r requirements.txt
 
 # Production stage
-FROM base as production
+FROM base AS production
 
 # Install document conversion runtime for Office-to-PDF previews.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer \
     libreoffice-calc \
     libreoffice-impress \
@@ -64,10 +70,10 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application code
-COPY . .
+COPY --chown=AISCL:AISCL . .
 
 # Change ownership to non-root user
-RUN mkdir -p /app/data && chown -R AISCL:AISCL /app
+RUN mkdir -p /app/data && chown AISCL:AISCL /app/data
 USER AISCL
 
 # Health check

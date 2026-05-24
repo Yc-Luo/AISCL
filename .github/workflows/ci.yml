@@ -65,14 +65,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build backend image
+      - name: Build backend base image
         uses: docker/build-push-action@v5
         with:
           context: ./backend
+          file: ./backend/Dockerfile.base
+          push: false
+          load: true
+          tags: aiscl-backend-base:ci
+          cache-from: type=gha,scope=backend-base-ci
+          cache-to: type=gha,mode=max,scope=backend-base-ci
+
+      - name: Build backend app image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.app
           push: false
           tags: aiscl-backend:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: |
+            BACKEND_BASE_IMAGE=aiscl-backend-base:ci
+          cache-from: type=gha,scope=backend-app-ci
+          cache-to: type=gha,mode=max,scope=backend-app-ci
 
       - name: Build frontend image
         uses: docker/build-push-action@v5
@@ -80,5 +94,5 @@ jobs:
           context: ./frontend
           push: false
           tags: aiscl-frontend:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=frontend-ci
+          cache-to: type=gha,mode=max,scope=frontend-ci

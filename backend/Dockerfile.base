@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1.7
+
+# Shared backend runtime image. Rebuild this only when Python dependencies,
+# system packages, or runtime-level settings change.
+FROM python:3.12-slim AS python-deps
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /tmp/build
+COPY pyproject.toml poetry.lock ./
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --index-url "${PIP_INDEX_URL}" --upgrade pip setuptools wheel \
+    && pip install --index-url "${PIP_INDEX_URL}" poetry poetry-plugin-export \
+    && poetry config virtualenvs.create false \
+    && poetry export --format requirements.txt --output requirements.txt --without-hashes --without dev \
+    && pip install --index-url "${PIP_INDEX_URL}" -r requirements.txt
+
+FROM python:3.12-slim AS production
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/app \
+    PATH="/opt/venv/bin:$PATH"
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libreoffice-writer \
+    libreoffice-calc \
+    libreoffice-impress \
+    fonts-noto-cjk \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r AISCL && useradd -r -g AISCL -d /app AISCL
+
+WORKDIR /app
+COPY --from=python-deps /opt/venv /opt/venv
+
+RUN mkdir -p /app/data && chown AISCL:AISCL /app /app/data

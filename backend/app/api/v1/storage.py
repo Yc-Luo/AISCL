@@ -21,6 +21,10 @@ from app.repositories.project import Project
 from app.repositories.resource import Resource
 from app.repositories.user import User
 from app.services.storage_service import storage_service
+from app.services.resource_preview_service import (
+    PreviewConversionUnavailable,
+    resource_preview_service,
+)
 from app.services.rag_service import rag_service
 from app.services.vector_store_service import vector_store_service
 from app.services.text_extraction_service import text_extraction_service
@@ -646,6 +650,7 @@ async def delete_resource(
             resource.parsed_markdown_key,
             resource.parsed_content_key,
             resource.parsed_zip_key,
+            resource_preview_service.preview_pdf_key(resource),
         ]
         if key
     ]
@@ -829,4 +834,71 @@ async def download_resource(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to stream resource",
+        )
+
+
+@router.get("/resources/{resource_id}/preview-pdf")
+async def preview_resource_pdf(
+    resource_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Return an inline PDF preview for Office resources after permission checks."""
+    resource = await Resource.get(resource_id)
+    if not resource:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Resource not found",
+        )
+    await _ensure_resource_download_access(current_user, resource)
+
+    normalized_mime_type = _normalize_mime_type(resource.mime_type)
+    preview_key = resource.file_key
+    preview_filename = resource.filename
+
+    if normalized_mime_type != "application/pdf":
+        try:
+            preview_key = await run_in_threadpool(
+                resource_preview_service.get_or_create_pdf_preview_key,
+                resource,
+            )
+            preview_filename = f"{sanitize_filename(resource.filename).rsplit('.', 1)[0]}.pdf"
+        except PreviewConversionUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            print(f"Error converting resource preview: {exc}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to convert resource preview",
+            ) from exc
+
+    try:
+        response = storage_service.client.get_object(
+            settings.MINIO_BUCKET_NAME,
+            preview_key,
+        )
+
+        def iter_file():
+            try:
+                yield from response.stream(64 * 1024)
+            finally:
+                response.close()
+                response.release_conn()
+
+        return StreamingResponse(
+            iter_file(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{preview_filename}"',
+                "Cache-Control": "private, max-age=300",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as e:
+        print(f"Error streaming resource preview: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to stream resource preview",
         )

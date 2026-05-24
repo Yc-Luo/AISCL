@@ -15,13 +15,6 @@ from typing import TypedDict, Annotated
 import operator
 import json
 
-from app.services.agents.orchestration_planner import (
-    KNOWLEDGE_CONSTRUCT_LABELS,
-    REGULATION_CONSTRUCT_LABELS,
-    ROLE_TO_SUBAGENT,
-    OrchestrationPlanner,
-)
-
 
 def _match_subagent_name(subagents: List[Dict[str, Any]], keywords: List[str], default: str) -> str:
     """Infer a target sub-agent name from descriptions to avoid hard-coded role names."""
@@ -419,6 +412,16 @@ def _select_constrained_subagent(
         return available[0]
 
     return ""
+
+
+from app.services.agents.multi_agent_routing import (  # noqa: E402
+    build_constrained_instruction as _build_constrained_instruction,
+    derive_routing_decision_from_context,
+    diagnose_collaboration_state as _diagnose_collaboration_state,
+    match_subagent_name as _match_subagent_name,
+    normalize_enabled_subagents as _normalize_enabled_subagents,
+    select_constrained_subagent as _select_constrained_subagent,
+)
 
 # --- State Definition (Simulating Deep Agents Internal State) ---
 

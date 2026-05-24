@@ -41,7 +41,7 @@ interface ResourceLibraryProps {
 
 const MAX_RESOURCE_BYTES = 50 * 1024 * 1024
 
-type PreviewKind = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'unsupported'
+type PreviewKind = 'image' | 'video' | 'audio' | 'pdf' | 'office' | 'text' | 'unsupported'
 
 interface PreviewState {
   resource: Resource
@@ -208,7 +208,9 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     if (kind === 'unsupported') return
 
     try {
-      const blob = await storageService.downloadResource(resource.id)
+      const blob = kind === 'office'
+        ? await storageService.previewResourcePdf(resource.id)
+        : await storageService.downloadResource(resource.id)
       if (kind === 'text') {
         const text = await blob.text()
         setPreview({ resource, kind, text, loading: false })
@@ -286,6 +288,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
     if (kind === 'video') return 'video'
     if (kind === 'audio') return 'audio'
     if (kind === 'pdf') return 'pdf'
+    if (kind === 'word' || kind === 'sheet' || kind === 'slides') return 'office'
     if (kind === 'text' || kind === 'csv') return 'text'
     return 'unsupported'
   }
@@ -538,6 +541,8 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
                 <DialogDescription>
                   {preview.kind === 'unsupported'
                     ? '该格式暂不支持直接在线渲染。'
+                    : preview.kind === 'office'
+                      ? '已转换为 PDF 预览，尽量保持原版式。'
                     : '在线预览'}
                 </DialogDescription>
               </DialogHeader>
@@ -545,7 +550,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
                 {preview.loading && (
                   <div className="flex h-[28rem] items-center justify-center gap-2 text-sm text-slate-500">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    正在加载预览...
+                    {preview.kind === 'office' ? '正在转换并加载原版式预览...' : '正在加载预览...'}
                   </div>
                 )}
                 {!preview.loading && preview.error && (
@@ -566,7 +571,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
                     <audio src={preview.url} controls className="w-full max-w-xl" />
                   </div>
                 )}
-                {!preview.loading && !preview.error && preview.kind === 'pdf' && preview.url && (
+                {!preview.loading && !preview.error && (preview.kind === 'pdf' || preview.kind === 'office') && preview.url && (
                   <iframe src={preview.url} title={preview.resource.filename} className="h-[72vh] w-full rounded-lg border border-slate-200 bg-white" />
                 )}
                 {!preview.loading && !preview.error && preview.kind === 'text' && (
@@ -581,7 +586,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
                     </div>
                     <div className="text-base font-bold text-slate-900">暂不支持在线渲染此格式</div>
                     <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                      Word、PPT、Excel 等文件需要后端转换服务或 OnlyOffice/LibreOffice 才能保持版式在线预览。当前可以先下载查看。
+                      该格式当前无法在浏览器中安全预览，可以先下载后查看。
                     </p>
                     {preview.resource.parse_status === 'indexed' && (
                       <p className="mt-2 max-w-md text-xs leading-5 text-slate-400">

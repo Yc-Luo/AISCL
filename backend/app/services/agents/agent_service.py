@@ -11,12 +11,17 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from app.core.config import settings
-from app.core.prompts.personas import PERSONAS
 from app.core.llm_config import get_llm
 from app.services.rag_service import rag_service
 from app.services.research_event_service import research_event_service
 from app.services.agents.deep_agents_shim import derive_routing_decision_from_context
-from app.services.agents.orchestration_planner import OrchestrationPlanner, SUBAGENT_LABELS
+from app.services.agents.multi_agent_roles import (
+    AISCL_PLATFORM_GUIDE,
+    PEDAGOGICAL_RESPONSE_CONTRACT,
+    SUBAGENT_LABELS,
+    get_research_subagents,
+)
+from app.services.agents.orchestration_planner import OrchestrationPlanner
 from app.services.agents.think_tag_parser import ThinkTagParser
 
 
@@ -35,28 +40,6 @@ class StageAgentGraphState(TypedDict, total=False):
     final_sections: Annotated[List[str], operator.add]
     processing_summaries: Annotated[List[str], operator.add]
     agent_outputs: Annotated[List[Dict[str, str]], operator.add]
-
-
-AISCL_PLATFORM_GUIDE = """AISCL 平台功能速查：
-- 协作文档：用于共同撰写任务理解、证据整理、阶段结论和最终成果草稿，可把关键内容加入 Wiki。
-- 论证空间：用于把观点、证据、反驳、关系和解释边界结构化，不是普通聊天区。
-- 小组资料：用于上传课程资源、学习资料、图片和成果相关材料；聊天图片只作为聊天附件。
-- 知识沉淀：用于沉淀任务简报、概念卡、证据卡、观点卡、争议卡和阶段结论，便于 AI 和小组后续检索。
-- AI 对话：适合个人深入追问；小组聊天 @AISCL智能助手 适合公开协作支架。
-- 学习概览：查看 4C、阶段建议和协作过程反馈。
-- 教师支持：用于低频向教师求助；教师公开回应会标记为教师支持。
-- 任务清单：用于分解小组待办；教师发布的限时任务需要按要求上传成果并提交。
-回答平台操作问题时，优先给“进入哪个页签/点击哪个入口/下一步做什么”的步骤，不要泛泛谈学习策略。
-只有当本轮上下文提供了实际检索结果或引用来源时，才建议学习者查看资源库或 Wiki 中的现有内容；如果没有检索结果，不要假设资源库/Wiki 已有内容可查，应建议先上传资料、创建 Wiki 卡片或补充材料线索。
-"""
-
-PEDAGOGICAL_RESPONSE_CONTRACT = """AISCL 回答契约：
-- 回答必须先判断线上小组对话处境，再给支架。不要直接进入标准答案。
-- 推荐顺序：识别处境 -> 平等协作式回应 -> 追问关键缺口 -> 给出下一步支架 -> 促进同伴互助。
-- 四阶段支架矩阵：问题构建重在澄清任务、界定问题、识别分歧；意义探索重在扩展资料、比较观点、判断证据质量；解释整合重在组织证据链、形成解释、处理反驳；应用解决重在落地方案、检验适用边界、修订成果。
-- 情绪与动机协调是横切要求：当成员焦虑、没动力、沉默、冲突、怕做错或觉得太难时，先承认困难并把任务切小，再给一个 10 分钟内可完成的动作和一个同伴互助建议。
-- 不要用课堂教师或裁判口吻；不要用空泛鼓励替代支架；不要责备成员或贴标签；不要替小组完成最终判断。
-"""
 
 
 class AgentService:
@@ -140,28 +123,7 @@ class AgentService:
 
     def _get_research_subagents(self) -> List[Dict[str, Any]]:
         """Return the canonical research sub-agent definitions."""
-        return [
-            {
-                "name": "evidence_researcher",
-                "description": "资料支持、来源核验、背景知识补给。优先服务证据补充与出处回查。",
-                "system_prompt": PERSONAS["evidence_researcher"].messages[0].prompt.template,
-            },
-            {
-                "name": "viewpoint_challenger",
-                "description": "观点挑战、反驳生成、替代解释比较。优先服务反方观点与逻辑薄弱点暴露。",
-                "system_prompt": PERSONAS["viewpoint_challenger"].messages[0].prompt.template,
-            },
-            {
-                "name": "feedback_prompter",
-                "description": "反馈追问、标准澄清、修订推进。优先服务证据充分性与判断修订。",
-                "system_prompt": PERSONAS["feedback_prompter"].messages[0].prompt.template,
-            },
-            {
-                "name": "problem_progressor",
-                "description": "问题推进、阶段澄清、任务拆解。优先服务阶段目标明确与下一步行动。",
-                "system_prompt": PERSONAS["problem_progressor"].messages[0].prompt.template,
-            },
-        ]
+        return get_research_subagents()
 
     def _resolve_rag_plan(
         self,

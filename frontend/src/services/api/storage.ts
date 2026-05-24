@@ -179,4 +179,11 @@ export const storageService = {
     })
     return response.data
   },
+
+  async previewResourcePdf(resourceId: string): Promise<Blob> {
+    const response = await api.get(`${API_ENDPOINTS.RESOURCES}/resources/${resourceId}/preview-pdf`, {
+      responseType: 'blob',
+    })
+    return response.data
+  },
 }

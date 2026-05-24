@@ -50,6 +50,15 @@ RUN pip install --index-url "${PIP_INDEX_URL}" --no-cache-dir -r requirements.tx
 # Production stage
 FROM base as production
 
+# Install document conversion runtime for Office-to-PDF previews.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libreoffice-writer \
+    libreoffice-calc \
+    libreoffice-impress \
+    fonts-noto-cjk \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"

@@ -8,10 +8,20 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
-logger = logging.getLogger(__name__)
+from app.services.agents.auto_prompt_policy import (
+    AUTO_GROUP_PROMPT_RULE_TYPES,
+    RULE_TYPE_TO_SUBAGENT,
+    is_rule_eligible_for_live_group_prompt,
+)
+from app.services.agents.multi_agent_roles import (
+    AUTO_PROMPT_SENDER_IDS,
+    ROLE_KEY_TO_SUBAGENT,
+    ROLE_MENTION_MAP,
+    SUBAGENT_LABELS,
+)
+from app.services.agents.multi_agent_stage_matrix import RULE_TYPE_LABELS, STAGE_LABELS
 
-# 小组聊天面向学习者只暴露统一 AI 入口；四角色仅作为后台内部编排角色。
-ROLE_MENTION_MAP = {}
+logger = logging.getLogger(__name__)
 
 GENERAL_AI_MENTIONS = {
     "@AISCL智能助手",
@@ -23,106 +33,10 @@ GENERAL_AI_MENTIONS = {
     "@智能导师",
 }
 
-ROLE_KEY_TO_SUBAGENT = {
-    "cognitive_support": "evidence_researcher",
-    "viewpoint_challenge": "viewpoint_challenger",
-    "feedback_prompting": "feedback_prompter",
-    "problem_progression": "problem_progressor",
-}
-
-AUTO_GROUP_PROMPT_RULE_TYPES = {
-    "evidence_gap",
-    "counterargument_missing",
-    "revision_stall",
-}
-
-AUTO_PROMPT_STAGE_RULES = {
-    "evidence_gap": {"meaning_exploration", "explanation_integration", "application_solution"},
-    "counterargument_missing": {"explanation_integration", "application_solution"},
-    "revision_stall": {"explanation_integration", "application_solution"},
-}
-
-AUTO_PROMPT_MIN_DIALOGUE_COUNT = {
-    "evidence_gap": 4,
-    "counterargument_missing": 5,
-    "revision_stall": 6,
-}
-
-AUTO_PROMPT_MIN_ELAPSED_SECONDS = 240
-AUTO_PROMPT_REVISION_MIN_ELAPSED_SECONDS = 600
-
-RULE_TYPE_TO_SUBAGENT = {
-    "evidence_gap": "evidence_researcher",
-    "counterargument_missing": "viewpoint_challenger",
-    "revision_stall": "feedback_prompter",
-    "responsibility_risk": "problem_progressor",
-}
-
-SUBAGENT_LABELS = {
-    "evidence_researcher": "资料研究员",
-    "viewpoint_challenger": "观点挑战者",
-    "feedback_prompter": "反馈追问者",
-    "problem_progressor": "问题推进者",
-}
-
-
 def _utc_iso_timestamp() -> str:
     """Return an ISO timestamp that browsers unambiguously parse as UTC."""
     return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
-
-def _is_rule_eligible_for_live_group_prompt(
-    *,
-    rule_type: str,
-    stage_id: Optional[str],
-    intervention_context: Dict[str, Any],
-) -> tuple[bool, Optional[str]]:
-    """Gate live group prompts so early or off-stage discussion is not over-prompted."""
-    allowed_stages = AUTO_PROMPT_STAGE_RULES.get(rule_type)
-    if allowed_stages and stage_id not in allowed_stages:
-        return False, "stage_not_eligible"
-
-    dialogue_count = int(intervention_context.get("student_dialogue_count") or 0)
-    min_dialogue_count = AUTO_PROMPT_MIN_DIALOGUE_COUNT.get(rule_type, 4)
-    if dialogue_count < min_dialogue_count:
-        return False, "insufficient_peer_dialogue"
-
-    elapsed_seconds = int(intervention_context.get("session_elapsed_seconds") or 0)
-    required_elapsed = (
-        AUTO_PROMPT_REVISION_MIN_ELAPSED_SECONDS
-        if rule_type == "revision_stall"
-        else AUTO_PROMPT_MIN_ELAPSED_SECONDS
-    )
-    if elapsed_seconds < required_elapsed:
-        return False, "discussion_too_short"
-
-    return True, None
-
-STAGE_LABELS = {
-    "task_import": "任务导入",
-    "problem_planning": "问题规划",
-    "evidence_exploration": "证据探究",
-    "argumentation": "论证协商",
-    "reflection_revision": "反思修订",
-    "problem_construction": "问题构建",
-    "meaning_exploration": "意义探索",
-    "explanation_integration": "解释整合",
-    "application_solution": "应用解决",
-}
-
-RULE_TYPE_LABELS = {
-    "evidence_gap": "证据不足",
-    "counterargument_missing": "反驳缺失",
-    "revision_stall": "修订停滞",
-    "responsibility_risk": "责任风险",
-}
-
-AUTO_PROMPT_SENDER_IDS = {
-    "evidence_researcher": "auto_prompt:evidence_researcher",
-    "viewpoint_challenger": "auto_prompt:viewpoint_challenger",
-    "feedback_prompter": "auto_prompt:feedback_prompter",
-    "problem_progressor": "auto_prompt:problem_progressor",
-}
 
 THINK_BLOCK_PATTERN = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
 MAX_CHAT_MESSAGE_CHARS = 1000
@@ -464,7 +378,7 @@ async def _evaluate_shadow_prompt_candidates(
         if not policy.get("should_record"):
             continue
 
-        eligible_for_live_prompt, eligibility_block_reason = _is_rule_eligible_for_live_group_prompt(
+        eligible_for_live_prompt, eligibility_block_reason = is_rule_eligible_for_live_group_prompt(
             rule_type=rule_type,
             stage_id=current_stage,
             intervention_context=intervention_context,

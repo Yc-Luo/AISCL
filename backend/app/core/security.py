@@ -89,6 +89,19 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 
+def content_disposition_header(filename: str, disposition_type: str = "attachment") -> str:
+    """Build a download/inline header that safely supports non-ASCII filenames."""
+    from urllib.parse import quote
+
+    safe_filename = sanitize_filename(filename)
+    ascii_fallback = safe_filename.encode("ascii", "ignore").decode("ascii")
+    ascii_fallback = ascii_fallback.replace("\\", "").replace('"', "").strip(". ")
+    if not ascii_fallback:
+        ascii_fallback = "download"
+    encoded_filename = quote(safe_filename, safe="")
+    return f"{disposition_type}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded_filename}"
+
+
 def validate_file_type(filename: str, allowed_extensions: list[str]) -> bool:
     """Validate file type by extension."""
     if not filename:

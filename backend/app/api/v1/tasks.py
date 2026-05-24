@@ -19,7 +19,7 @@ from starlette.background import BackgroundTask
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
 from app.core.permissions import can_edit_project_content, check_project_member_permission
-from app.core.security import sanitize_filename
+from app.core.security import content_disposition_header, sanitize_filename
 from app.repositories.course import Course
 from app.repositories.course_task_release import CourseTaskRelease
 from app.repositories.project import Project
@@ -56,8 +56,11 @@ ARTIFACT_MIME_TYPES = {
     "application/pdf",
     "text/plain",
     "text/markdown",
+    "text/csv",
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-powerpoint",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/zip",
@@ -105,9 +108,12 @@ def _infer_artifact_type(mime_type: str, filename: str) -> str:
         "application/pdf",
         "text/plain",
         "text/markdown",
+        "text/csv",
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    } or suffix in {"pdf", "txt", "md", "doc", "docx"}:
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    } or suffix in {"pdf", "txt", "md", "csv", "doc", "docx", "xls", "xlsx"}:
         return "document"
     if normalized in {"application/zip", "application/x-zip-compressed", "application/x-rar-compressed", "application/x-7z-compressed"}:
         return "archive"
@@ -572,7 +578,7 @@ async def export_teacher_submissions(
     return StreamingResponse(
         iter([csv_bytes]),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition_header(filename)},
     )
 
 
@@ -604,7 +610,7 @@ async def export_teacher_submission_artifacts_zip(
     return StreamingResponse(
         _stream_file(temp_path),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition_header(filename)},
         background=BackgroundTask(_remove_temp_file, temp_path),
     )
 
@@ -844,11 +850,10 @@ async def download_task_artifact(
     else:
         await ensure_project_access(current_user, project)
     data = await run_in_threadpool(storage_service.get_file_bytes, artifact.file_key)
-    safe_filename = artifact.filename.replace('"', "")
     return StreamingResponse(
         iter([data]),
         media_type=artifact.mime_type,
-        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+        headers={"Content-Disposition": content_disposition_header(artifact.filename)},
     )
 
 

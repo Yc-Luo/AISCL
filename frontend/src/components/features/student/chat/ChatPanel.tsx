@@ -239,7 +239,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     fetchMessages()
 
     return () => { isMounted = false; }
-  }, [projectId])
+  }, [projectId, connected])
 
   useEffect(() => {
     scrollToBottom('smooth')

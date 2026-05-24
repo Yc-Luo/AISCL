@@ -15,7 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
 from app.core.permissions import can_edit_project_content, check_project_member_permission
-from app.core.security import sanitize_filename
+from app.core.security import content_disposition_header, sanitize_filename
 from app.repositories.course import Course
 from app.repositories.project import Project
 from app.repositories.resource import Resource
@@ -778,7 +778,7 @@ async def view_resource(
             iter_file(),
             media_type=normalized_mime_type,
             headers={
-                "Content-Disposition": f'inline; filename="{sanitize_filename(resource.filename)}"',
+                "Content-Disposition": content_disposition_header(resource.filename, "inline"),
                 "Cache-Control": "private, max-age=300",
                 "X-Content-Type-Options": "nosniff",
             },
@@ -824,7 +824,7 @@ async def download_resource(
             iter_file(),
             media_type=_normalize_mime_type(resource.mime_type) or "application/octet-stream",
             headers={
-                "Content-Disposition": f'attachment; filename="{sanitize_filename(resource.filename)}"',
+                "Content-Disposition": content_disposition_header(resource.filename),
                 "Cache-Control": "private, max-age=300",
                 "X-Content-Type-Options": "nosniff",
             },
@@ -891,7 +891,7 @@ async def preview_resource_pdf(
             iter_file(),
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'inline; filename="{preview_filename}"',
+                "Content-Disposition": content_disposition_header(preview_filename, "inline"),
                 "Cache-Control": "private, max-age=300",
                 "X-Content-Type-Options": "nosniff",
             },

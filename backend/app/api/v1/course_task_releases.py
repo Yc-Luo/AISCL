@@ -1,5 +1,6 @@
 """Course-level group task release API routes."""
 
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -29,7 +30,29 @@ def _ensure_course_manage_access(current_user: User, course: Course) -> None:
         )
 
 
+def _html_to_plain_text(value: Optional[str]) -> str:
+    """Create a readable text preview from the teacher's rich task brief."""
+    if not value:
+        return ""
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", value)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</(p|div|li|h[1-6]|tr)>", "\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = (
+        text.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&#039;", "'")
+    )
+    return re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+", " ", text)).strip()
+
+
 def _compose_task_description(release_data: CourseTaskReleaseCreateRequest) -> str:
+    if release_data.task_brief_html and release_data.task_brief_html.strip():
+        return _html_to_plain_text(release_data.task_brief_html)[:10000]
+
     sections = [
         ("任务背景", release_data.task_background),
         ("核心问题", release_data.core_question),
@@ -50,6 +73,18 @@ def _compose_document_content(
     published_at: datetime,
 ) -> str:
     """Build student-facing task brief content for the shared document."""
+    if release_data.task_brief_html and release_data.task_brief_html.strip():
+        meta = [
+            f"<h1>{release_data.title.strip()}</h1>",
+            "<section>",
+            f"<p><strong>发布时间：</strong>{published_at.strftime('%Y-%m-%d %H:%M')}</p>",
+            f"<p><strong>截止时间：</strong>{release_data.due_at.strftime('%Y-%m-%d %H:%M') if release_data.due_at else '未设置'}</p>",
+            f"<p><strong>逾期处理：</strong>{'允许截止后继续提交或完善' if release_data.allow_late_submission else '截止后不再开放提交或完善'}</p>",
+            "</section>",
+            "<hr />",
+        ]
+        return "\n".join(meta) + "\n" + release_data.task_brief_html.strip()
+
     lines = [
         f"任务标题\n{release_data.title.strip()}",
         f"发布时间\n{published_at.strftime('%Y-%m-%d %H:%M')}",
@@ -84,6 +119,7 @@ def _to_response(
         course_name=course_name,
         teacher_id=release.teacher_id,
         title=release.title,
+        task_brief_html=release.task_brief_html,
         task_background=release.task_background,
         core_question=release.core_question,
         collaboration_requirements=release.collaboration_requirements,
@@ -215,6 +251,7 @@ async def create_course_task_release(
         course_id=course_id,
         teacher_id=course.teacher_id,
         title=release_data.title.strip(),
+        task_brief_html=release_data.task_brief_html,
         task_background=release_data.task_background,
         core_question=release_data.core_question,
         collaboration_requirements=release_data.collaboration_requirements,
@@ -233,6 +270,7 @@ async def create_course_task_release(
 
     description = _compose_task_description(release_data)
     document_content = _compose_document_content(release_data, published_at=now)
+    document_preview_text = _html_to_plain_text(document_content)[:200]
     synced_task_ids: list[str] = []
     synced_document_ids: list[str] = []
     for project in projects:
@@ -270,7 +308,7 @@ async def create_course_task_release(
             title=f"任务发布：{release.title}"[:200],
             content=document_content,
             content_state=b"",
-            preview_text=document_content[:200] or None,
+            preview_text=document_preview_text or None,
             last_modified_by=str(current_user.id),
             source_type="course_task_release",
             course_task_release_id=str(release.id),
@@ -286,7 +324,7 @@ async def create_course_task_release(
                 "item_type": "task_brief",
                 "title": document.title,
                 "content": document_content,
-                "summary": document_content[:500],
+                "summary": _html_to_plain_text(document_content)[:500],
                 "source_type": "teacher_brief",
                 "source_id": str(document.id),
                 "visibility": "project",

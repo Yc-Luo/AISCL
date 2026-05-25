@@ -6,6 +6,7 @@ export interface CourseTaskRelease {
   course_name?: string
   teacher_id: string
   title: string
+  task_brief_html?: string
   task_background?: string
   core_question?: string
   collaboration_requirements?: string
@@ -33,6 +34,7 @@ export interface CourseTaskRelease {
 
 export interface CourseTaskReleaseCreateRequest {
   title: string
+  task_brief_html?: string
   task_background?: string
   core_question?: string
   collaboration_requirements?: string

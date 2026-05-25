@@ -15,25 +15,20 @@ import {
   CourseTaskReleaseCreateRequest,
   courseTaskReleaseService,
 } from '../../../../services/api/courseTaskRelease'
+import TaskBriefEditor from './TaskBriefEditor'
 
 type ReleaseForm = {
   title: string
-  task_background: string
-  core_question: string
-  collaboration_requirements: string
-  deliverable_requirements: string
-  evaluation_points: string
+  task_brief_html: string
+  task_brief_text: string
   due_at: string
   allow_late_submission: boolean
 }
 
 const DEFAULT_FORM: ReleaseForm = {
   title: '',
-  task_background: '',
-  core_question: '',
-  collaboration_requirements: '',
-  deliverable_requirements: '',
-  evaluation_points: '',
+  task_brief_html: '',
+  task_brief_text: '',
   due_at: '',
   allow_late_submission: true,
 }
@@ -45,7 +40,7 @@ const RELEASE_STEPS = [
   },
   {
     label: '填写项目说明',
-    description: '补充任务背景、核心问题、协作要求、提交成果和评价要点。',
+    description: '用一个完整编辑区编写任务说明，可插入表格和图片。',
   },
   {
     label: '预览并发布',
@@ -65,11 +60,7 @@ const formatDateTime = (value?: string) => {
 
 const toApiPayload = (form: ReleaseForm): CourseTaskReleaseCreateRequest => ({
   title: form.title.trim(),
-  task_background: form.task_background.trim() || undefined,
-  core_question: form.core_question.trim() || undefined,
-  collaboration_requirements: form.collaboration_requirements.trim() || undefined,
-  deliverable_requirements: form.deliverable_requirements.trim() || undefined,
-  evaluation_points: form.evaluation_points.trim() || undefined,
+  task_brief_html: form.task_brief_html.trim() || undefined,
   due_at: form.due_at ? new Date(form.due_at).toISOString() : undefined,
   allow_late_submission: form.allow_late_submission,
 })
@@ -146,15 +137,7 @@ export default function CourseTaskRelease() {
 
   const canGoNext = useMemo(() => {
     if (releaseStep === 0) return Boolean(selectedCourseId && form.title.trim())
-    if (releaseStep === 1) {
-      return Boolean(
-        form.task_background.trim()
-        || form.core_question.trim()
-        || form.collaboration_requirements.trim()
-        || form.deliverable_requirements.trim()
-        || form.evaluation_points.trim()
-      )
-    }
+    if (releaseStep === 1) return Boolean(form.task_brief_text.trim())
     return true
   }, [form, releaseStep, selectedCourseId])
 
@@ -164,7 +147,7 @@ export default function CourseTaskRelease() {
         type: 'error',
         message: releaseStep === 0
           ? '请先选择班级并填写任务标题。'
-          : '请至少填写一项项目说明内容，避免学生端任务文档为空。',
+          : '请填写项目说明，避免学生端任务内容为空。',
       })
       return
     }
@@ -372,39 +355,21 @@ export default function CourseTaskRelease() {
 
               {releaseStep === 1 && (
                 <div className="space-y-4 rounded-3xl border border-slate-100 bg-white p-5">
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <TextAreaField
-                      label="任务背景"
-                      value={form.task_background}
-                      placeholder="说明情境、主题和学习目标。"
-                      onChange={(value) => updateForm('task_background', value)}
-                    />
-                    <TextAreaField
-                      label="核心问题"
-                      value={form.core_question}
-                      placeholder="说明小组需要回答或解决的关键问题。"
-                      onChange={(value) => updateForm('core_question', value)}
-                    />
-                    <TextAreaField
-                      label="协作要求"
-                      value={form.collaboration_requirements}
-                      placeholder="说明问题构建、意义探索、解释整合、应用解决等协作过程要求。"
-                      onChange={(value) => updateForm('collaboration_requirements', value)}
-                    />
-                    <TextAreaField
-                      label="提交成果"
-                      value={form.deliverable_requirements}
-                      placeholder="说明最终需要提交的报告、方案、展示或其他成果。"
-                      onChange={(value) => updateForm('deliverable_requirements', value)}
-                    />
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">项目说明</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-500">
+                      把任务背景、核心问题、协作要求、提交成果和评价要点写在同一个编辑区，适合复杂活动主体，也便于插入表格和图片。
+                    </p>
                   </div>
-
-                  <TextAreaField
-                    label="评价要点"
-                    value={form.evaluation_points}
-                    placeholder="说明评价关注点，例如证据质量、论证清晰度、协作完整性、成果说服力。"
-                    minRows={3}
-                    onChange={(value) => updateForm('evaluation_points', value)}
+                  <TaskBriefEditor
+                    value={form.task_brief_html}
+                    onChange={(html, text) => {
+                      setForm((previous) => ({
+                        ...previous,
+                        task_brief_html: html,
+                        task_brief_text: text,
+                      }))
+                    }}
                   />
                 </div>
               )}
@@ -419,11 +384,14 @@ export default function CourseTaskRelease() {
                   </div>
                   <div className="rounded-2xl bg-white p-4 text-sm leading-6 text-slate-600 ring-1 ring-indigo-100">
                     <div className="mb-2 text-xs font-black uppercase tracking-wider text-indigo-500">学生端项目说明预览</div>
-                    <PreviewSection title="任务背景" content={form.task_background} />
-                    <PreviewSection title="核心问题" content={form.core_question} />
-                    <PreviewSection title="协作要求" content={form.collaboration_requirements} />
-                    <PreviewSection title="提交成果" content={form.deliverable_requirements} />
-                    <PreviewSection title="评价要点" content={form.evaluation_points} />
+                    {form.task_brief_html ? (
+                      <div
+                        className="prose prose-sm max-w-none prose-img:max-h-[320px] prose-img:rounded-lg prose-table:w-full prose-table:border-collapse prose-th:border prose-th:border-slate-300 prose-th:bg-slate-50 prose-th:px-3 prose-th:py-2 prose-td:border prose-td:border-slate-300 prose-td:px-3 prose-td:py-2"
+                        dangerouslySetInnerHTML={{ __html: form.task_brief_html }}
+                      />
+                    ) : (
+                      <p className="text-sm text-slate-400">暂未填写项目说明。</p>
+                    )}
                   </div>
                   <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-500 ring-1 ring-indigo-100">
                     确认发布后，系统将为该班级下所有未归档小组生成任务卡、共享文档和知识沉淀任务简报。
@@ -435,7 +403,9 @@ export default function CourseTaskRelease() {
                 <span>
                   {releaseStep === 2
                     ? '请确认信息无误后发布；已创建的小组将同步收到任务。'
-                    : '按步骤填写可以减少学生端任务说明缺失或发布对象错误。'}
+                    : releaseStep === 1
+                      ? '项目说明会同步到小组任务，并作为学生端任务说明内容。'
+                      : '按步骤填写可以减少学生端任务说明缺失或发布对象错误。'}
                 </span>
                 <div className="flex items-center justify-end gap-2">
                   <Button
@@ -548,48 +518,11 @@ export default function CourseTaskRelease() {
   )
 }
 
-function TextAreaField({
-  label,
-  value,
-  placeholder,
-  onChange,
-  minRows = 4,
-}: {
-  label: string
-  value: string
-  placeholder: string
-  onChange: (value: string) => void
-  minRows?: number
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-semibold text-slate-700">{label}</span>
-      <textarea
-        value={value}
-        rows={minRows}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className="w-full resize-y rounded-2xl border border-slate-200 px-4 py-3 text-sm leading-6 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-      />
-    </label>
-  )
-}
-
 function PreviewItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl bg-white p-4 ring-1 ring-indigo-100">
       <div className="text-xs font-semibold text-slate-400">{label}</div>
       <div className="mt-1 text-sm font-bold text-slate-900">{value}</div>
-    </div>
-  )
-}
-
-function PreviewSection({ title, content }: { title: string; content?: string }) {
-  if (!content?.trim()) return null
-  return (
-    <div className="border-t border-slate-100 py-3 first:border-t-0 first:pt-0 last:pb-0">
-      <div className="text-xs font-bold text-slate-500">{title}</div>
-      <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{content.trim()}</div>
     </div>
   )
 }

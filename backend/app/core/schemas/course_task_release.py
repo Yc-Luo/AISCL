@@ -10,6 +10,7 @@ class CourseTaskReleaseCreateRequest(BaseModel):
     """Create and publish a group task to a course."""
 
     title: str = Field(..., min_length=1, max_length=200)
+    task_brief_html: Optional[str] = Field(default=None, max_length=3_000_000)
     task_background: Optional[str] = Field(default=None, max_length=3000)
     core_question: Optional[str] = Field(default=None, max_length=3000)
     collaboration_requirements: Optional[str] = Field(default=None, max_length=3000)
@@ -27,6 +28,7 @@ class CourseTaskReleaseResponse(BaseModel):
     course_name: Optional[str] = None
     teacher_id: str
     title: str
+    task_brief_html: Optional[str] = None
     task_background: Optional[str] = None
     core_question: Optional[str] = None
     collaboration_requirements: Optional[str] = None

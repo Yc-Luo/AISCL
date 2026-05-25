@@ -13,6 +13,7 @@ class CourseTaskRelease(Document):
     course_id: str = Field(..., index=True)
     teacher_id: str = Field(..., index=True)
     title: str = Field(..., min_length=1, max_length=200)
+    task_brief_html: Optional[str] = Field(default=None, max_length=3_000_000)
     task_background: Optional[str] = Field(default=None, max_length=3000)
     core_question: Optional[str] = Field(default=None, max_length=3000)
     collaboration_requirements: Optional[str] = Field(default=None, max_length=3000)

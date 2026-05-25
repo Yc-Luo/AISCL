@@ -52,6 +52,7 @@ async def get_inquiry_snapshot(
 
     return {
         "project_id": project_id,
+        "snapshot_id": str(snapshot.id),
         "data": base64.b64encode(snapshot_data).decode("utf-8"),
         "version": snapshot.snapshot_version,
         "updated_at": snapshot.created_at.isoformat(),

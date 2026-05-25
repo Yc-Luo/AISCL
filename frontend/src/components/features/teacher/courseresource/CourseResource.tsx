@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+    BrainCircuit,
     BookOpen,
     Download,
     FileText,
@@ -27,6 +28,8 @@ import {
     DialogFooter,
     ConfirmDialog,
 } from '../../../ui';
+
+type ResourceMode = 'library' | 'ai_knowledge';
 
 const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -57,6 +60,7 @@ export default function CourseResource() {
     const [courses, setCourses] = useState<Course[]>([]);
     const [selectedCourseId, setSelectedCourseId] = useState('');
     const [resources, setResources] = useState<Resource[]>([]);
+    const [resourceMode, setResourceMode] = useState<ResourceMode>('library');
     const [loading, setLoading] = useState(true);
     const [resourceLoading, setResourceLoading] = useState(false);
 
@@ -88,14 +92,14 @@ export default function CourseResource() {
         }
     };
 
-    const fetchCourseResources = async (courseId: string) => {
+    const fetchCourseResources = async (courseId: string, mode: ResourceMode = resourceMode) => {
         if (!courseId) {
             setResources([]);
             return;
         }
         try {
             setResourceLoading(true);
-            const data = await storageService.getCourseResources(courseId);
+            const data = await storageService.getCourseResources(courseId, mode);
             setResources(
                 [...data.resources].sort(
                     (a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime()
@@ -114,8 +118,8 @@ export default function CourseResource() {
     }, []);
 
     useEffect(() => {
-        void fetchCourseResources(selectedCourseId);
-    }, [selectedCourseId]);
+        void fetchCourseResources(selectedCourseId, resourceMode);
+    }, [selectedCourseId, resourceMode]);
 
     useEffect(() => {
         const hasUnfinishedParsing = resources.some((resource) =>
@@ -123,10 +127,10 @@ export default function CourseResource() {
         );
         if (!selectedCourseId || !hasUnfinishedParsing) return;
         const timer = window.setInterval(() => {
-            void fetchCourseResources(selectedCourseId);
+            void fetchCourseResources(selectedCourseId, resourceMode);
         }, 10000);
         return () => window.clearInterval(timer);
-    }, [resources, selectedCourseId]);
+    }, [resources, selectedCourseId, resourceMode]);
 
     const handleFileUpload = async () => {
         if (!selectedFile || !selectedCourseId) return;
@@ -136,13 +140,18 @@ export default function CourseResource() {
             await storageService.uploadResourceFile({
                 course_id: selectedCourseId,
                 file: selectedFile,
-                source_type: 'library',
+                source_type: resourceMode,
             });
 
             setIsUploadOpen(false);
             setSelectedFile(null);
-            await fetchCourseResources(selectedCourseId);
-            setNotice({ type: 'success', message: '班级资源已上传，系统将自动解析并写入 AI 检索库。' });
+            await fetchCourseResources(selectedCourseId, resourceMode);
+            setNotice({
+                type: 'success',
+                message: resourceMode === 'ai_knowledge'
+                    ? 'AI 知识库资料已上传，解析后会优先用于多智能体回答。'
+                    : '班级资源已上传，系统将自动解析并写入 AI 检索库。',
+            });
         } catch (error) {
             console.error('Upload failed:', error);
             setNotice({ type: 'error', message: '上传失败，请检查网络连接、文件类型或班级权限。' });
@@ -183,7 +192,7 @@ export default function CourseResource() {
                     <div>
                         <h2 className="text-3xl font-bold tracking-tight text-gray-900">课程资源中心</h2>
                         <p className="mt-2 text-sm font-medium text-gray-500">
-                            按班级统一管理教师提供的探究资料、工具手册与任务材料，班级内所有小组共享可见。
+                            按班级统一管理教师资料；班级资源面向学生可见，AI 知识库用于增强多智能体回答。
                         </p>
                     </div>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -196,9 +205,28 @@ export default function CourseResource() {
                             disabled={!selectedCourseId}
                             className="gap-2 bg-indigo-600 text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700"
                         >
-                            <Plus className="h-4 w-4" /> 上传班级资源
+                            <Plus className="h-4 w-4" /> {resourceMode === 'ai_knowledge' ? '上传 AI 知识' : '上传班级资源'}
                         </Button>
                     </div>
+                </div>
+
+                <div className="mt-6 inline-flex rounded-2xl bg-slate-100 p-1">
+                    <button
+                        type="button"
+                        onClick={() => setResourceMode('library')}
+                        className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition ${resourceMode === 'library' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <BookOpen className="h-4 w-4" />
+                        班级资源
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setResourceMode('ai_knowledge')}
+                        className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition ${resourceMode === 'ai_knowledge' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <BrainCircuit className="h-4 w-4" />
+                        AI 知识库
+                    </button>
                 </div>
 
                 <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
@@ -219,16 +247,20 @@ export default function CourseResource() {
                             {courses.length === 0 && <option value="">暂无班级</option>}
                         </select>
                         <p className="mt-2 text-xs leading-5 text-slate-500">
-                            教师资源只上传到班级一次，不再逐个小组重复上传；学生端资源库会自动合并显示“教师提供资源”和“小组自建资源”。
+                            {resourceMode === 'ai_knowledge'
+                                ? 'AI 知识库资料不出现在学生资源列表中，主要用于多智能体检索教师规则、理论材料和示范回答。'
+                                : '教师资源只上传到班级一次，不再逐个小组重复上传；学生端资源库会自动合并显示“教师提供资源”和“小组自建资源”。'}
                         </p>
                     </div>
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                        <div className="flex items-center gap-2 text-sm font-bold text-emerald-800">
-                            <BookOpen className="h-4 w-4" />
-                            上传与分发已分离
+                    <div className={`rounded-2xl border p-4 ${resourceMode === 'ai_knowledge' ? 'border-indigo-100 bg-indigo-50/70' : 'border-emerald-100 bg-emerald-50/70'}`}>
+                        <div className={`flex items-center gap-2 text-sm font-bold ${resourceMode === 'ai_knowledge' ? 'text-indigo-800' : 'text-emerald-800'}`}>
+                            {resourceMode === 'ai_knowledge' ? <BrainCircuit className="h-4 w-4" /> : <BookOpen className="h-4 w-4" />}
+                            {resourceMode === 'ai_knowledge' ? '多智能体优化资料' : '上传与分发已分离'}
                         </div>
-                        <p className="mt-2 text-xs leading-5 text-emerald-700">
-                            上传形成班级资源对象；分发范围为当前班级全部小组。学生访问、下载、加入 Wiki 等行为仍会按具体小组和阶段记录。
+                        <p className={`mt-2 text-xs leading-5 ${resourceMode === 'ai_knowledge' ? 'text-indigo-700' : 'text-emerald-700'}`}>
+                            {resourceMode === 'ai_knowledge'
+                                ? '建议上传教育学、心理学、批判性思维、协作学习、任务评价标准和优秀对话范例，用于提升 AI 回答的人味和适切性。'
+                                : '上传形成班级资源对象；分发范围为当前班级全部小组。学生访问、下载、加入 Wiki 等行为仍会按具体小组和阶段记录。'}
                         </p>
                     </div>
                 </div>
@@ -264,7 +296,7 @@ export default function CourseResource() {
                             <tr>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">文件名</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">所属班级</th>
-                                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">分发范围</th>
+                                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">使用范围</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">入库</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">体积</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">上传时间</th>
@@ -294,7 +326,7 @@ export default function CourseResource() {
                                     </td>
                                     <td className="whitespace-nowrap px-6 py-4">
                                         <Badge variant="secondary" className="border-0 bg-emerald-50 px-3 py-1 font-medium text-emerald-700">
-                                            全班小组共享
+                                            {resourceMode === 'ai_knowledge' ? '仅供 AI 检索' : '全班小组共享'}
                                         </Badge>
                                     </td>
                                     <td className="whitespace-nowrap px-6 py-4">
@@ -348,9 +380,11 @@ export default function CourseResource() {
                     <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-slate-50">
                         <HardDrive className="h-10 w-10 text-slate-300" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900">暂无班级资源</h3>
+                    <h3 className="text-xl font-bold text-gray-900">{resourceMode === 'ai_knowledge' ? '暂无 AI 知识库资料' : '暂无班级资源'}</h3>
                     <p className="mx-auto mt-2 max-w-md text-sm font-medium leading-6 text-gray-500">
-                        请选择班级后上传资源。资源会直接分发给该班级下所有小组，避免重复上传和版本不一致。
+                        {resourceMode === 'ai_knowledge'
+                            ? '请选择班级后上传用于多智能体回答的理论资料、评价规则或示范对话。'
+                            : '请选择班级后上传资源。资源会直接分发给该班级下所有小组，避免重复上传和版本不一致。'}
                     </p>
                 </div>
             )}
@@ -358,9 +392,11 @@ export default function CourseResource() {
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
                 <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-xl overflow-y-auto rounded-3xl p-5 sm:p-6">
                     <DialogHeader>
-                        <DialogTitle className="text-xl font-bold">上传班级资源</DialogTitle>
+                        <DialogTitle className="text-xl font-bold">{resourceMode === 'ai_knowledge' ? '上传 AI 知识库资料' : '上传班级资源'}</DialogTitle>
                         <DialogDescription className="mt-1 text-sm text-slate-500">
-                            文件将绑定到当前班级，班级内所有小组在学生端资源库中都能看到。
+                            {resourceMode === 'ai_knowledge'
+                                ? '文件将绑定到当前班级，用于多智能体检索和回答优化，不在学生资源库中直接展示。'
+                                : '文件将绑定到当前班级，班级内所有小组在学生端资源库中都能看到。'}
                         </DialogDescription>
                     </DialogHeader>
 

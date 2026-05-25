@@ -32,6 +32,16 @@ export interface TaskOrderUpdateRequest {
   order: number
 }
 
+export interface TaskSubmitPayload {
+  note?: string
+  artifact_document_id?: string
+  artifact_document_ids?: string[]
+  artifact_snapshot_id?: string
+  artifact_inquiry_snapshot_id?: string
+  artifact_wiki_item_ids?: string[]
+  artifact_ids?: string[]
+}
+
 export const taskService = {
   async getTasks(projectId: string): Promise<TaskListResponse> {
     const response = await api.get<TaskListResponse>(
@@ -75,21 +85,10 @@ export const taskService = {
     await api.delete(`${API_ENDPOINTS.TASKS}/${taskId}`)
   },
 
-  async submitTask(
-    taskId: string,
-    note?: string,
-    artifactDocumentId?: string,
-    artifactSnapshotId?: string,
-    artifactIds?: string[]
-  ): Promise<Task> {
+  async submitTask(taskId: string, payload: TaskSubmitPayload): Promise<Task> {
     const response = await api.post<Task>(
       `${API_ENDPOINTS.TASKS}/${taskId}/submit`,
-      {
-        note,
-        artifact_document_id: artifactDocumentId,
-        artifact_snapshot_id: artifactSnapshotId,
-        artifact_ids: artifactIds || [],
-      }
+      payload
     )
     return response.data
   },

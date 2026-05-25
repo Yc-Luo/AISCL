@@ -35,9 +35,10 @@ export const storageService = {
     return response.data
   },
 
-  async getCourseResources(courseId: string): Promise<ResourceListResponse> {
+  async getCourseResources(courseId: string, sourceType: 'library' | 'ai_knowledge' | 'all' = 'library'): Promise<ResourceListResponse> {
     const response = await api.get<ResourceListResponse>(
-      `${API_ENDPOINTS.RESOURCES}/course-resources/${courseId}`
+      `${API_ENDPOINTS.RESOURCES}/course-resources/${courseId}`,
+      { params: { source_type: sourceType } }
     )
     return response.data
   },
@@ -123,7 +124,7 @@ export const storageService = {
     size: number
     project_id: string
     mime_type: string
-    source_type?: 'library' | 'document_embed' | 'chat_attachment' | 'inquiry_material'
+    source_type?: 'library' | 'document_embed' | 'chat_attachment' | 'inquiry_material' | 'ai_knowledge'
   }): Promise<Resource> {
     const response = await api.post<Resource>(
       `${API_ENDPOINTS.RESOURCES}/resources`,
@@ -136,7 +137,7 @@ export const storageService = {
     file: File
     project_id?: string
     course_id?: string
-    source_type?: 'library' | 'document_embed' | 'chat_attachment' | 'inquiry_material'
+    source_type?: 'library' | 'document_embed' | 'chat_attachment' | 'inquiry_material' | 'ai_knowledge'
   }): Promise<Resource> {
     const formData = new FormData()
     formData.append('file', data.file)
@@ -157,7 +158,7 @@ export const storageService = {
     size: number
     course_id: string
     mime_type: string
-    source_type?: 'library'
+    source_type?: 'library' | 'ai_knowledge'
   }): Promise<Resource> {
     const response = await api.post<Resource>(
       `${API_ENDPOINTS.RESOURCES}/resources`,

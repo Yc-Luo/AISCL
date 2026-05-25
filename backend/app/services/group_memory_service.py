@@ -943,7 +943,10 @@ class GroupMemoryService:
             f"{doc.title}（更新：{doc.updated_at.strftime('%m-%d %H:%M') if doc.updated_at else '未知'}）"
             for doc in documents[:4]
         ]
-        recent_resource_titles = [resource.filename for resource in resources[:5]]
+        student_visible_resources = [resource for resource in resources if getattr(resource, "source_type", "library") != "ai_knowledge"]
+        ai_knowledge_resources = [resource for resource in resources if getattr(resource, "source_type", "") == "ai_knowledge"]
+        recent_resource_titles = [resource.filename for resource in student_visible_resources[:5]]
+        recent_ai_knowledge_titles = [resource.filename for resource in ai_knowledge_resources[:5]]
         recent_wiki_titles = [
             f"{item.title}（{item.item_type}）"
             for item in wiki_items[:5]
@@ -965,7 +968,7 @@ class GroupMemoryService:
             recent_progress.append("最近更新文档：" + "；".join(recent_documents))
 
         collaboration_risks = []
-        if not resources:
+        if not student_visible_resources:
             collaboration_risks.append("资源库暂无可用资料，回答时不应让学习者去搜索不存在的资源。")
         if not wiki_items:
             collaboration_risks.append("项目 Wiki 暂无沉淀内容，后续可把关键概念、证据或阶段结论加入 Wiki。")
@@ -977,7 +980,7 @@ class GroupMemoryService:
             collaboration_risks.append("近期论证空间操作较少，可提醒学习者把观点、证据和反例结构化。")
 
         recommended_support = []
-        if not resources:
+        if not student_visible_resources:
             recommended_support.append("优先建议学习者上传或摘录可核查资料，而不是要求其在资源库中搜索。")
         if not wiki_items:
             recommended_support.append("可建议将已确认概念、证据或争议点沉淀为 Wiki 卡片。")
@@ -997,9 +1000,14 @@ class GroupMemoryService:
             "task_focus": task_focus,
             "task_status": active_tasks or ["暂无进行中的任务卡。"],
             "resource_status": (
-                f"共有 {len(resources)} 个可用资源；最近资源：" + "；".join(recent_resource_titles)
-                if resources
+                f"共有 {len(student_visible_resources)} 个学生可见资源；最近资源：" + "；".join(recent_resource_titles)
+                if student_visible_resources
                 else "暂无可用资源。"
+            ),
+            "teacher_ai_knowledge_status": (
+                f"教师 AI 知识库共有 {len(ai_knowledge_resources)} 个资料；最近资料：" + "；".join(recent_ai_knowledge_titles)
+                if ai_knowledge_resources
+                else "教师 AI 知识库暂无额外资料。"
             ),
             "wiki_status": (
                 f"共有 {len(wiki_items)} 张 Wiki 卡片；类型分布："

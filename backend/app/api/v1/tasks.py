@@ -22,10 +22,13 @@ from app.core.permissions import can_edit_project_content, check_project_member_
 from app.core.security import content_disposition_header, sanitize_filename
 from app.repositories.course import Course
 from app.repositories.course_task_release import CourseTaskRelease
+from app.repositories.document import Document
+from app.repositories.inquiry_snapshot import InquirySnapshot
 from app.repositories.project import Project
 from app.repositories.task import Task
 from app.repositories.task_submission_artifact import TaskSubmissionArtifact
 from app.repositories.user import User
+from app.repositories.wiki_item import WikiItem
 from app.core.schemas.task import (
     TaskArtifactListResponse,
     TaskArtifactResponse,
@@ -239,7 +242,10 @@ def to_task_response(task: Task) -> TaskResponse:
         submitted_by=task.submitted_by,
         submission_note=task.submission_note,
         artifact_document_id=task.artifact_document_id,
+        artifact_document_ids=getattr(task, "artifact_document_ids", []) or ([task.artifact_document_id] if task.artifact_document_id else []),
         artifact_snapshot_id=task.artifact_snapshot_id,
+        artifact_inquiry_snapshot_id=getattr(task, "artifact_inquiry_snapshot_id", None) or task.artifact_snapshot_id,
+        artifact_wiki_item_ids=getattr(task, "artifact_wiki_item_ids", []) or [],
         submission_artifact_ids=getattr(task, "submission_artifact_ids", []) or [],
         review_status=task.review_status,
         review_comment=task.review_comment,
@@ -515,6 +521,40 @@ async def list_teacher_submissions(
         course = course_by_id.get(project.course_id or "")
         release = release_by_id.get(task.course_task_release_id or "")
         task_artifacts = artifacts_by_task.get(str(task.id), [])
+        document_artifacts = []
+        for document_id in getattr(task, "artifact_document_ids", []) or ([task.artifact_document_id] if task.artifact_document_id else []):
+            document = await Document.get(document_id)
+            if document and document.project_id == task.project_id:
+                document_artifacts.append(
+                    {
+                        "id": str(document.id),
+                        "title": document.title,
+                        "updated_at": document.updated_at.isoformat(),
+                        "source_type": document.source_type,
+                    }
+                )
+        wiki_artifacts = []
+        for wiki_item_id in getattr(task, "artifact_wiki_item_ids", []) or []:
+            wiki_item = await WikiItem.get(wiki_item_id)
+            if wiki_item and wiki_item.project_id == task.project_id:
+                wiki_artifacts.append(
+                    {
+                        "id": str(wiki_item.id),
+                        "title": wiki_item.title,
+                        "item_type": wiki_item.item_type,
+                        "updated_at": wiki_item.updated_at.isoformat(),
+                    }
+                )
+        inquiry_snapshot_artifact = None
+        inquiry_snapshot_id = getattr(task, "artifact_inquiry_snapshot_id", None) or task.artifact_snapshot_id
+        if inquiry_snapshot_id:
+            inquiry_snapshot = await InquirySnapshot.get(inquiry_snapshot_id)
+            if inquiry_snapshot and inquiry_snapshot.project_id == task.project_id:
+                inquiry_snapshot_artifact = {
+                    "id": str(inquiry_snapshot.id),
+                    "version": inquiry_snapshot.snapshot_version,
+                    "updated_at": inquiry_snapshot.created_at.isoformat(),
+                }
         submissions.append(
             TeacherSubmissionResponse(
                 task=to_task_response(task),
@@ -526,6 +566,9 @@ async def list_teacher_submissions(
                 release_title=release.title if release else None,
                 artifacts=[to_artifact_response(artifact) for artifact in task_artifacts],
                 artifact_count=len(task_artifacts),
+                document_artifacts=document_artifacts,
+                wiki_artifacts=wiki_artifacts,
+                inquiry_snapshot_artifact=inquiry_snapshot_artifact,
             )
         )
 
@@ -556,6 +599,9 @@ async def export_teacher_submissions(
         "逾期截止",
         "成果文件数",
         "成果文件名",
+        "共享文档",
+        "知识沉淀",
+        "论证空间快照",
         "评审状态",
         "评审意见",
     ])
@@ -570,6 +616,13 @@ async def export_teacher_submissions(
             task.due_date or "",
             row.artifact_count,
             "；".join(artifact.filename for artifact in row.artifacts),
+            "；".join(item.get("title", "") for item in row.document_artifacts),
+            "；".join(item.get("title", "") for item in row.wiki_artifacts),
+            (
+                f"v{row.inquiry_snapshot_artifact.get('version')}"
+                if row.inquiry_snapshot_artifact
+                else ""
+            ),
             task.review_status or "",
             task.review_comment or "",
         ])
@@ -629,6 +682,9 @@ def _write_teacher_artifacts_zip(submissions: TeacherSubmissionListResponse, tem
         "ZIP路径",
         "MIME类型",
         "大小",
+        "共享文档",
+        "知识沉淀",
+        "论证空间快照",
         "下载状态",
     ])
     used_names: set[str] = set()
@@ -665,6 +721,13 @@ def _write_teacher_artifacts_zip(submissions: TeacherSubmissionListResponse, tem
                     archive_path,
                     artifact.mime_type,
                     artifact.size,
+                    "；".join(item.get("title", "") for item in row.document_artifacts),
+                    "；".join(item.get("title", "") for item in row.wiki_artifacts),
+                    (
+                        f"v{row.inquiry_snapshot_artifact.get('version')}"
+                        if row.inquiry_snapshot_artifact
+                        else ""
+                    ),
                     status_text,
                 ])
 
@@ -1051,6 +1114,39 @@ async def submit_course_task(
         task.submitted_by = "system"
         task.submission_note = task.submission_note or "系统在截止时间到达后自动提交。"
     else:
+        document_ids = list(
+            dict.fromkeys(
+                [
+                    *([submit_data.artifact_document_id] if submit_data.artifact_document_id else []),
+                    *submit_data.artifact_document_ids,
+                ]
+            )
+        )
+        wiki_item_ids = list(dict.fromkeys(submit_data.artifact_wiki_item_ids))
+        inquiry_snapshot_id = submit_data.artifact_inquiry_snapshot_id or submit_data.artifact_snapshot_id
+
+        for document_id in document_ids:
+            document = await Document.get(document_id)
+            if not document or document.project_id != task.project_id or document.is_archived:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Some selected documents do not belong to this group",
+                )
+        for wiki_item_id in wiki_item_ids:
+            wiki_item = await WikiItem.get(wiki_item_id)
+            if not wiki_item or wiki_item.project_id != task.project_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Some selected Wiki items do not belong to this group",
+                )
+        if inquiry_snapshot_id:
+            inquiry_snapshot = await InquirySnapshot.get(inquiry_snapshot_id)
+            if not inquiry_snapshot or inquiry_snapshot.project_id != task.project_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected inquiry snapshot does not belong to this group",
+                )
+
         if submit_data.artifact_ids:
             for artifact_id in set(submit_data.artifact_ids):
                 artifact = await TaskSubmissionArtifact.get(artifact_id)
@@ -1068,8 +1164,11 @@ async def submit_course_task(
         task.submitted_at = now
         task.submitted_by = str(current_user.id)
         task.submission_note = submit_data.note
-        task.artifact_document_id = submit_data.artifact_document_id
-        task.artifact_snapshot_id = submit_data.artifact_snapshot_id
+        task.artifact_document_id = document_ids[0] if document_ids else None
+        task.artifact_document_ids = document_ids
+        task.artifact_snapshot_id = inquiry_snapshot_id
+        task.artifact_inquiry_snapshot_id = inquiry_snapshot_id
+        task.artifact_wiki_item_ids = wiki_item_ids
         task.submission_artifact_ids = list(
             dict.fromkeys([*(getattr(task, "submission_artifact_ids", []) or []), *submit_data.artifact_ids])
         )
@@ -1109,7 +1208,10 @@ async def submit_course_task(
                     "submission_status": task.submission_status,
                     "due_at": task.due_date.isoformat() if task.due_date else None,
                     "artifact_document_id": task.artifact_document_id,
+                    "artifact_document_ids": getattr(task, "artifact_document_ids", []) or [],
                     "artifact_snapshot_id": task.artifact_snapshot_id,
+                    "artifact_inquiry_snapshot_id": getattr(task, "artifact_inquiry_snapshot_id", None),
+                    "artifact_wiki_item_ids": getattr(task, "artifact_wiki_item_ids", []) or [],
                     "artifact_count": len(getattr(task, "submission_artifact_ids", []) or []),
                     "note_length": len(task.submission_note or ""),
                 },

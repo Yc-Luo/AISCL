@@ -254,7 +254,7 @@ class CreateResourceRequest(BaseModel):
     mime_type: str
     source_type: str = Field(
         default="library",
-        pattern="^(library|document_embed|chat_attachment|inquiry_material)$",
+        pattern="^(library|document_embed|chat_attachment|inquiry_material|ai_knowledge)$",
     )
 
 
@@ -275,7 +275,7 @@ async def upload_resource_file(
     project_id: Optional[str] = Form(None),
     course_id: Optional[str] = Form(None),
     scope: str = Form("project", pattern="^(project|course)$"),
-    source_type: str = Form("library", pattern="^(library|document_embed|chat_attachment|inquiry_material)$"),
+    source_type: str = Form("library", pattern="^(library|document_embed|chat_attachment|inquiry_material|ai_knowledge)$"),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Upload a file through the backend and create its resource record.
@@ -455,7 +455,7 @@ async def _create_resource_from_uploaded_object(
                 resource.parse_error = str(exc)[:1000]
                 await resource.save()
 
-    if resource.source_type == "library":
+    if resource.source_type in {"library", "ai_knowledge"}:
         background_tasks.add_task(process_resource_task, str(resource.id), resource.file_key)
 
     if resource_data.project_id:
@@ -477,7 +477,7 @@ async def _create_resource_from_uploaded_object(
 @router.get("/resources/{project_id}")
 async def list_resources(
     project_id: str,
-    source_type: str = Query("library", pattern="^(library|document_embed|chat_attachment|inquiry_material|all)$"),
+    source_type: str = Query("library", pattern="^(library|document_embed|chat_attachment|inquiry_material|ai_knowledge|all)$"),
     include_course_resources: bool = Query(False),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -558,6 +558,7 @@ async def list_resources(
 @router.get("/course-resources/{course_id}")
 async def list_course_resources(
     course_id: str,
+    source_type: str = Query("library", pattern="^(library|ai_knowledge|all)$"),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """List teacher-provided course resources."""
@@ -573,11 +574,17 @@ async def list_course_resources(
         "You don't have permission to access this course",
     )
 
-    resources = await Resource.find(
-        Resource.course_id == course_id,
-        Resource.scope == "course",
-        Resource.source_type == "library",
-    ).to_list()
+    if source_type == "all":
+        resources = await Resource.find(
+            Resource.course_id == course_id,
+            Resource.scope == "course",
+        ).to_list()
+    else:
+        resources = await Resource.find(
+            Resource.course_id == course_id,
+            Resource.scope == "course",
+            Resource.source_type == source_type,
+        ).to_list()
 
     resource_list = []
     for resource in resources:

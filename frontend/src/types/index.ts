@@ -54,7 +54,10 @@ export interface Task {
   submitted_by?: string
   submission_note?: string
   artifact_document_id?: string
+  artifact_document_ids?: string[]
   artifact_snapshot_id?: string
+  artifact_inquiry_snapshot_id?: string
+  artifact_wiki_item_ids?: string[]
   submission_artifact_ids?: string[]
   review_status?: 'pending' | 'reviewed' | 'revision_requested'
   review_comment?: string
@@ -91,6 +94,23 @@ export interface TeacherSubmission {
   release_title?: string | null
   artifacts: TaskSubmissionArtifact[]
   artifact_count: number
+  document_artifacts?: Array<{
+    id: string
+    title: string
+    updated_at?: string
+    source_type?: string
+  }>
+  wiki_artifacts?: Array<{
+    id: string
+    title: string
+    item_type?: string
+    updated_at?: string
+  }>
+  inquiry_snapshot_artifact?: {
+    id: string
+    version?: number
+    updated_at?: string
+  } | null
 }
 
 export interface CalendarEvent {

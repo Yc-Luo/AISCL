@@ -2,6 +2,7 @@ import api from './client';
 
 export interface SnapshotResponse {
     project_id: string;
+    snapshot_id?: string;
     data: string; // Base64
     version?: number;
     updated_at?: string;

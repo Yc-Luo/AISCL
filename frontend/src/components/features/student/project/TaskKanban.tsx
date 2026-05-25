@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { taskService } from '../../../../services/api/task'
+import { documentService, Document } from '../../../../services/api/document'
+import { inquiryService, SnapshotResponse } from '../../../../services/api/inquiry'
+import { wikiService, WikiItem } from '../../../../services/api/wiki'
 import { Task, TaskSubmissionArtifact } from '../../../../types'
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import { CheckCircle, Circle, PlayCircle, Plus, AlertCircle, ChevronDown, ListTodo, Clock, Trash2, ChevronRight, ChevronLeft, Paperclip, UploadCloud, X } from 'lucide-react'
@@ -59,6 +62,12 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
   const [submissionNote, setSubmissionNote] = useState('')
   const [submissionFiles, setSubmissionFiles] = useState<File[]>([])
   const [existingArtifacts, setExistingArtifacts] = useState<TaskSubmissionArtifact[]>([])
+  const [availableDocuments, setAvailableDocuments] = useState<Document[]>([])
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
+  const [availableWikiItems, setAvailableWikiItems] = useState<WikiItem[]>([])
+  const [selectedWikiItemIds, setSelectedWikiItemIds] = useState<string[]>([])
+  const [inquirySnapshot, setInquirySnapshot] = useState<SnapshotResponse | null>(null)
+  const [includeInquirySnapshot, setIncludeInquirySnapshot] = useState(false)
   const [artifactLoading, setArtifactLoading] = useState(false)
   const { user } = useAuthStore()
 
@@ -88,14 +97,33 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
     if (!pendingSubmitTask) {
       setSubmissionFiles([])
       setExistingArtifacts([])
+      setAvailableDocuments([])
+      setSelectedDocumentIds([])
+      setAvailableWikiItems([])
+      setSelectedWikiItemIds([])
+      setInquirySnapshot(null)
+      setIncludeInquirySnapshot(false)
       setArtifactLoading(false)
       return
     }
     let mounted = true
     setArtifactLoading(true)
-    taskService.getTaskArtifacts(pendingSubmitTask.id)
-      .then((artifacts) => {
-        if (mounted) setExistingArtifacts(artifacts)
+    Promise.all([
+      taskService.getTaskArtifacts(pendingSubmitTask.id),
+      documentService.getDocuments(projectId, 0, 50, false).then((response) => response.documents).catch(() => []),
+      wikiService.listItems(projectId, { limit: 50 }).then((response) => response.items).catch(() => []),
+      inquiryService.getSnapshot(projectId).catch(() => null),
+    ])
+      .then(([artifacts, documents, wikiItems, snapshot]) => {
+        if (!mounted) return
+        setExistingArtifacts(artifacts)
+        setAvailableDocuments(documents)
+        setSelectedDocumentIds(pendingSubmitTask.artifact_document_ids || (pendingSubmitTask.artifact_document_id ? [pendingSubmitTask.artifact_document_id] : []))
+        setAvailableWikiItems(wikiItems)
+        setSelectedWikiItemIds(pendingSubmitTask.artifact_wiki_item_ids || [])
+        setInquirySnapshot(snapshot)
+        const snapshotId = pendingSubmitTask.artifact_inquiry_snapshot_id || pendingSubmitTask.artifact_snapshot_id
+        setIncludeInquirySnapshot(Boolean(snapshot && snapshotId && snapshot.snapshot_id === snapshotId))
       })
       .catch(() => {
         if (mounted) setToast({ message: '成果文件记录加载失败，请稍后重试。', type: 'error' })
@@ -106,7 +134,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
     return () => {
       mounted = false
     }
-  }, [pendingSubmitTask])
+  }, [pendingSubmitTask, projectId])
 
   useEffect(() => {
     if (!projectId || tasks.length === 0) return
@@ -367,7 +395,19 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
     setSubmissionFiles(prev => [...prev, ...nextFiles].slice(0, 20))
   }
 
-  const handleSubmitTask = async (task: Task, note?: string, files: File[] = [], existingArtifactIds: string[] = []) => {
+  const toggleSelection = (items: string[], id: string) => (
+    items.includes(id) ? items.filter(item => item !== id) : [...items, id]
+  )
+
+  const handleSubmitTask = async (
+    task: Task,
+    note?: string,
+    files: File[] = [],
+    existingArtifactIds: string[] = [],
+    documentIds: string[] = [],
+    wikiItemIds: string[] = [],
+    inquirySnapshotId?: string
+  ) => {
     if (!task.course_task_release_id || submittingTaskId) return
     try {
       setSubmittingTaskId(task.id)
@@ -376,7 +416,15 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
         uploadedArtifacts.push(await taskService.uploadTaskArtifact(task.id, file))
       }
       const artifactIds = Array.from(new Set([...existingArtifactIds, ...uploadedArtifacts.map(artifact => artifact.id)]))
-      const updated = await taskService.submitTask(task.id, note, undefined, undefined, artifactIds)
+      const updated = await taskService.submitTask(task.id, {
+        note,
+        artifact_ids: artifactIds,
+        artifact_document_ids: documentIds,
+        artifact_document_id: documentIds[0],
+        artifact_wiki_item_ids: wikiItemIds,
+        artifact_inquiry_snapshot_id: inquirySnapshotId,
+        artifact_snapshot_id: inquirySnapshotId,
+      })
       setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
       setToast({
         message: updated.submission_status === 'late_submitted' ? '成果已逾期提交。' : '成果已提交。',
@@ -392,6 +440,9 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           submissionStatus: updated.submission_status,
           noteLength: note?.trim().length || 0,
           artifactCount: artifactIds.length,
+          documentArtifactCount: documentIds.length,
+          wikiArtifactCount: wikiItemIds.length,
+          hasInquirySnapshot: Boolean(inquirySnapshotId),
         }
       })
     } catch (error: any) {
@@ -734,6 +785,9 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
             setSubmissionNote('')
             setSubmissionFiles([])
             setExistingArtifacts([])
+            setSelectedDocumentIds([])
+            setSelectedWikiItemIds([])
+            setIncludeInquirySnapshot(false)
           }
         }}
         onConfirm={async () => {
@@ -743,15 +797,91 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
             task,
             submissionNote.trim() || undefined,
             submissionFiles,
-            existingArtifacts.map(artifact => artifact.id)
+            existingArtifacts.map(artifact => artifact.id),
+            selectedDocumentIds,
+            selectedWikiItemIds,
+            includeInquirySnapshot ? inquirySnapshot?.snapshot_id : undefined
           )
           setPendingSubmitTask(null)
           setSubmissionNote('')
           setSubmissionFiles([])
           setExistingArtifacts([])
+          setSelectedDocumentIds([])
+          setSelectedWikiItemIds([])
+          setIncludeInquirySnapshot(false)
         }}
       >
         <div className="min-w-0 space-y-4">
+          <section className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">协作成果引用</h4>
+                <p className="mt-0.5 text-xs leading-5 text-slate-500">可把已有协作文档、论证空间快照和知识沉淀卡片一起提交给教师查看。</p>
+              </div>
+              {artifactLoading && <span className="text-xs text-slate-400">读取中...</span>}
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-3">
+              <div className="min-w-0 rounded-xl bg-white p-3 ring-1 ring-slate-100">
+                <div className="mb-2 text-xs font-black text-slate-500">共享文档</div>
+                <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+                  {availableDocuments.length === 0 ? (
+                    <div className="text-xs leading-5 text-slate-400">暂无可选文档</div>
+                  ) : availableDocuments.map((doc) => (
+                    <label key={doc.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={selectedDocumentIds.includes(doc.id)}
+                        onChange={() => setSelectedDocumentIds(prev => toggleSelection(prev, doc.id))}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-slate-700" title={doc.title}>{doc.title}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="min-w-0 rounded-xl bg-white p-3 ring-1 ring-slate-100">
+                <div className="mb-2 text-xs font-black text-slate-500">论证空间</div>
+                {inquirySnapshot?.snapshot_id ? (
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={includeInquirySnapshot}
+                      onChange={(event) => setIncludeInquirySnapshot(event.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="min-w-0 leading-5 text-slate-700">
+                      提交最新论证空间快照
+                      {inquirySnapshot.version ? <span className="ml-1 text-slate-400">v{inquirySnapshot.version}</span> : null}
+                    </span>
+                  </label>
+                ) : (
+                  <div className="text-xs leading-5 text-slate-400">暂无已保存的论证空间快照</div>
+                )}
+              </div>
+
+              <div className="min-w-0 rounded-xl bg-white p-3 ring-1 ring-slate-100">
+                <div className="mb-2 text-xs font-black text-slate-500">知识沉淀</div>
+                <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+                  {availableWikiItems.length === 0 ? (
+                    <div className="text-xs leading-5 text-slate-400">暂无可选 Wiki 卡片</div>
+                  ) : availableWikiItems.map((item) => (
+                    <label key={item.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={selectedWikiItemIds.includes(item.id)}
+                        onChange={() => setSelectedWikiItemIds(prev => toggleSelection(prev, item.id))}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-slate-700" title={item.title}>{item.title}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
           <label className="block">
             <span className="mb-2 block text-xs font-bold text-slate-500">成果文件</span>
             <div className="w-full rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 p-4">

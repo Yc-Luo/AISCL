@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDownToLine, CheckCircle2, Download, FileArchive, FileImage, FileText, Film, Search, XCircle } from 'lucide-react'
+import { ArrowDownToLine, BookOpen, CheckCircle2, Download, FileArchive, FileImage, FileText, Film, GitBranch, Search, XCircle } from 'lucide-react'
 import { taskService } from '../../../../services/api/task'
 import { TaskSubmissionArtifact, TeacherSubmission } from '../../../../types'
 import { Badge, Button } from '../../../ui'
@@ -264,6 +264,77 @@ export default function AssignmentReview() {
                 <h4 className="mb-3 text-sm font-black text-slate-900">提交说明</h4>
                 <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">
                   {selected.task.submission_note || '学生未填写提交说明。'}
+                </div>
+              </section>
+              <section>
+                <h4 className="mb-3 text-sm font-black text-slate-900">协作成果引用</h4>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-100 p-3">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-black text-slate-500">
+                      <FileText className="h-3.5 w-3.5" />
+                      共享文档
+                    </div>
+                    {(selected.document_artifacts || []).length === 0 ? (
+                      <div className="text-xs text-slate-400">未选择</div>
+                    ) : (
+                      <div className="space-y-1">
+                        {(selected.document_artifacts || []).map((item) => (
+                          <a
+                            key={item.id}
+                            href={`/project/${selected.project_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block truncate rounded-lg bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 hover:text-indigo-700"
+                            title={item.title}
+                          >
+                            {item.title}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-slate-100 p-3">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-black text-slate-500">
+                      <GitBranch className="h-3.5 w-3.5" />
+                      论证空间
+                    </div>
+                    {selected.inquiry_snapshot_artifact ? (
+                      <a
+                        href={`/student/inquiry/${selected.project_id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block rounded-lg bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 hover:text-indigo-700"
+                      >
+                        快照 v{selected.inquiry_snapshot_artifact.version || '-'}
+                      </a>
+                    ) : (
+                      <div className="text-xs text-slate-400">未选择</div>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-slate-100 p-3">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-black text-slate-500">
+                      <BookOpen className="h-3.5 w-3.5" />
+                      知识沉淀
+                    </div>
+                    {(selected.wiki_artifacts || []).length === 0 ? (
+                      <div className="text-xs text-slate-400">未选择</div>
+                    ) : (
+                      <div className="space-y-1">
+                        {(selected.wiki_artifacts || []).map((item) => (
+                          <a
+                            key={item.id}
+                            href={`/project/${selected.project_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block truncate rounded-lg bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 hover:text-indigo-700"
+                            title={item.title}
+                          >
+                            {item.title}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </section>
               <section>

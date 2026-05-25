@@ -25,7 +25,10 @@ class TaskResponse(BaseModel):
     submitted_by: Optional[str] = None
     submission_note: Optional[str] = None
     artifact_document_id: Optional[str] = None
+    artifact_document_ids: List[str] = Field(default_factory=list)
     artifact_snapshot_id: Optional[str] = None
+    artifact_inquiry_snapshot_id: Optional[str] = None
+    artifact_wiki_item_ids: List[str] = Field(default_factory=list)
     submission_artifact_ids: List[str] = Field(default_factory=list)
     review_status: Optional[str] = None
     review_comment: Optional[str] = None
@@ -73,7 +76,10 @@ class TaskSubmitRequest(BaseModel):
 
     note: Optional[str] = Field(default=None, max_length=2000)
     artifact_document_id: Optional[str] = Field(default=None, max_length=64)
+    artifact_document_ids: List[str] = Field(default_factory=list, max_length=10)
     artifact_snapshot_id: Optional[str] = Field(default=None, max_length=64)
+    artifact_inquiry_snapshot_id: Optional[str] = Field(default=None, max_length=64)
+    artifact_wiki_item_ids: List[str] = Field(default_factory=list, max_length=20)
     artifact_ids: List[str] = Field(default_factory=list, max_length=20)
 
 
@@ -121,6 +127,9 @@ class TeacherSubmissionResponse(BaseModel):
     release_title: Optional[str] = None
     artifacts: List[TaskArtifactResponse] = Field(default_factory=list)
     artifact_count: int = 0
+    document_artifacts: List[dict] = Field(default_factory=list)
+    wiki_artifacts: List[dict] = Field(default_factory=list)
+    inquiry_snapshot_artifact: Optional[dict] = None
 
 
 class TeacherSubmissionListResponse(BaseModel):

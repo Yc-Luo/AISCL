@@ -1911,23 +1911,13 @@ JSON Output Format:
                 "created_at": {"$gte": start_datetime},
                 "message_type": {"$in": ["text", "ai"]},
             },
-            {"user_id": 1, "content": 1, "created_at": 1},
+            {"user_id": 1, "content": 1, "created_at": 1, "message_type": 1},
         ).sort("created_at", 1).to_list(length=500)
 
         docs = await db["documents"].find(
             {"project_id": project_id, "is_archived": {"$ne": True}},
             {"title": 1, "content": 1, "preview_text": 1, "updated_at": 1},
         ).sort("updated_at", -1).to_list(length=20)
-
-        doc_ids = [str(doc["_id"]) for doc in docs]
-        comment_count = 0
-        if doc_ids:
-            comment_count = await db["doc_comments"].count_documents(
-                {
-                    "document_id": {"$in": doc_ids},
-                    "created_at": {"$gte": start_datetime},
-                }
-            )
 
         wiki_items = await db["wiki_items"].find(
             {"project_id": project_id},
@@ -1946,143 +1936,33 @@ JSON Output Format:
             {"column": 1, "submission_status": 1},
         ).to_list(length=200)
 
-        event_counts: Counter[str] = Counter()
-        stage_counts: Counter[str] = Counter()
-        node_type_counts: Counter[str] = Counter()
-        active_member_ids: set[str] = set()
-
-        for event in events:
-            event_type = event.get("event_type")
-            if event_type:
-                event_counts[event_type] += 1
-            if event.get("actor_type") == "student" and event.get("user_id"):
-                active_member_ids.add(str(event.get("user_id")))
-            payload = event.get("payload") or {}
-            stage = cls._normalize_process_stage(
-                event.get("stage_id")
-                or payload.get("stage_id")
-                or payload.get("current_stage")
-            )
-            if stage:
-                stage_counts[stage] += 1
-            node_type = payload.get("node_type") or payload.get("to_type")
-            if node_type:
-                node_type_counts[str(node_type)] += 1
-
-        for chat in chat_logs:
-            if chat.get("user_id"):
-                active_member_ids.add(str(chat.get("user_id")))
-
-        wiki_type_counts = Counter(str(item.get("item_type")) for item in wiki_items)
-        verified_wiki_count = sum(1 for item in wiki_items if item.get("confidence_level") == "verified")
-        chat_text = "\n".join(str(chat.get("content") or "") for chat in chat_logs)
-        document_text = "\n".join(
-            f"{doc.get('title') or ''} {doc.get('preview_text') or ''} {cls._strip_markup(doc.get('content'))[:1000]}"
-            for doc in docs
-        )
-        question_signals = len(re.findall(r"[？?]", f"{chat_text}\n{document_text}"))
-        question_signals += node_type_counts.get("question", 0)
-
-        evidence_node_count = (
-            node_type_counts.get("evidence", 0)
-            + event_counts.get("card_to_node", 0)
-            + wiki_type_counts.get("evidence", 0)
-        )
-        evidence_bind_count = event_counts.get("evidence_source_bind", 0)
-        evidence_open_count = event_counts.get("evidence_source_open", 0)
-        evidence_total = max(evidence_node_count, evidence_bind_count + wiki_type_counts.get("evidence", 0))
-        checked_evidence = min(evidence_total, evidence_bind_count + evidence_open_count + verified_wiki_count)
-
-        claim_count = (
-            node_type_counts.get("claim", 0)
-            + wiki_type_counts.get("claim", 0)
-            + wiki_type_counts.get("controversy", 0)
-        )
-        counter_count = (
-            node_type_counts.get("counter-argument", 0)
-            + node_type_counts.get("counter_argument", 0)
-            + event_counts.get("counterargument_missing", 0)
-            + wiki_type_counts.get("controversy", 0)
-        )
-        rebuttal_count = node_type_counts.get("rebuttal", 0)
-        edge_count = event_counts.get("edge_add", 0) + event_counts.get("edge_relation_toggle", 0)
-        revision_events = (
-            event_counts.get("node_content_commit", 0)
-            + event_counts.get("shared_record_content_commit", 0)
-            + event_counts.get("shared_record_annotation_reply", 0)
-            + event_counts.get("shared_record_annotation_resolve", 0)
-        )
-        solution_count = node_type_counts.get("solution", 0)
-        completed_tasks = sum(
-            1
-            for task in tasks
-            if task.get("column") == "done" or task.get("submission_status")
-        )
-
-        member_ids = set()
-        for member in (project.members if project else []):
-            member_id = member.get("user_id") if isinstance(member, dict) else getattr(member, "user_id", None)
-            if member_id:
-                member_ids.add(str(member_id))
-        if project and project.owner_id:
-            member_ids.add(str(project.owner_id))
-        member_count = max(1, len(member_ids))
-
-        counts = {
-            "chat_messages": len(chat_logs),
-            "active_member_count": len(active_member_ids),
-            "document_count": len(docs),
-            "comment_count": comment_count,
-            "wiki_count": len(wiki_items),
-            "question_signals": question_signals,
-            "problem_stage_events": stage_counts["problem_construction"],
-            "resource_actions": event_counts.get("scrapbook_image_add", 0)
-            + event_counts.get("shared_record_extract_to_scrapbook", 0),
-            "evidence_total": evidence_total,
-            "supporting_evidence": evidence_node_count,
-            "checked_evidence": checked_evidence,
-            "evidence_open_count": evidence_open_count,
-            "claim_count": claim_count,
-            "counter_count": counter_count,
-            "rebuttal_count": rebuttal_count,
-            "edge_count": edge_count,
-            "revision_events": revision_events,
-            "application_events": stage_counts["application_solution"],
-            "solution_count": solution_count,
-            "stage_summary_count": wiki_type_counts.get("stage_summary", 0),
-            "completed_tasks": completed_tasks,
-            "scaffold_accepts": event_counts.get("scaffold_rule_recommendation_accept", 0),
-        }
-
-        configured_stage = (project.experiment_version or {}).get("current_stage") if project else None
-        current_stage = cls._infer_process_stage(configured_stage, stage_counts, counts)
-        stages = cls._build_process_stages(current_stage, stage_counts, counts)
-        goals = cls._build_process_goals(counts)
-
-        return {
-            "dashboardTitle": "小组协作学习状态面板",
-            "subtitle": "人智协同学习过程与批判性思维发展分析",
-            "updatedAt": now.isoformat(),
-            "algorithmVersion": "process_goal_shared_regulation_v1",
-            "currentStage": current_stage,
-            "stages": stages,
-            "stageTip": cls._stage_tip(current_stage),
-            "criticalThinkingGoals": goals,
-            "knowledgeStructure": cls._build_knowledge_structure(project, docs, wiki_items, counts),
-            "nextSuggestion": cls._build_next_process_suggestion(current_stage, goals, counts),
-            "collaborationTemperature": cls._build_collaboration_temperature(member_count, counts, chat_text),
-            "metadata": {
-                "windowDays": 14,
-                "memberCount": member_count,
-                "visibleEvidenceCounts": {
-                    "chatMessages": counts["chat_messages"],
-                    "evidenceTotal": counts["evidence_total"],
-                    "checkedEvidence": counts["checked_evidence"],
-                    "claimCount": counts["claim_count"],
-                    "revisionEvents": counts["revision_events"],
-                },
+        activity_rows = await db["activity_logs"].find(
+            {
+                "project_id": project_id,
+                "timestamp": {"$gte": start_datetime},
             },
-        }
+            {"module": 1, "action": 1, "target_id": 1, "metadata": 1, "timestamp": 1, "user_id": 1},
+        ).sort("timestamp", 1).to_list(length=1000)
+
+        resource_query: Dict[str, Any] = {"project_id": project_id}
+        resources = await db["resources"].find(
+            resource_query,
+            {"_id": 1, "source_type": 1, "filename": 1, "uploaded_at": 1},
+        ).to_list(length=200)
+
+        from app.services.process_dashboard_algorithm import build_student_process_dashboard
+
+        return build_student_process_dashboard(
+            project=project,
+            events=events,
+            chat_logs=chat_logs,
+            docs=docs,
+            wiki_items=wiki_items,
+            tasks=tasks,
+            activity_rows=activity_rows,
+            resources=resources,
+            now=now,
+        )
 
     @classmethod
     async def get_cached_dashboard_data(

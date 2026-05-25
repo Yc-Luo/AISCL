@@ -108,6 +108,42 @@ APPLICATION_TERMS = ["应用", "迁移", "适用", "方案", "实施", "边界",
 REASONING_TERMS = ["因为", "所以", "依据", "证据", "我认为", "但是", "如果", "可能", "为什么", "建议"]
 SUPPORT_TERMS = ["可以", "同意", "赞成", "补充", "我来", "谢谢", "有道理", "一起"]
 NEGATIVE_TERMS = ["不行", "没用", "算了", "不会", "烦", "错了", "离谱", "别说"]
+EXPLANATION_TERMS = [
+    "解释",
+    "结论",
+    "认为",
+    "因为",
+    "所以",
+    "依据",
+    "证据",
+    "说明",
+    "表明",
+    "原因",
+    "影响",
+    "机制",
+    "关系",
+    "修订",
+    "需要",
+    "促进",
+    "策略",
+    "综合",
+    "基于",
+    "适用",
+    "局限",
+]
+TASK_METADATA_TERMS = [
+    "任务标题",
+    "发布时间",
+    "截止时间",
+    "逾期处理",
+    "允许截止",
+    "任务背景",
+    "协作要求",
+    "提交成果",
+    "评价要点",
+    "教师发布",
+    "待提交",
+]
 
 
 def build_student_process_dashboard(
@@ -616,25 +652,12 @@ def _build_knowledge_structure(
     if not claim_items and counts["claim_count"]:
         claim_items = [f"已在论证空间形成 {counts['claim_count']} 个观点节点"]
 
-    explanation_source = next(
-        (
-            _compact_text(str(item.get("summary") or item.get("content")), 90)
-            for item in wiki_items
-            if item.get("item_type") == "stage_summary"
-        ),
-        "",
-    )
-    if not explanation_source and docs:
-        latest_doc = docs[0]
-        explanation_source = _compact_text(
-            str(
-                latest_doc.get("preview_text")
-                or _strip_markup(latest_doc.get("content"))
-                or latest_doc.get("title")
-                or ""
-            ),
-            90,
-        )
+    explanation_source = _pick_current_explanation(docs, wiki_items)
+    explanation_status = "暂缺"
+    if explanation_source and counts["revision_events"]:
+        explanation_status = f"已形成（已修订 {counts['revision_events']} 次）"
+    elif explanation_source:
+        explanation_status = "已有草稿"
 
     unchecked_evidence = max(0, counts["evidence_total"] - counts["checked_evidence"])
     evidence_status = "暂缺"
@@ -669,13 +692,7 @@ def _build_knowledge_structure(
         "currentExplanation": {
             "label": "当前解释",
             "content": explanation_source or "尚未形成可展示的当前解释。",
-            "status": (
-                f"已形成（已修订 {counts['revision_events']} 次）"
-                if counts["revision_events"]
-                else "已有草稿"
-                if explanation_source
-                else "暂缺"
-            ),
+            "status": explanation_status,
         },
         "transferApplication": {
             "label": "迁移应用",
@@ -691,6 +708,48 @@ def _build_knowledge_structure(
             ),
         },
     }
+
+
+def _pick_current_explanation(
+    docs: Sequence[Dict[str, Any]],
+    wiki_items: Sequence[Dict[str, Any]],
+) -> str:
+    for item in wiki_items:
+        if item.get("item_type") != "stage_summary":
+            continue
+        candidate = str(item.get("summary") or item.get("content") or "")
+        if _looks_like_explanation(candidate):
+            return _compact_text(candidate, 90)
+
+    for item in wiki_items:
+        if item.get("item_type") not in {"claim", "controversy"}:
+            continue
+        candidate = str(item.get("summary") or item.get("content") or item.get("title") or "")
+        if _looks_like_explanation(candidate):
+            return _compact_text(candidate, 90)
+
+    for doc in docs[:3]:
+        candidate = str(
+            doc.get("preview_text")
+            or _strip_markup(doc.get("content"))
+            or doc.get("title")
+            or ""
+        )
+        if _looks_like_explanation(candidate):
+            return _compact_text(candidate, 90)
+
+    return ""
+
+
+def _looks_like_explanation(value: Optional[str]) -> bool:
+    text = _compact_text(value, 240)
+    if len(text) < 16:
+        return False
+    explanation_hits = _term_hits(text, EXPLANATION_TERMS)
+    metadata_hits = _term_hits(text, TASK_METADATA_TERMS)
+    if metadata_hits and explanation_hits < 2:
+        return False
+    return explanation_hits > 0
 
 
 def _build_next_process_suggestion(

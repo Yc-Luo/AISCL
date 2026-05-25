@@ -17,11 +17,21 @@ import {
     Smile,
     Target,
     Users,
+    type LucideIcon,
 } from 'lucide-react'
 import { analyticsService, StudentProcessDashboard } from '../../../../services/api/analytics'
 
 type StageStatus = StudentProcessDashboard['stages'][number]['status']
 type GoalLevel = StudentProcessDashboard['criticalThinkingGoals'][number]['level']
+type KnowledgeStructure = StudentProcessDashboard['knowledgeStructure']
+type EvidenceContent = KnowledgeStructure['evidence']['content']
+type StructureRow = {
+    key: keyof KnowledgeStructure
+    icon: LucideIcon
+    label: string
+    content: string | string[] | EvidenceContent
+    status: string
+}
 
 const stageIcons = [HelpCircle, Search, Puzzle, Target]
 
@@ -88,6 +98,23 @@ const regulationStyle: Record<string, { icon: typeof Target; color: string; bg: 
     过程监控: { icon: Search, color: 'text-emerald-700', bg: 'bg-emerald-50' },
     策略协同: { icon: Puzzle, color: 'text-violet-700', bg: 'bg-violet-50' },
     情绪协调: { icon: Smile, color: 'text-orange-700', bg: 'bg-orange-50' },
+}
+
+function isEvidenceContent(value: StructureRow['content']): value is EvidenceContent {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function structureStatusClass(status: string) {
+    if (status.includes('暂缺')) {
+        return 'bg-slate-100 text-slate-500 ring-1 ring-slate-200'
+    }
+    if (status.includes('待核查') || status.includes('需聚焦')) {
+        return 'bg-orange-50 text-orange-700 ring-1 ring-orange-100'
+    }
+    if (status.includes('部分') || status.includes('已有线索') || status.includes('已有草稿')) {
+        return 'bg-amber-50 text-amber-700 ring-1 ring-amber-100'
+    }
+    return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
 }
 
 function formatUpdatedAt(value?: string) {
@@ -172,7 +199,7 @@ export default function LearningDashboard() {
         return () => window.clearInterval(intervalId)
     }, [fetchDashboardData])
 
-    const structureRows = useMemo(() => {
+    const structureRows = useMemo<StructureRow[]>(() => {
         if (!dashboardData) return []
         const structure = dashboardData.knowledgeStructure
         return [
@@ -233,25 +260,25 @@ export default function LearningDashboard() {
                         </span>
                     </div>
                     <div className="grid gap-4 2xl:grid-cols-[1fr_270px]">
-                        <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                             {dashboardData.stages.map((stage, index) => {
                                 const Icon = stageIcons[index] || Circle
                                 const style = statusStyle[stage.status]
                                 return (
-                                    <div key={stage.key} className="relative min-h-[126px] rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
-                                        <div className="flex items-start gap-3">
-                                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${style.icon}`}>
-                                                <Icon className="h-5 w-5" />
+                                    <div key={stage.key} className="relative min-h-[116px] rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                        <div className="flex items-start gap-2.5">
+                                            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${style.icon}`}>
+                                                <Icon className="h-[18px] w-[18px]" />
                                             </div>
                                             <div className="min-w-0">
-                                                <h3 className="break-keep font-bold leading-5 text-slate-900">{stage.name}</h3>
-                                                <p className="mt-1 break-keep text-xs leading-5 text-slate-600 sm:text-sm">{stage.description}</p>
-                                                <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${style.badge}`}>
+                                                <h3 className="text-sm font-bold leading-5 text-slate-900">{stage.name}</h3>
+                                                <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{stage.description}</p>
+                                                <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${style.badge}`}>
                                                     {style.label}
                                                 </span>
                                             </div>
                                         </div>
-                                        <div className="absolute bottom-4 left-4 right-4 h-1.5 rounded-full bg-slate-200">
+                                        <div className="absolute bottom-3 left-3 right-3 h-1.5 rounded-full bg-slate-200">
                                             <div className={`h-full rounded-full ${style.line}`} style={{ width: stage.status === 'pending' ? '18%' : stage.status === 'needs_more' ? '45%' : '100%' }} />
                                         </div>
                                     </div>
@@ -286,7 +313,7 @@ export default function LearningDashboard() {
                                     >
                                         <div className="flex items-start gap-2">
                                             <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${style.text}`} />
-                                            <h3 className="break-keep text-sm font-bold leading-5 text-slate-900">{goal.name}</h3>
+                                            <h3 className="text-sm font-bold leading-5 text-slate-900">{goal.name}</h3>
                                         </div>
                                         <div className="mt-3 flex items-center gap-3">
                                             <CircularProgress score={goal.score} label={goal.level} color={style.ring} />
@@ -316,41 +343,36 @@ export default function LearningDashboard() {
                             {structureRows.map((row) => {
                                 const Icon = row.icon
                                 return (
-                                    <div key={row.key} className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 md:grid-cols-[120px_minmax(0,1fr)_140px]">
-                                        <div className="flex items-center gap-2 break-keep text-sm font-semibold text-slate-800">
-                                            <Icon className="h-5 w-5 text-blue-600" />
+                                    <div key={row.key} className="grid gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 sm:grid-cols-[112px_minmax(0,1fr)] lg:grid-cols-[112px_minmax(0,1fr)_112px]">
+                                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                                            <Icon className="h-[18px] w-[18px] shrink-0 text-blue-600" />
                                             <span>{row.label}</span>
                                         </div>
                                         <div className="min-w-0 text-sm leading-6 text-slate-700">
-                                            {row.key === 'evidence' ? (
+                                            {isEvidenceContent(row.content) ? (
                                                 <div className="flex flex-wrap gap-2">
-                                                    <span className="rounded-lg bg-white px-3 py-1">支持证据 {(row.content as any).supportingEvidence} 条</span>
-                                                    <span className="rounded-lg bg-white px-3 py-1">反对证据 {(row.content as any).counterEvidence} 条</span>
-                                                    <span className="rounded-lg bg-white px-3 py-1">待核查证据 {(row.content as any).uncheckedEvidence} 条</span>
+                                                    <span className="rounded-lg bg-white px-2.5 py-1 text-xs">支持证据 {row.content.supportingEvidence} 条</span>
+                                                    <span className="rounded-lg bg-white px-2.5 py-1 text-xs">反对证据 {row.content.counterEvidence} 条</span>
+                                                    <span className="rounded-lg bg-white px-2.5 py-1 text-xs">待核查证据 {row.content.uncheckedEvidence} 条</span>
                                                 </div>
                                             ) : Array.isArray(row.content) ? (
                                                 <div className="flex flex-wrap gap-2">
                                                     {row.content.map((item) => (
-                                                        <span key={item} className="rounded-lg bg-white px-3 py-1">{item}</span>
+                                                        <span key={item} className="max-w-full rounded-lg bg-white px-2.5 py-1 text-xs leading-5">{item}</span>
                                                     ))}
                                                 </div>
                                             ) : (
-                                                <span>{String(row.content || '')}</span>
+                                                <p className="line-clamp-3">{String(row.content || '')}</p>
                                             )}
                                         </div>
-                                        <div className="flex items-center md:justify-end">
-                                            <span className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-emerald-700 shadow-sm">{row.status}</span>
+                                        <div className="flex items-center sm:col-start-2 lg:col-start-auto lg:justify-end">
+                                            <span className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow-sm ${structureStatusClass(row.status)}`}>
+                                                {row.status}
+                                            </span>
                                         </div>
                                     </div>
                                 )
                             })}
-                        </div>
-                        <div className="mt-4 flex flex-wrap items-center gap-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
-                            <span>证据状态：</span>
-                            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-600" />已核查</span>
-                            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />部分核查</span>
-                            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-orange-500" />待核查</span>
-                            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-slate-400" />暂缺</span>
                         </div>
                     </section>
                 </div>
@@ -361,21 +383,21 @@ export default function LearningDashboard() {
                             <h2 className="text-lg font-bold text-blue-700 sm:text-xl">4. 下一步协作建议</h2>
                             <span className="text-sm text-slate-500">基于当前学习状态，从共享调节维度提供建议</span>
                         </div>
-                        <div className="grid gap-4 lg:grid-cols-[92px_1fr] 2xl:grid-cols-[100px_1fr_230px]">
-                            <div className={`flex h-20 w-20 items-center justify-center rounded-full ${suggestionStyle.bg} sm:h-24 sm:w-24`}>
-                                <SuggestionIcon className={`h-10 w-10 sm:h-12 sm:w-12 ${suggestionStyle.color}`} />
+                        <div className="flex flex-wrap items-start gap-4">
+                            <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full ${suggestionStyle.bg} sm:h-20 sm:w-20`}>
+                                <SuggestionIcon className={`h-8 w-8 sm:h-10 sm:w-10 ${suggestionStyle.color}`} />
                             </div>
-                            <div className="min-w-0">
-                                <h3 className={`text-lg font-bold ${suggestionStyle.color}`}>
+                            <div className="min-w-0 flex-1 basis-[260px]">
+                                <h3 className={`text-base font-bold sm:text-lg ${suggestionStyle.color}`}>
                                     重点建议方向：{dashboardData.nextSuggestion.regulationType}
                                 </h3>
-                                <p className="mt-3 text-sm leading-7 text-slate-700">{dashboardData.nextSuggestion.currentObservation}</p>
-                                <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm leading-7 text-slate-800">
+                                <p className="mt-2 text-sm leading-6 text-slate-700">{dashboardData.nextSuggestion.currentObservation}</p>
+                                <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3.5 py-3 text-sm leading-6 text-slate-800">
                                     <span className="font-semibold text-emerald-700">建议行动：</span>
                                     {dashboardData.nextSuggestion.suggestedAction}
                                 </div>
                             </div>
-                            <aside className="rounded-xl bg-slate-50 p-4 lg:col-span-2 2xl:col-span-1">
+                            <aside className="min-w-0 flex-1 basis-[220px] rounded-xl bg-slate-50 p-4 xl:max-w-[280px]">
                                 <h4 className="mb-3 font-bold text-slate-800">建议依据</h4>
                                 <ul className="space-y-2 text-sm leading-6 text-slate-700">
                                     {dashboardData.nextSuggestion.basis.map((item) => (

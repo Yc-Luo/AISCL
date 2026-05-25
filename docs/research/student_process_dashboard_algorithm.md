@@ -230,7 +230,7 @@ evidence_check_ratio = checked_evidence / evidence_total
 1. 核心问题优先从共享文档、Wiki 和学生对话中的问句提取。
 2. 主要观点优先读取 `claim` 和 `controversy` 类型 Wiki；若无，则使用论证空间观点节点数量说明。
 3. 证据状态由 `evidence_total`、`checked_evidence` 和 `unchecked_evidence` 生成。
-4. 当前解释优先读取阶段总结 Wiki，其次读取最新共享文档摘要。
+4. 当前解释优先读取阶段总结 Wiki，其次读取包含解释、证据、结论、原因、修订等语义线索的共享文档摘要；任务标题、发布时间、截止时间、任务背景、提交要求等任务元数据不作为当前解释。
 5. 迁移应用根据方案节点、应用阶段事件、任务提交和应用表达生成。
 
 ## 13. 下一步共享调节建议

@@ -38,6 +38,14 @@ const ARTIFACT_ACCEPT = [
   '.7z',
 ].join(',')
 
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  if (typeof error !== 'object' || error === null) return fallback
+  const apiError = error as { response?: { data?: { detail?: unknown } }; message?: unknown }
+  if (typeof apiError.response?.data?.detail === 'string') return apiError.response.data.detail
+  if (typeof apiError.message === 'string') return apiError.message
+  return fallback
+}
+
 export default function TaskKanban({ projectId, canSubmitCourseTask = true }: TaskKanbanProps) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
@@ -207,9 +215,9 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
       setCreateDialogOpen(false)
       // Update state locally first
       setTasks(prev => [...prev, newTask])
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to add task:', error)
-      setToast({ message: `添加任务失败：${error.response?.data?.detail || error.message}`, type: 'error' })
+      setToast({ message: `添加任务失败：${getApiErrorMessage(error, '请稍后重试。')}`, type: 'error' })
     } finally {
       setIsSubmitting(false)
     }
@@ -266,11 +274,11 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
         action: 'task_delete',
         metadata: { taskId }
       })
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to delete task:', error)
       // Rollback on failure
       setTasks(previousTasks)
-      setToast({ message: `无法删除任务：${error.response?.data?.detail || error.message}`, type: 'error' })
+      setToast({ message: `无法删除任务：${getApiErrorMessage(error, '请稍后重试。')}`, type: 'error' })
     }
   }
 
@@ -340,7 +348,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
 
     const columns: Task['column'][] = ['todo', 'doing', 'done']
     const currentIndex = columns.indexOf(task.column)
-    let nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1
+    const nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1
 
     if (nextIndex < 0 || nextIndex >= columns.length) return
     const nextColumn = columns[nextIndex]
@@ -445,9 +453,9 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           hasInquirySnapshot: Boolean(inquirySnapshotId),
         }
       })
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to submit task:', error)
-      setToast({ message: error.response?.data?.detail || '任务提交失败，请稍后重试。', type: 'error' })
+      setToast({ message: getApiErrorMessage(error, '任务提交失败，请稍后重试。'), type: 'error' })
     } finally {
       setSubmittingTaskId(null)
     }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     BrainCircuit,
     BookOpen,
@@ -92,7 +92,7 @@ export default function CourseResource() {
         }
     };
 
-    const fetchCourseResources = async (courseId: string, mode: ResourceMode = resourceMode) => {
+    const fetchCourseResources = useCallback(async (courseId: string, mode: ResourceMode = resourceMode) => {
         if (!courseId) {
             setResources([]);
             return;
@@ -111,7 +111,7 @@ export default function CourseResource() {
         } finally {
             setResourceLoading(false);
         }
-    };
+    }, [resourceMode]);
 
     useEffect(() => {
         void fetchCourses();
@@ -119,7 +119,7 @@ export default function CourseResource() {
 
     useEffect(() => {
         void fetchCourseResources(selectedCourseId, resourceMode);
-    }, [selectedCourseId, resourceMode]);
+    }, [fetchCourseResources, selectedCourseId, resourceMode]);
 
     useEffect(() => {
         const hasUnfinishedParsing = resources.some((resource) =>
@@ -130,7 +130,7 @@ export default function CourseResource() {
             void fetchCourseResources(selectedCourseId, resourceMode);
         }, 10000);
         return () => window.clearInterval(timer);
-    }, [resources, selectedCourseId, resourceMode]);
+    }, [fetchCourseResources, resources, selectedCourseId, resourceMode]);
 
     const handleFileUpload = async () => {
         if (!selectedFile || !selectedCourseId) return;

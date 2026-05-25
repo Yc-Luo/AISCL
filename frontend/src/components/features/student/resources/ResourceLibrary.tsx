@@ -16,6 +16,7 @@ import {
   Presentation,
   Trash2,
   TriangleAlert,
+  UploadCloud,
   Video,
 } from 'lucide-react'
 import { storageService } from '../../../../services/api/storage'
@@ -381,20 +382,20 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
   }
 
   return (
-    <div className="h-full flex flex-col p-4">
+    <div className="flex h-full flex-col p-3 sm:p-4">
       {/* Upload Area */}
       <SimpleDropzone onDrop={onDrop} disabled={uploading}>
         <div
           className={`
-            border-2 border-dashed rounded-lg p-8 text-center
-            transition-colors mb-4
+            mb-4 rounded-xl border-2 border-dashed p-4 text-center
+            transition-colors sm:p-6
             border-gray-300 hover:border-gray-400
             ${uploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
           `}
         >
           <div className="space-y-2">
-            <div className="text-4xl">📁</div>
-            <p className="text-gray-600">
+            <UploadCloud className="mx-auto h-8 w-8 text-indigo-500" />
+            <p className="text-sm font-semibold text-gray-700">
               拖拽文件到这里，或点击选择文件
             </p>
             <p className="text-sm text-gray-500">
@@ -409,8 +410,8 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
         <div className="mb-4 space-y-2">
           {Object.entries(uploadProgress).map(([filename, progress]) => (
             <div key={filename} className="bg-gray-100 rounded p-2">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-gray-700">{filename}</span>
+              <div className="mb-1 flex min-w-0 items-center justify-between gap-3">
+                <span className="min-w-0 flex-1 truncate text-sm text-gray-700" title={filename}>{filename}</span>
                 <span className="text-sm text-gray-600">{Math.round(progress)}%</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">

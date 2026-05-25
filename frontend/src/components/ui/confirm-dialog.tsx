@@ -23,6 +23,7 @@ interface ConfirmDialogProps {
     cancelLabel?: string
     tone?: 'default' | 'danger'
     loading?: boolean
+    contentClassName?: string
     onOpenChange: (open: boolean) => void
     onConfirm: () => void | Promise<void>
 }
@@ -36,6 +37,7 @@ export default function ConfirmDialog({
     cancelLabel = '取消',
     tone = 'default',
     loading = false,
+    contentClassName,
     onOpenChange,
     onConfirm,
 }: ConfirmDialogProps) {
@@ -45,7 +47,7 @@ export default function ConfirmDialog({
         <Dialog open={open} onOpenChange={(nextOpen) => {
             if (!loading) onOpenChange(nextOpen)
         }}>
-            <DialogContent className="max-w-md rounded-3xl p-0">
+            <DialogContent className={cn("max-h-[90vh] w-[calc(100vw-2rem)] max-w-md overflow-y-auto rounded-3xl p-0", contentClassName)}>
                 <div className="p-6">
                     <DialogHeader>
                         <div className={cn(

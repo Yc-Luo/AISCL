@@ -356,7 +356,7 @@ export default function CourseResource() {
             )}
 
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-                <DialogContent className="max-w-md rounded-3xl">
+                <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-xl overflow-y-auto rounded-3xl p-5 sm:p-6">
                     <DialogHeader>
                         <DialogTitle className="text-xl font-bold">上传班级资源</DialogTitle>
                         <DialogDescription className="mt-1 text-sm text-slate-500">
@@ -364,14 +364,14 @@ export default function CourseResource() {
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-6 pt-4">
-                        <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-700">
+                    <div className="min-w-0 space-y-5 pt-4">
+                        <div className="min-w-0 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-700">
                             当前班级：<span className="font-bold">{selectedCourse?.name || '未选择班级'}</span>
                         </div>
                         <div className="space-y-2">
                             <label className="text-sm font-bold text-slate-700">选择文件</label>
                             <label className={`
-                                block cursor-pointer rounded-2xl border-2 border-dashed p-8 text-center transition-all
+                                block min-w-0 cursor-pointer rounded-2xl border-2 border-dashed p-5 text-center transition-all sm:p-8
                                 ${selectedFile ? 'border-indigo-500 bg-indigo-50/30' : 'border-gray-200 hover:border-indigo-300 hover:bg-slate-50'}
                             `}>
                                 <input
@@ -380,9 +380,9 @@ export default function CourseResource() {
                                     onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
                                 />
                                 {selectedFile ? (
-                                    <div className="flex flex-col items-center">
+                                    <div className="flex min-w-0 flex-col items-center">
                                         <FileText className="mb-2 h-10 w-10 text-indigo-600" />
-                                        <p className="max-w-full truncate px-4 text-sm font-bold text-slate-900">{selectedFile.name}</p>
+                                        <p className="w-full max-w-full truncate px-2 text-sm font-bold text-slate-900 sm:px-4">{selectedFile.name}</p>
                                         <p className="mt-1 text-xs text-slate-500">{formatSize(selectedFile.size)}</p>
                                     </div>
                                 ) : (

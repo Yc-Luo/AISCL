@@ -118,7 +118,7 @@ function CircularProgress({
     const offset = circumference - (Math.max(0, Math.min(score, 100)) / 100) * circumference
 
     return (
-        <svg viewBox="0 0 82 82" className="h-20 w-20 shrink-0">
+        <svg viewBox="0 0 82 82" className="h-16 w-16 shrink-0">
             <circle cx="41" cy="41" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="8" />
             <circle
                 cx="41"
@@ -197,21 +197,21 @@ export default function LearningDashboard() {
     const SuggestionIcon = suggestionStyle.icon
 
     return (
-        <div className="h-full overflow-y-auto bg-slate-50 p-5 text-slate-900">
-            <div className="mx-auto flex max-w-[1480px] flex-col gap-4">
+        <div className="h-full overflow-y-auto bg-slate-50 p-3 text-slate-900 sm:p-5">
+            <div className="mx-auto flex max-w-[1360px] flex-col gap-4">
                 <header className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white">
-                            <Users className="h-6 w-6" />
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+                            <Users className="h-5 w-5" />
                         </div>
                         <div className="min-w-0">
                             <div className="flex flex-wrap items-baseline gap-3">
-                                <h1 className="text-2xl font-bold tracking-normal text-slate-950">{dashboardData.dashboardTitle}</h1>
-                                <span className="text-sm text-slate-500">{dashboardData.subtitle}</span>
+                                <h1 className="text-xl font-bold tracking-normal text-slate-950 sm:text-2xl">{dashboardData.dashboardTitle}</h1>
+                                <span className="text-xs text-slate-500 sm:text-sm">{dashboardData.subtitle}</span>
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3 text-sm text-slate-500">
+                    <div className="flex items-center gap-3 text-xs text-slate-500 sm:text-sm">
                         <span>更新时间：{formatUpdatedAt(dashboardData.updatedAt)}</span>
                         <button
                             type="button"
@@ -225,27 +225,27 @@ export default function LearningDashboard() {
                     </div>
                 </header>
 
-                <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
+                <section className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
                     <div className="mb-4 flex flex-wrap items-center gap-3">
-                        <h2 className="text-xl font-bold text-blue-700">1. 学习进程</h2>
+                        <h2 className="text-lg font-bold text-blue-700 sm:text-xl">1. 学习进程</h2>
                         <span className="text-sm text-slate-500">
                             当前处于：<span className="font-semibold text-emerald-700">{currentStage?.name || '问题建构'}阶段</span>
                         </span>
                     </div>
-                    <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
-                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid gap-4 2xl:grid-cols-[1fr_270px]">
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
                             {dashboardData.stages.map((stage, index) => {
                                 const Icon = stageIcons[index] || Circle
                                 const style = statusStyle[stage.status]
                                 return (
-                                    <div key={stage.key} className="relative min-h-[132px] rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+                                    <div key={stage.key} className="relative min-h-[126px] rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
                                         <div className="flex items-start gap-3">
-                                            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${style.icon}`}>
-                                                <Icon className="h-7 w-7" />
+                                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${style.icon}`}>
+                                                <Icon className="h-5 w-5" />
                                             </div>
                                             <div className="min-w-0">
-                                                <h3 className="font-bold text-slate-900">{stage.name}</h3>
-                                                <p className="mt-1 text-sm text-slate-600">{stage.description}</p>
+                                                <h3 className="break-keep font-bold leading-5 text-slate-900">{stage.name}</h3>
+                                                <p className="mt-1 break-keep text-xs leading-5 text-slate-600 sm:text-sm">{stage.description}</p>
                                                 <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${style.badge}`}>
                                                     {style.label}
                                                 </span>
@@ -268,33 +268,33 @@ export default function LearningDashboard() {
                     </div>
                 </section>
 
-                <div className="grid gap-4 xl:grid-cols-[0.92fr_1fr]">
-                    <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
+                <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.95fr)_minmax(540px,1.05fr)]">
+                    <section className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
                         <div className="mb-4 flex flex-wrap items-baseline gap-3">
-                            <h2 className="text-xl font-bold text-blue-700">2. 批判性思维目标表现</h2>
+                            <h2 className="text-lg font-bold text-blue-700 sm:text-xl">2. 批判性思维目标表现</h2>
                             <span className="text-sm text-slate-500">五个关键目标达成度</span>
                         </div>
-                        <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-5">
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-3">
                             {dashboardData.criticalThinkingGoals.map((goal) => {
                                 const Icon = goalIcons[goal.key as keyof typeof goalIcons] || HelpCircle
                                 const style = levelStyle[goal.level]
                                 return (
                                     <article
                                         key={goal.key}
-                                        className="flex min-h-[214px] flex-col rounded-xl border border-slate-100 bg-white p-4 shadow-sm"
+                                        className="min-w-0 rounded-xl border border-slate-100 bg-white p-3 shadow-sm"
                                         title={goal.description}
                                     >
-                                        <div className="mb-3 flex items-start gap-2">
-                                            <Icon className={`mt-0.5 h-6 w-6 shrink-0 ${style.text}`} />
-                                            <h3 className="text-sm font-bold leading-5 text-slate-900">{goal.name}</h3>
+                                        <div className="flex items-start gap-2">
+                                            <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${style.text}`} />
+                                            <h3 className="break-keep text-sm font-bold leading-5 text-slate-900">{goal.name}</h3>
                                         </div>
-                                        <div className="flex justify-center">
+                                        <div className="mt-3 flex items-center gap-3">
                                             <CircularProgress score={goal.score} label={goal.level} color={style.ring} />
+                                            <div className="min-w-0">
+                                                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${style.badge}`}>{goal.level}</span>
+                                                <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-600">{goal.description}</p>
+                                            </div>
                                         </div>
-                                        <div className="mt-3 flex justify-center">
-                                            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${style.badge}`}>{goal.level}</span>
-                                        </div>
-                                        <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{goal.description}</p>
                                     </article>
                                 )
                             })}
@@ -307,18 +307,18 @@ export default function LearningDashboard() {
                         </div>
                     </section>
 
-                    <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
+                    <section className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
                         <div className="mb-4 flex flex-wrap items-baseline gap-3">
-                            <h2 className="text-xl font-bold text-blue-700">3. 证据与观点结构</h2>
+                            <h2 className="text-lg font-bold text-blue-700 sm:text-xl">3. 证据与观点结构</h2>
                             <span className="text-sm text-slate-500">知识建构线索</span>
                         </div>
                         <div className="space-y-3">
                             {structureRows.map((row) => {
                                 const Icon = row.icon
                                 return (
-                                    <div key={row.key} className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 md:grid-cols-[132px_1fr_150px]">
-                                        <div className="flex items-center gap-2 font-semibold text-slate-800">
-                                            <Icon className="h-6 w-6 text-blue-600" />
+                                    <div key={row.key} className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 md:grid-cols-[120px_minmax(0,1fr)_140px]">
+                                        <div className="flex items-center gap-2 break-keep text-sm font-semibold text-slate-800">
+                                            <Icon className="h-5 w-5 text-blue-600" />
                                             <span>{row.label}</span>
                                         </div>
                                         <div className="min-w-0 text-sm leading-6 text-slate-700">
@@ -355,15 +355,15 @@ export default function LearningDashboard() {
                     </section>
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-[1.25fr_0.9fr]">
-                    <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
+                <div className="grid gap-4 2xl:grid-cols-[1.25fr_0.9fr]">
+                    <section className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
                         <div className="mb-4 flex flex-wrap items-baseline gap-3">
-                            <h2 className="text-xl font-bold text-blue-700">4. 下一步协作建议</h2>
+                            <h2 className="text-lg font-bold text-blue-700 sm:text-xl">4. 下一步协作建议</h2>
                             <span className="text-sm text-slate-500">基于当前学习状态，从共享调节维度提供建议</span>
                         </div>
-                        <div className="grid gap-4 lg:grid-cols-[130px_1fr_250px]">
-                            <div className={`flex h-32 w-32 items-center justify-center rounded-full ${suggestionStyle.bg}`}>
-                                <SuggestionIcon className={`h-16 w-16 ${suggestionStyle.color}`} />
+                        <div className="grid gap-4 lg:grid-cols-[92px_1fr] 2xl:grid-cols-[100px_1fr_230px]">
+                            <div className={`flex h-20 w-20 items-center justify-center rounded-full ${suggestionStyle.bg} sm:h-24 sm:w-24`}>
+                                <SuggestionIcon className={`h-10 w-10 sm:h-12 sm:w-12 ${suggestionStyle.color}`} />
                             </div>
                             <div className="min-w-0">
                                 <h3 className={`text-lg font-bold ${suggestionStyle.color}`}>
@@ -375,7 +375,7 @@ export default function LearningDashboard() {
                                     {dashboardData.nextSuggestion.suggestedAction}
                                 </div>
                             </div>
-                            <aside className="rounded-xl bg-slate-50 p-4">
+                            <aside className="rounded-xl bg-slate-50 p-4 lg:col-span-2 2xl:col-span-1">
                                 <h4 className="mb-3 font-bold text-slate-800">建议依据</h4>
                                 <ul className="space-y-2 text-sm leading-6 text-slate-700">
                                     {dashboardData.nextSuggestion.basis.map((item) => (
@@ -389,9 +389,9 @@ export default function LearningDashboard() {
                         </div>
                     </section>
 
-                    <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
-                        <h2 className="mb-4 text-xl font-bold text-blue-700">5. 小组协作温度</h2>
-                        <div className="grid gap-4 md:grid-cols-[180px_1fr]">
+                    <section className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
+                        <h2 className="mb-4 text-lg font-bold text-blue-700 sm:text-xl">5. 小组协作温度</h2>
+                        <div className="grid gap-4 md:grid-cols-[160px_1fr]">
                             <div className="flex items-center gap-4">
                                 <CircularProgress
                                     score={dashboardData.collaborationTemperature.score}

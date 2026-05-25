@@ -535,20 +535,20 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                             </button>
                           </div>
 
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                               {task.source_type === 'course_task_release' && (
-                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${getSubmissionBadgeClass(task)}`}>
+                                <span className={`max-w-full break-keep rounded-full px-2 py-0.5 text-[9px] font-black leading-4 ${getSubmissionBadgeClass(task)}`}>
                                   全组共同任务 · {getSubmissionLabel(task)}
                                 </span>
                               )}
                               {task.source_type !== 'course_task_release' && task.assignees?.[0] && (
-                                <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-black text-indigo-600">
+                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-black leading-4 text-indigo-600">
                                   {task.assignees[0] === user?.id ? '我负责' : '成员负责'}
                                 </span>
                               )}
                               {task.priority === 'high' && col !== 'done' && (
-                                <span className="flex items-center gap-0.5 text-[9px] font-black text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full uppercase italic animate-pulse">
+                                <span className="flex items-center gap-0.5 rounded-full bg-red-50 px-2 py-0.5 text-[9px] font-black uppercase italic leading-4 text-red-600">
                                   <AlertCircle className="w-2.5 h-2.5" /> High
                                 </span>
                               )}
@@ -587,7 +587,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                             </div>
                           </div>
                           {task.source_type === 'course_task_release' && (
-                            <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-2 py-2">
+                            <div className="mt-2 flex flex-col gap-2 rounded-xl bg-slate-50 px-2 py-2 sm:flex-row sm:items-center sm:justify-between">
                               <div className="min-w-0 text-[10px] leading-4 text-slate-500">
                                 {task.submitted_at
                                   ? `提交时间：${new Date(task.submitted_at).toLocaleString()}`
@@ -607,7 +607,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                                   setSubmissionNote('')
                                 }}
                                 title={canSubmitCourseTask ? '提交小组任务' : '当前仅组长可提交小组任务'}
-                                className="shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                                className="w-full shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
                               >
                                 {submittingTaskId === task.id
                                   ? '提交中'
@@ -727,6 +727,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
         description={`确认提交“${pendingSubmitTask?.title || ''}”？提交后会记录提交人、提交时间和当前小组任务状态。`}
         confirmLabel="确认提交"
         loading={Boolean(submittingTaskId)}
+        contentClassName="max-w-3xl"
         onOpenChange={(open) => {
           if (!open && !submittingTaskId) {
             setPendingSubmitTask(null)
@@ -750,10 +751,10 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
           setExistingArtifacts([])
         }}
       >
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <label className="block">
             <span className="mb-2 block text-xs font-bold text-slate-500">成果文件</span>
-            <div className="rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 p-4">
+            <div className="w-full rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 p-4">
               <input
                 id="task-artifact-upload"
                 type="file"
@@ -767,7 +768,7 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
               />
               <label
                 htmlFor="task-artifact-upload"
-                className="flex cursor-pointer flex-col items-center justify-center gap-2 text-center text-xs font-bold text-indigo-600"
+                className="flex min-h-[112px] cursor-pointer flex-col items-center justify-center gap-2 text-center text-xs font-bold leading-5 text-indigo-600"
               >
                 <UploadCloud className="h-6 w-6" />
                 上传文档、PPT、图片、视频或压缩包
@@ -781,14 +782,14 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
               <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">正在读取已有成果文件...</div>
             )}
             {existingArtifacts.map((artifact) => (
-              <div key={artifact.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2 text-xs">
-                <div className="min-w-0">
+              <div key={artifact.id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2 text-xs">
+                <div className="min-w-0 flex-1">
                   <div className="truncate font-bold text-slate-700">{artifact.filename}</div>
                   <div className="text-[10px] text-slate-400">已上传 · {formatFileSize(artifact.size)}</div>
                 </div>
                 <button
                   type="button"
-                  className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                  className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                   onClick={async () => {
                     try {
                       await taskService.deleteTaskArtifact(pendingSubmitTask!.id, artifact.id)
@@ -803,14 +804,14 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
               </div>
             ))}
             {submissionFiles.map((file, index) => (
-              <div key={`${file.name}-${file.size}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs">
-                <div className="min-w-0">
+              <div key={`${file.name}-${file.size}-${index}`} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs">
+                <div className="min-w-0 flex-1">
                   <div className="truncate font-bold text-slate-700">{file.name}</div>
                   <div className="text-[10px] text-slate-400">待上传 · {formatFileSize(file.size)}</div>
                 </div>
                 <button
                   type="button"
-                  className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                  className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                   onClick={() => setSubmissionFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
                 >
                   <X className="h-3.5 w-3.5" />

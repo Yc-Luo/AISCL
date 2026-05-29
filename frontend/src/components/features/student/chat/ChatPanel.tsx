@@ -638,7 +638,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
         )}
         {displayedMessages.map((msg: ChatMessage, index: number) => {
           const isOwnMessage = msg.user_id === user?.id
-          const isAIMessage = msg.user_id === 'ai_assistant'
+          const isAIMessage = msg.user_id === 'ai_assistant' || msg.user_id.startsWith('auto_prompt:')
           const isMentioned = msg.mentions.includes(user?.id || '') || Boolean(user?.username && msg.content.includes(`@${user.username}`))
           const prevMsg = index > 0 ? displayedMessages[index - 1] : null
 

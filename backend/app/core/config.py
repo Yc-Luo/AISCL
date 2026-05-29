@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     # LLM runtime
     LLM_MAX_OUTPUT_TOKENS: int = 6000
     LLM_REQUEST_TIMEOUT_SECONDS: int = 90
+    LLM_MAX_CONCURRENT_REQUESTS: int = 8
+    LLM_KEY_COOLDOWN_SECONDS: int = 60
+    LLM_ROLE_MODEL_MAP: str = ""
+    OPENAI_API_KEYS: str = ""
+    DEEPSEEK_API_KEYS: str = ""
 
     # CORS
     CORS_ORIGINS: List[str] = Field(

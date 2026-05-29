@@ -11,7 +11,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from app.core.config import settings
-from app.core.llm_config import get_llm
+from app.core.llm_config import get_llm, resolve_role_model_id
+from app.core.llm_runtime import get_group_lock, guarded_astream
 from app.services.rag_service import rag_service
 from app.services.research_event_service import research_event_service
 from app.services.agents.deep_agents_shim import derive_routing_decision_from_context
@@ -249,6 +250,23 @@ class AgentService:
         # Initialize graph if needed (Double Check Locking Pattern in Production)
         if not self.graph:
             await self.initialize()
+
+        group_lock = None
+        if context and not context.get("_group_lock_acquired"):
+            if context.get("source_actor_type") == "ai_assistant":
+                group_lock = get_group_lock(context.get("group_id") or context.get("project_id"))
+        if group_lock:
+            async with group_lock:
+                locked_context = {**context, "_group_lock_acquired": True}
+                async for item in self.chat_stream(
+                    persona_key=persona_key,
+                    message=message,
+                    session_id=session_id,
+                    subject=subject,
+                    context=locked_context,
+                ):
+                    yield item
+            return
 
         if self._is_stage_aware_graph(context):
             async for event in self._chat_stream_stage_aware(
@@ -868,13 +886,17 @@ class AgentService:
             )),
             ("human", "{input}"),
         ])
+        role_model_id = await resolve_role_model_id(
+            agent_name,
+            fallback_model_id=context.get("runtime_model_id"),
+        )
         runtime_llm = await get_llm(
             temperature=0.7,
-            model_id=context.get("runtime_model_id"),
+            model_id=role_model_id,
         )
         chain = prompt | runtime_llm
         try:
-            async for chunk in chain.astream({"input": message}):
+            async for chunk in guarded_astream(chain, {"input": message}):
                 content = getattr(chunk, "content", "") or ""
                 if not content:
                     continue

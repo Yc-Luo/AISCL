@@ -248,9 +248,9 @@ class ResearchEventService:
         if auto_rule_types is not None and rule_type not in auto_rule_types:
             would_send = False
             block_reason = "rule_not_auto_prompted"
-        elif online_learner_count <= 0:
+        elif online_learner_count < 2:
             would_send = False
-            block_reason = "no_online_learners"
+            block_reason = "insufficient_online_learners"
         elif recent_send:
             would_send = False
             block_reason = "cooldown_active"

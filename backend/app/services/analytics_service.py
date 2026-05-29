@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.repositories.analytics_daily_stats import AnalyticsDailyStats
 from app.repositories.dashboard_snapshot import DashboardSnapshot
 from app.core.llm_config import get_llm
+from app.core.llm_runtime import guarded_ainvoke
 import hashlib
 import json
 import logging
@@ -891,7 +892,7 @@ Document:
 {text_to_analyze}
 Keywords:"""
             
-            response = await llm.ainvoke(prompt)
+            response = await guarded_ainvoke(llm, prompt)
             raw_keywords = response.content if hasattr(response, "content") else str(response)
             keywords = [k.strip() for k in raw_keywords.split(",") if k.strip()][:5]
             return keywords
@@ -994,7 +995,7 @@ JSON Output Format:
 }}
 """
             
-            response = await llm.ainvoke(prompt)
+            response = await guarded_ainvoke(llm, prompt)
             raw_text = response.content if hasattr(response, "content") else str(response)
             
             if "```json" in raw_text:
@@ -1189,7 +1190,7 @@ JSON Output Format:
             ]
             """
             
-            response = await llm.ainvoke(prompt)
+            response = await guarded_ainvoke(llm, prompt)
             content = response.content
             
             # Robust JSON parsing

@@ -32,6 +32,7 @@ from app.repositories.resource import Resource
 from app.repositories.activity_log import ActivityLog
 from app.services.auth_service import get_password_hash
 from app.core.llm_config import get_llm
+from app.core.llm_runtime import guarded_ainvoke
 from app.services.embedding_service import embedding_service
 from app.services.web_search_service import web_search_service
 
@@ -230,7 +231,7 @@ async def test_llm_config(
 
     try:
         llm = await get_llm(temperature=0)
-        response = await llm.ainvoke("请只回复：AISCL_OK")
+        response = await guarded_ainvoke(llm, "请只回复：AISCL_OK")
         elapsed_ms = round((perf_counter() - started_at) * 1000)
         content = response.content if hasattr(response, "content") else str(response)
 

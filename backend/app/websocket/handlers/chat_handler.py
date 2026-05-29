@@ -381,8 +381,8 @@ async def _evaluate_shadow_prompt_candidates(
             rule_type=rule_type,
             stage_id=current_stage,
             online_learner_count=online_learner_count,
-            cooldown_minutes=10,
-            observation_window_minutes=5,
+            cooldown_minutes=20,
+            observation_window_minutes=8,
             auto_rule_types=AUTO_GROUP_PROMPT_RULE_TYPES,
         )
         if not policy.get("should_record"):
@@ -417,8 +417,8 @@ async def _evaluate_shadow_prompt_candidates(
                     "live_prompt_eligible": eligible_for_live_prompt,
                     "enabled_rule_set": enabled_rule_set,
                     "online_learner_count": online_learner_count,
-                    "cooldown_minutes": 10,
-                    "observation_window_minutes": 5,
+                    "cooldown_minutes": 20,
+                    "observation_window_minutes": 8,
                     "window_bucket": policy.get("window_bucket"),
                     "previous_window_bucket": policy.get("previous_window_bucket"),
                     "consecutive_window_count": policy.get("consecutive_window_count", 0),

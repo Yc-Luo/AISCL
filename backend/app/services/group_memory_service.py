@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.llm_config import get_llm
+from app.core.llm_runtime import guarded_ainvoke
 from app.repositories.chat_log import ChatLog
 from app.repositories.course_task_release import CourseTaskRelease
 from app.repositories.document import Document
@@ -748,7 +749,8 @@ class GroupMemoryService:
         event_lines: List[str],
     ) -> Dict[str, Any]:
         llm = await get_llm(temperature=0.2)
-        response = await llm.ainvoke(
+        response = await guarded_ainvoke(
+            llm,
             [
                 SystemMessage(
                     content=(

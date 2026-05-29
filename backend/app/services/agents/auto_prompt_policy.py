@@ -18,13 +18,13 @@ AUTO_PROMPT_STAGE_RULES = {
 }
 
 AUTO_PROMPT_MIN_DIALOGUE_COUNT = {
-    "evidence_gap": 4,
-    "counterargument_missing": 5,
-    "revision_stall": 6,
+    "evidence_gap": 8,
+    "counterargument_missing": 9,
+    "revision_stall": 10,
 }
 
-AUTO_PROMPT_MIN_ELAPSED_SECONDS = 240
-AUTO_PROMPT_REVISION_MIN_ELAPSED_SECONDS = 600
+AUTO_PROMPT_MIN_ELAPSED_SECONDS = 600
+AUTO_PROMPT_REVISION_MIN_ELAPSED_SECONDS = 900
 
 RULE_TYPE_TO_SUBAGENT = {
     "evidence_gap": "evidence_researcher",

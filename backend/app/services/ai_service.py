@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 import tiktoken
 from app.core.llm_config import get_llm, get_llm_for_role
+from app.core.llm_runtime import guarded_ainvoke, guarded_astream
 from app.repositories.ai_conversation import AIConversation
 from app.repositories.ai_message import AIMessage as AIMessageModel
 from app.repositories.ai_role import AIRole
@@ -266,7 +267,7 @@ class AIService:
 - 每行 1 个问题
 - 不要编号，不要解释，不要额外文本"""
             
-            response = await llm.ainvoke(prompt)
+            response = await guarded_ainvoke(llm, prompt)
             content = AIService.sanitize_model_output(
                 response.content if hasattr(response, "content") else str(response)
             )
@@ -295,7 +296,7 @@ class AIService:
 内容: "{message}"
 注意：只返回标题文字，不要包含引号、书名号或多余的解释。"""
             
-            response = await llm.ainvoke(prompt)
+            response = await guarded_ainvoke(llm, prompt)
             title = AIService.sanitize_model_output(
                 response.content if hasattr(response, "content") else str(response)
             )
@@ -435,7 +436,7 @@ class AIService:
         llm = await get_llm_for_role(role.name, role.temperature)
 
         # Generate response
-        response = await llm.ainvoke(messages)
+        response = await guarded_ainvoke(llm, messages)
         response_text = AIService.sanitize_model_output(
             response.content if hasattr(response, "content") else str(response)
         )
@@ -559,7 +560,7 @@ class AIService:
 
         # Stream response
         full_response = ""
-        async for chunk in llm.astream(messages):
+        async for chunk in guarded_astream(llm, messages):
             content = AIService.sanitize_model_output(
                 chunk.content if hasattr(chunk, "content") else str(chunk)
             )
@@ -590,7 +591,7 @@ class AIService:
         messages = AIService.truncate_raw_messages(messages, AIService.MAX_CONTEXT_TOKENS)
 
         llm = await get_llm(temperature=temperature, model_id=model_id)
-        async for chunk in llm.astream(messages):
+        async for chunk in guarded_astream(llm, messages):
             content = AIService.sanitize_model_output(
                 chunk.content if hasattr(chunk, "content") else str(chunk)
             )
@@ -636,7 +637,7 @@ class AIService:
         messages = AIService.truncate_raw_messages(messages, AIService.MAX_CONTEXT_TOKENS)
 
         llm = await get_llm(temperature=0.7, model_id=model_id)
-        response = await llm.ainvoke(messages)
+        response = await guarded_ainvoke(llm, messages)
         response_text = AIService.sanitize_model_output(
             response.content if hasattr(response, "content") else str(response)
         )
@@ -709,7 +710,7 @@ class AIService:
 
         llm = await get_llm(temperature=0.7, model_id=model_id)
         full_response = ""
-        async for chunk in llm.astream(messages):
+        async for chunk in guarded_astream(llm, messages):
             content = AIService.sanitize_model_output(
                 chunk.content if hasattr(chunk, "content") else str(chunk)
             )

@@ -216,24 +216,10 @@ export default function ProjectEditModal({
 
         setUploading(true)
         try {
-            // 1. Get presigned URL
-            const { upload_url, file_key } = await storageService.getPresignedUploadUrl(
-                project.id,
-                file.name,
-                file.type,
-                file.size
-            )
-
-            // 2. Upload to S3/MinIO
-            await storageService.uploadFile(upload_url, file)
-
-            // 3. Create Resource record
-            const newRes = await storageService.createResource({
+            const newRes = await storageService.uploadResourceFile({
+                file,
                 project_id: project.id,
-                filename: file.name,
-                file_key: file_key,
-                size: file.size,
-                mime_type: file.type
+                source_type: 'library',
             })
 
             setResources([...resources, newRes])

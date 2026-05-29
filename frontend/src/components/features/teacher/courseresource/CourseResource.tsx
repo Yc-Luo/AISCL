@@ -30,7 +30,7 @@ import {
 } from '../../../ui';
 
 type ResourceMode = 'library' | 'ai_knowledge';
-const MAX_RESOURCE_BYTES = 200 * 1024 * 1024;
+const MAX_RESOURCE_BYTES = 50 * 1024 * 1024;
 
 const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -136,7 +136,7 @@ export default function CourseResource() {
     const handleFileUpload = async () => {
         if (!selectedFile || !selectedCourseId) return;
         if (selectedFile.size > MAX_RESOURCE_BYTES) {
-            setNotice({ type: 'error', message: '文件超过 200MB，请压缩后再上传。' });
+            setNotice({ type: 'error', message: '文件超过 50MB，请压缩后再上传。' });
             return;
         }
 
@@ -431,7 +431,7 @@ export default function CourseResource() {
                                     <div className="flex flex-col items-center">
                                         <Upload className="mb-2 h-10 w-10 text-slate-300" />
                                         <p className="text-sm font-bold text-slate-600">点击选择文件</p>
-                                        <p className="mt-1 text-xs text-slate-400">支持常见文档、图片和表格材料，单个文件不超过 200MB</p>
+                                        <p className="mt-1 text-xs text-slate-400">支持常见文档、图片和表格材料，单个文件不超过 50MB</p>
                                     </div>
                                 )}
                             </label>

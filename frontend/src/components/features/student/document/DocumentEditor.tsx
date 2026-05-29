@@ -138,21 +138,9 @@ export default function DocumentEditor({
 
     setIsImageUploading(true)
     try {
-      const { upload_url, file_key } = await storageService.getPresignedUploadUrl(
-        projectId,
-        file.name,
-        file.type,
-        file.size,
-      )
-
-      await storageService.uploadFile(upload_url, file)
-
-      const resource = await storageService.createResource({
-        file_key,
-        filename: file.name,
-        size: file.size,
+      const resource = await storageService.uploadResourceFile({
+        file,
         project_id: projectId,
-        mime_type: file.type,
         source_type: 'document_embed',
       })
 
@@ -162,7 +150,7 @@ export default function DocumentEditor({
         throw new Error('Editor instance unavailable')
       }
 
-      ; (activeEditor.chain().focus() as any).setImage({
+      (activeEditor.chain().focus() as any).setImage({
         src: imageUrl,
         alt: file.name,
         title: file.name,

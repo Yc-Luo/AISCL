@@ -40,7 +40,7 @@ interface ResourceLibraryProps {
   projectId: string
 }
 
-const MAX_RESOURCE_BYTES = 200 * 1024 * 1024
+const MAX_RESOURCE_BYTES = 50 * 1024 * 1024
 
 type PreviewKind = 'image' | 'video' | 'audio' | 'pdf' | 'office' | 'text' | 'unsupported'
 
@@ -112,7 +112,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
 
       for (const file of acceptedFiles) {
         if (file.size > MAX_RESOURCE_BYTES) {
-          setToast({ message: `${file.name} 超过 200MB，请压缩后再上传。`, visible: true, type: 'error' })
+          setToast({ message: `${file.name} 超过 50MB，请压缩后再上传。`, visible: true, type: 'error' })
           continue
         }
         try {
@@ -400,7 +400,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
               拖拽文件到这里，或点击选择文件
             </p>
             <p className="text-sm text-gray-500">
-              支持图片、视频、PDF、Word、PPT、Excel 等格式，单个文件不超过 200MB
+              支持图片、视频、PDF、Word、PPT、Excel 等格式，单个文件不超过 50MB
             </p>
           </div>
         </div>

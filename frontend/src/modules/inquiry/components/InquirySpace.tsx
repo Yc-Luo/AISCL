@@ -315,29 +315,14 @@ const InquirySpaceInner: React.FC<InquirySpaceProps> = ({ projectId, experimentV
 
                 setToast({ message: '正在上传图片...', visible: true });
                 try {
-                    // 1. Get presigned URL
                     const filename = `paste-${Date.now()}-${file.name || 'image.png'}`;
-                    const presigned = await storageService.getPresignedUploadUrl(
-                        projectId,
-                        filename,
-                        file.type,
-                        file.size
-                    );
-
-                    // 2. Upload to MinIO/S3
-                    await storageService.uploadFile(presigned.upload_url, file);
-
-                    // 3. Create resource record in DB
-                    const resource = await storageService.createResource({
-                        file_key: presigned.file_key,
-                        filename: filename,
-                        size: file.size,
+                    const uploadFile = new File([file], filename, { type: file.type || 'image/png' });
+                    const resource = await storageService.uploadResourceFile({
+                        file: uploadFile,
                         project_id: projectId,
-                        mime_type: file.type,
                         source_type: 'inquiry_material',
                     });
 
-                    // 4. Add to scrapbook (The resource URL is needed here, assuming storage handles standard paths or we have an endpoint)
                     const imageUrl = storageService.getResourceViewUrl(resource.id);
 
                     addCard('[粘贴的图片]', 'image', undefined, '剪贴板导入', imageUrl);

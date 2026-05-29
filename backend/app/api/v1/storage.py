@@ -1,6 +1,7 @@
 """Storage API routes for file uploads."""
 
 import hashlib
+import os
 import mimetypes
 import uuid
 from datetime import datetime
@@ -302,13 +303,15 @@ async def upload_resource_file(
     normalized_mime_type = _ensure_allowed_upload_mime(
         _resolve_upload_mime_type(filename, file.content_type)
     )
-    file_bytes = await file.read()
-    if not file_bytes:
+    await run_in_threadpool(file.file.seek, 0, os.SEEK_END)
+    file_size = await run_in_threadpool(file.file.tell)
+    await run_in_threadpool(file.file.seek, 0)
+    if file_size <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty",
         )
-    if len(file_bytes) > settings.MAX_FILE_SIZE:
+    if file_size > settings.MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="Uploaded file exceeds the maximum allowed size",
@@ -324,16 +327,17 @@ async def upload_resource_file(
         file_key = f"projects/{project_id}/files/{str(uuid.uuid4())}"
 
     await run_in_threadpool(
-        storage_service.upload_file_bytes,
+        storage_service.upload_file_object,
         file_key,
-        file_bytes,
+        file.file,
+        file_size,
         normalized_mime_type,
     )
 
     resource_data = CreateResourceRequest(
         file_key=file_key,
         filename=filename,
-        size=len(file_bytes),
+        size=file_size,
         project_id=owner_id if not course_id else None,
         course_id=course_id,
         scope=resource_scope,

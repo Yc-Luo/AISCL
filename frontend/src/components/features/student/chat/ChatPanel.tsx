@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   SendHorizontal,
   Bot,
@@ -56,6 +56,36 @@ const compareChatMessages = (currentUserId?: string) => (a: ChatMessage, b: Chat
   return getMessageKey(a).localeCompare(getMessageKey(b))
 }
 
+interface ProjectMemberRef {
+  user_id: string
+}
+
+interface ChatHistoryMessageResponse {
+  id: string
+  client_message_id?: string
+  user_id: string
+  username: string
+  avatar_url?: string
+  content: string
+  message_type: string
+  mentions?: string[]
+  created_at: string
+  ai_meta?: ChatMessage['ai_meta']
+  teacher_support?: ChatMessage['teacher_support']
+  teacher_help_request?: ChatMessage['teacher_help_request']
+  file_info?: ChatMessage['file_info']
+}
+
+interface ChatHistoryResponse {
+  messages: ChatHistoryMessageResponse[]
+}
+
+interface TypingEventPayload {
+  roomId: string
+  userId: string
+  username?: string
+}
+
 export default function ChatPanel({ projectId, isActive = true, onUnreadChange, onMentionNotification }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState('')
   const [showMentionMenu, setShowMentionMenu] = useState(false)
@@ -97,13 +127,20 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     setLightboxImage(null)
     setReplyingTo(null)
     setContextMenu(null)
-  }, [projectId])
+  }, [onUnreadChange, projectId])
 
   useEffect(() => {
     if (!isActive) return
     unreadRef.current = { chatUnread: 0, chatMentions: 0 }
     onUnreadChange?.({ chatUnread: 0, chatMentions: 0 })
-  }, [isActive])
+  }, [isActive, onUnreadChange])
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    if (!autoScrollRef.current) return
+    window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
+    })
+  }, [])
 
   useEffect(() => {
     const currentKeys = new Set(displayedMessages.map(getMessageKey))
@@ -145,13 +182,6 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     }
   }, [displayedMessages, isActive, onMentionNotification, onUnreadChange, user?.id, user?.username])
 
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    if (!autoScrollRef.current) return
-    window.requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
-    })
-  }
-
   const handleMessageListScroll = () => {
     const el = messageListRef.current
     if (!el) return
@@ -163,7 +193,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     const fetchMembers = async () => {
       try {
         const project = await projectService.getProject(projectId)
-        const memberIds = project.members.map((m: any) => m.user_id)
+        const memberIds = project.members.map((member: ProjectMemberRef) => member.user_id)
         if (memberIds.length > 0) {
           const memberUsers = await userService.getUsers(memberIds)
           setMembers(memberUsers.filter((member) => member.role === 'student'))
@@ -188,10 +218,10 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
 
     const fetchMessages = async () => {
       try {
-        const response = await api.get(`/chat/projects/${projectId}/messages?limit=50`)
+        const response = await api.get<ChatHistoryResponse>(`/chat/projects/${projectId}/messages?limit=50`)
         if (response.data && response.data.messages && isMounted) {
           // Convert API response to ChatMessage format
-          const history: ChatMessage[] = response.data.messages.map((m: any) => ({
+          const history: ChatMessage[] = response.data.messages.map((m) => ({
             id: m.id,
             client_message_id: m.client_message_id,
             user_id: m.user_id,
@@ -239,11 +269,11 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     fetchMessages()
 
     return () => { isMounted = false; }
-  }, [projectId, connected])
+  }, [connected, projectId, setMessages])
 
   useEffect(() => {
     scrollToBottom('smooth')
-  }, [messages, typingUsers.size])
+  }, [messages, scrollToBottom, typingUsers.size])
 
   useEffect(() => {
     if (!messages.some((msg) => msg.user_id === 'ai_assistant' && msg.content.trim())) return
@@ -324,7 +354,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
 
   // Listen for typing events
   useEffect(() => {
-    const onTyping = (data: any) => {
+    const onTyping = (data: TypingEventPayload) => {
       if (data.roomId !== `project:${projectId}`) return
       setTypingUsers(prev => {
         const next = new Set(prev)
@@ -333,7 +363,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
       })
       scrollToBottom('smooth')
     }
-    const onStopTyping = (data: any) => {
+    const onStopTyping = (data: TypingEventPayload) => {
       if (data.roomId !== `project:${projectId}`) return
       setTypingUsers(prev => {
         const next = new Set(prev)
@@ -356,7 +386,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
       syncService.off('typing', onTyping)
       syncService.off('stop_typing', onStopTyping)
     }
-  }, [projectId, members])
+  }, [members, projectId, scrollToBottom])
 
 
   const handleImageUpload = async (fileInput: React.ChangeEvent<HTMLInputElement> | File) => {
@@ -747,14 +777,14 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
-                              code({ node, className, children, ...props }) {
+                              code({ className, children, ...props }) {
                                 return (
                                   <code className={`${className} bg-gray-100 rounded px-1 py-0.5 text-xs text-red-500 font-mono`} {...props}>
                                     {children}
                                   </code>
                                 )
                               },
-                              pre({ node, children, ...props }) {
+                              pre({ children, ...props }) {
                                 return (
                                   <pre className="bg-gray-100/50 p-2 rounded-lg overflow-x-auto text-xs my-2 border border-gray-100" {...props}>
                                     {children}

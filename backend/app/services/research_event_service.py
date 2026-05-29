@@ -125,6 +125,10 @@ class ResearchEventService:
         recent_revision_count = 0
         last_revision_time: Optional[datetime] = None
         student_dialogue_count = pending_peer_message_count
+        claim_like_message_count = 0
+        evidence_related_message_count = 0
+        counter_like_message_count = 0
+        artifact_activity_count = 0
         ai_support_count = 0
         first_event_time = events[0].event_time if events else None
 
@@ -132,6 +136,7 @@ class ResearchEventService:
             payload = event.payload or {}
 
             if event.event_type == "node_add":
+                artifact_activity_count += 1
                 node_type = payload.get("node_type")
                 if node_type == "evidence":
                     evidence_node_add_count += 1
@@ -139,6 +144,7 @@ class ResearchEventService:
                     counter_argument_count += 1
 
             elif event.event_type == "node_type_update":
+                artifact_activity_count += 1
                 to_type = payload.get("to_type")
                 if to_type == "evidence":
                     evidence_node_add_count += 1
@@ -146,15 +152,23 @@ class ResearchEventService:
                     counter_argument_count += 1
 
             elif event.event_type == "evidence_source_bind":
+                artifact_activity_count += 1
                 evidence_source_bind_count += 1
 
             elif event.event_type in {"node_content_commit", "shared_record_content_commit"}:
+                artifact_activity_count += 1
                 recent_revision_count += 1
                 if not last_revision_time or event.event_time > last_revision_time:
                     last_revision_time = event.event_time
 
             elif event.event_type == "peer_message_send":
                 student_dialogue_count += 1
+                if payload.get("has_claim_marker"):
+                    claim_like_message_count += 1
+                if payload.get("has_evidence_marker"):
+                    evidence_related_message_count += 1
+                if payload.get("has_counter_marker"):
+                    counter_like_message_count += 1
 
             if event.event_domain == "scaffold" and event.actor_type in {"ai_assistant", "ai_tutor"}:
                 ai_support_count += 1
@@ -179,6 +193,10 @@ class ResearchEventService:
             "last_revision_time": last_revision_time,
             "session_elapsed_seconds": session_elapsed_seconds,
             "student_dialogue_count": student_dialogue_count,
+            "claim_like_message_count": claim_like_message_count,
+            "evidence_related_message_count": evidence_related_message_count,
+            "counter_like_message_count": counter_like_message_count,
+            "artifact_activity_count": artifact_activity_count,
             "ai_assistance_ratio": ai_assistance_ratio,
         }
 

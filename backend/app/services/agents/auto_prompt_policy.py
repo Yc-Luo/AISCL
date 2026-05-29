@@ -50,6 +50,20 @@ def is_rule_eligible_for_live_group_prompt(
     if dialogue_count < min_dialogue_count:
         return False, "insufficient_peer_dialogue"
 
+    claim_like_count = int(intervention_context.get("claim_like_message_count") or 0)
+    evidence_related_count = int(intervention_context.get("evidence_related_message_count") or 0)
+    counter_like_count = int(intervention_context.get("counter_like_message_count") or 0)
+    artifact_activity_count = int(intervention_context.get("artifact_activity_count") or 0)
+
+    if rule_type == "evidence_gap" and claim_like_count + evidence_related_count + artifact_activity_count < 2:
+        return False, "no_evidence_need_detected"
+    if rule_type == "counterargument_missing" and claim_like_count + artifact_activity_count < 3:
+        return False, "no_stable_view_to_challenge"
+    if rule_type == "counterargument_missing" and counter_like_count > 0:
+        return False, "counterargument_already_present"
+    if rule_type == "revision_stall" and claim_like_count + artifact_activity_count < 4:
+        return False, "no_revision_object_detected"
+
     elapsed_seconds = int(intervention_context.get("session_elapsed_seconds") or 0)
     required_elapsed = (
         AUTO_PROMPT_REVISION_MIN_ELAPSED_SECONDS

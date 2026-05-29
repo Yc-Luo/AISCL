@@ -82,6 +82,16 @@ def _detect_preferred_subagent(content: str) -> str | None:
     return None
 
 
+def _classify_peer_message_for_scaffold(content: str) -> Dict[str, bool]:
+    """Extract lightweight dialogue signals for auto-prompt gating."""
+    text = (content or "").strip().lower()
+    return {
+        "has_claim_marker": bool(re.search(r"我认为|我觉得|观点|结论|应该|因为|所以|说明|证明|意味着|可能是|可以看出", text)),
+        "has_evidence_marker": bool(re.search(r"证据|资料|来源|出处|文献|数据|案例|引用|调研|搜索|查到|根据", text)),
+        "has_counter_marker": bool(re.search(r"但是|不过|反驳|质疑|不同意|相反|另一种|替代|漏洞|局限|不一定|也可能", text)),
+    }
+
+
 def _label_stage(stage_id: Optional[str]) -> Optional[str]:
     if not stage_id:
         return None
@@ -1173,6 +1183,7 @@ async def handle_chat_op(sio, sid, data, user_id):
             ai_keywords = list(ROLE_MENTION_MAP.keys()) + list(GENERAL_AI_MENTIONS)
             if not is_ai_mentioned and any(k in normalized_content for k in ai_keywords):
                 is_ai_mentioned = True
+            peer_scaffold_signals = _classify_peer_message_for_scaffold(content)
 
             await research_event_service.record_batch_events(
                 events=[
@@ -1190,6 +1201,7 @@ async def handle_chat_op(sio, sid, data, user_id):
                             "message_length": len(content),
                             "mention_count": len(mentions),
                             "contains_ai_mention": is_ai_mentioned,
+                            **peer_scaffold_signals,
                             "preferred_subagent": (
                                 _detect_preferred_subagent(content)
                                 if experiment_version.get("ai_scaffold_mode") == "multi_agent"

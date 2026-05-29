@@ -67,7 +67,7 @@ class DeepSeekProvider(LLMProvider):
             "model": kwargs.get("model", "deepseek-chat"),
             "messages": messages,
             "temperature": kwargs.get("temperature", 0.7),
-            "max_tokens": kwargs.get("max_tokens", 2048)
+            "max_tokens": kwargs.get("max_tokens", settings.LLM_MAX_OUTPUT_TOKENS)
         }
         
         async with httpx.AsyncClient(timeout=self.timeout) as client:

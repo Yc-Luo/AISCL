@@ -40,7 +40,7 @@ interface ResourceLibraryProps {
   projectId: string
 }
 
-const MAX_RESOURCE_BYTES = 50 * 1024 * 1024
+const MAX_RESOURCE_BYTES = 200 * 1024 * 1024
 
 type PreviewKind = 'image' | 'video' | 'audio' | 'pdf' | 'office' | 'text' | 'unsupported'
 
@@ -112,7 +112,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
 
       for (const file of acceptedFiles) {
         if (file.size > MAX_RESOURCE_BYTES) {
-          setToast({ message: `${file.name} 超过 50MB，请压缩后再上传。`, visible: true, type: 'error' })
+          setToast({ message: `${file.name} 超过 200MB，请压缩后再上传。`, visible: true, type: 'error' })
           continue
         }
         try {
@@ -143,7 +143,8 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
           })
         } catch (error) {
           console.error(`Failed to upload ${file.name}:`, error)
-          setToast({ message: `上传 ${file.name} 失败，请稍后重试。`, visible: true, type: 'error' })
+          const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+          setToast({ message: `上传 ${file.name} 失败：${detail || '请检查文件类型、大小或网络连接。'}`, visible: true, type: 'error' })
         }
       }
 
@@ -399,7 +400,7 @@ export default function ResourceLibrary({ projectId }: ResourceLibraryProps) {
               拖拽文件到这里，或点击选择文件
             </p>
             <p className="text-sm text-gray-500">
-              支持图片、视频、PDF、文档等格式
+              支持图片、视频、PDF、Word、PPT、Excel 等格式，单个文件不超过 200MB
             </p>
           </div>
         </div>

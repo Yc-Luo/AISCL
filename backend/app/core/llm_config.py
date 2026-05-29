@@ -149,6 +149,9 @@ async def get_llm(temperature: float = 0.7, model_id: Optional[str] = None):
             "model": model_name or settings.OPENAI_MODEL,
             "temperature": temperature,
             "openai_api_key": api_key,
+            "max_tokens": settings.LLM_MAX_OUTPUT_TOKENS,
+            "timeout": settings.LLM_REQUEST_TIMEOUT_SECONDS,
+            "max_retries": 2,
         }
         base_url = override_base_url or (db_base_url if use_db_config and db_base_url else settings.OPENAI_BASE_URL)
         if base_url:
@@ -180,6 +183,9 @@ async def get_llm(temperature: float = 0.7, model_id: Optional[str] = None):
             temperature=temperature,
             openai_api_key=api_key,
             openai_api_base=override_base_url or (db_base_url if use_db_config and db_base_url else settings.DEEPSEEK_BASE_URL),
+            max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
+            timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=2,
         )
     else:
         raise ValueError(f"Unsupported AI provider: {provider}")

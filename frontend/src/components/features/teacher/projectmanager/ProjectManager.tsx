@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FolderPlus, Search, Eye, BarChart2, MoreVertical, Users, Clock } from 'lucide-react';
+import { ArchiveRestore, FolderPlus, Search, Eye, BarChart2, MoreVertical, Users, Clock } from 'lucide-react';
 import { Button, Input, Badge, ConfirmDialog } from '../../../ui';
 import { useNavigate } from 'react-router-dom';
 import { projectService } from '../../../../services/api/project';
@@ -19,6 +19,8 @@ export default function ProjectManager() {
     const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
     const [deletingProject, setDeletingProject] = useState(false);
+    const [pendingUnarchiveProject, setPendingUnarchiveProject] = useState<Project | null>(null);
+    const [unarchivingProject, setUnarchivingProject] = useState(false);
 
     const fetchProjects = async () => {
         try {
@@ -63,6 +65,24 @@ export default function ProjectManager() {
             setNotice({ type: 'error', message: '删除失败。该小组可能仍有关联数据或当前账号没有权限。' });
         } finally {
             setDeletingProject(false);
+        }
+    };
+
+    const confirmUnarchiveProject = async () => {
+        if (!pendingUnarchiveProject) return;
+        try {
+            setUnarchivingProject(true);
+            const updated = await projectService.unarchiveProject(pendingUnarchiveProject.id);
+            setProjects((currentProjects) =>
+                currentProjects.map((project) => project.id === updated.id ? updated : project)
+            );
+            setPendingUnarchiveProject(null);
+            setNotice({ type: 'success', message: `小组“${updated.name}”已撤回归档，学生可继续编辑。` });
+        } catch (error) {
+            console.error('Unarchive failed:', error);
+            setNotice({ type: 'error', message: '撤回归档失败。请确认当前账号是否有该班级的小组管理权限。' });
+        } finally {
+            setUnarchivingProject(false);
         }
     };
 
@@ -242,6 +262,15 @@ export default function ProjectManager() {
                                         >
                                             修改小组
                                         </button>
+                                        {project.is_archived && (
+                                            <button
+                                                onClick={() => setPendingUnarchiveProject(project)}
+                                                className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50 transition-colors"
+                                            >
+                                                <ArchiveRestore className="h-4 w-4" />
+                                                撤回归档
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => setPendingDeleteProject(project)}
                                             className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
@@ -282,6 +311,16 @@ export default function ProjectManager() {
                 tone="danger"
                 loading={deletingProject}
                 onConfirm={confirmDeleteProject}
+            />
+
+            <ConfirmDialog
+                open={!!pendingUnarchiveProject}
+                onOpenChange={(open) => !open && setPendingUnarchiveProject(null)}
+                title="撤回小组归档"
+                description={`确定要撤回小组“${pendingUnarchiveProject?.name || ''}”的归档状态吗？撤回后该小组会恢复为进行中，学生可以继续编辑小组内容。`}
+                confirmLabel="确认撤回"
+                loading={unarchivingProject}
+                onConfirm={confirmUnarchiveProject}
             />
         </div>
     );

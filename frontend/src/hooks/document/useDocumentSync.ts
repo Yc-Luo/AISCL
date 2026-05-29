@@ -18,6 +18,7 @@ interface UseDocumentSyncProps {
 
 export function useDocumentSync({ documentId, initialData, onMount }: UseDocumentSyncProps) {
     const { user } = useAuthStore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const ydoc = useMemo(() => new Y.Doc(), [documentId]);
     const [provider, setProvider] = useState<SyncServiceYjsProvider | null>(null);
     const [isSynced, setIsSynced] = useState(false);
@@ -61,38 +62,40 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
 
         // 2. 加载数据
         const initData = async () => {
-            // 优先从 IndexedDB 加载离线数据
+            let loadedFromServer = false;
             let loadedFromLocal = false;
             try {
-                loadedFromLocal = await DocumentPersistence.loadSnapshot(roomId, ydoc);
+                console.log('[useDocumentSync] Fetching latest snapshot from server...');
+                const { collaborationService } = await import('../../services/api/collaboration');
+                const snapshot = await collaborationService.getSnapshot(documentId, 'document');
+
+                if (snapshot && snapshot.data) {
+                    const binaryString = window.atob(snapshot.data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    Y.applyUpdate(ydoc, bytes);
+                    console.log('[useDocumentSync] Loaded snapshot from server:', bytes.length, 'bytes');
+                    loadedFromServer = true;
+                }
             } catch (error) {
-                console.warn('[useDocumentSync] Failed to load local snapshot, falling back to server:', error);
+                console.error('[useDocumentSync] Failed to fetch snapshot from server:', error);
             }
 
-            // 如果没有本地数据，尝试从服务器拉取
-            if (!loadedFromLocal) {
+            // Server snapshot is authoritative. Only use IndexedDB as a fallback
+            // when the server has no document state; otherwise stale local state can
+            // overwrite the shared document and make formatting appear corrupted.
+            if (!loadedFromServer) {
                 try {
-                    console.log('[useDocumentSync] No local data, fetching from server...');
-                    const { collaborationService } = await import('../../services/api/collaboration');
-                    const snapshot = await collaborationService.getSnapshot(documentId, 'document');
-
-                    if (snapshot && snapshot.data) {
-                        const binaryString = window.atob(snapshot.data);
-                        const bytes = new Uint8Array(binaryString.length);
-                        for (let i = 0; i < binaryString.length; i++) {
-                            bytes[i] = binaryString.charCodeAt(i);
-                        }
-                        Y.applyUpdate(ydoc, bytes);
-                        console.log('[useDocumentSync] Loaded snapshot from server:', bytes.length, 'bytes');
-                        loadedFromLocal = true;
-                    }
+                    loadedFromLocal = await DocumentPersistence.loadSnapshot(roomId, ydoc);
                 } catch (error) {
-                    console.error('[useDocumentSync] Failed to fetch snapshot from server:', error);
+                    console.warn('[useDocumentSync] Failed to load local fallback snapshot:', error);
                 }
             }
 
             // 如果都没有，但有传入的 initialData (参数)，则使用
-            if (!loadedFromLocal && initialData && initialData.length > 0) {
+            if (!loadedFromServer && !loadedFromLocal && initialData && initialData.length > 0) {
                 Y.applyUpdate(ydoc, initialData);
             }
 

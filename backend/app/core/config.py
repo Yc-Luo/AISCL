@@ -101,13 +101,17 @@ class Settings(BaseSettings):
     # Analytics
     ANALYTICS_LLM_ENABLED: bool = False
 
+    # LLM runtime
+    LLM_MAX_OUTPUT_TOKENS: int = 6000
+    LLM_REQUEST_TIMEOUT_SECONDS: int = 90
+
     # CORS
     CORS_ORIGINS: List[str] = Field(
         default=["http://localhost:5173", "http://localhost:3000"]
     )
 
     # File Upload
-    MAX_FILE_SIZE: int = 52428800  # 50MB
+    MAX_FILE_SIZE: int = 209715200  # 200MB
     MAX_TASK_ARTIFACT_SIZE: int = 314572800  # 300MB
     MAX_PROJECT_STORAGE: int = 5368709120  # 5GB
 

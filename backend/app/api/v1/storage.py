@@ -46,6 +46,7 @@ ALLOWED_UPLOAD_MIME_TYPES = {
     "audio/wav",
     "audio/webm",
     "application/pdf",
+    "application/x-pdf",
     "text/plain",
     "text/markdown",
     "text/csv",
@@ -100,10 +101,15 @@ def _normalize_mime_type(mime_type: str) -> str:
 def _resolve_upload_mime_type(filename: str, mime_type: Optional[str]) -> str:
     """Resolve blank browser MIME values from file extension when possible."""
     normalized = _normalize_mime_type(mime_type or "")
-    if normalized:
+    if normalized == "application/x-pdf":
+        return "application/pdf"
+    if normalized and normalized != "application/octet-stream":
         return normalized
     guessed, _ = mimetypes.guess_type(filename or "")
-    return _normalize_mime_type(guessed or "")
+    guessed_type = _normalize_mime_type(guessed or "")
+    if guessed_type == "application/x-pdf":
+        return "application/pdf"
+    return guessed_type or normalized
 
 
 def _ensure_allowed_upload_mime(mime_type: str) -> str:
@@ -190,7 +196,9 @@ async def generate_presigned_url(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Generate presigned URL for file upload."""
-    _ensure_allowed_upload_mime(file_type)
+    normalized_file_type = _ensure_allowed_upload_mime(
+        _resolve_upload_mime_type(filename, file_type)
+    )
 
     if bool(project_id) == bool(course_id):
         raise HTTPException(
@@ -240,6 +248,7 @@ async def generate_presigned_url(
     return {
         "upload_url": upload_url,
         "file_key": file_key,
+        "file_type": normalized_file_type,
         "expires_in": 300,
     }
 
@@ -340,7 +349,9 @@ async def _create_resource_from_uploaded_object(
     current_user: User,
 ) -> dict:
     """Create a resource record for an object that already exists in storage."""
-    normalized_mime_type = _ensure_allowed_upload_mime(resource_data.mime_type)
+    normalized_mime_type = _ensure_allowed_upload_mime(
+        _resolve_upload_mime_type(resource_data.filename, resource_data.mime_type)
+    )
 
     if resource_data.scope == "course":
         if not resource_data.course_id or resource_data.project_id:

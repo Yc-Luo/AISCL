@@ -18,6 +18,7 @@ from starlette.background import BackgroundTask
 
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
+from app.core.datetime_utils import utc_isoformat
 from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.core.security import content_disposition_header, sanitize_filename
 from app.repositories.course import Course
@@ -207,7 +208,7 @@ def to_artifact_response(artifact: TaskSubmissionArtifact, include_download_url:
         artifact_type=artifact.artifact_type,
         checksum_sha256=artifact.checksum_sha256,
         uploaded_by=artifact.uploaded_by,
-        uploaded_at=artifact.uploaded_at.isoformat(),
+        uploaded_at=utc_isoformat(artifact.uploaded_at) or "",
         download_url=storage_service.generate_presigned_get_url(artifact.file_key) if include_download_url else None,
     )
 
@@ -234,11 +235,11 @@ def to_task_response(task: Task) -> TaskResponse:
         assignees=task.assignees,
         order=task.order,
         description=task.description,
-        due_date=task.due_date.isoformat() if task.due_date else None,
+        due_date=utc_isoformat(task.due_date),
         source_type=task.source_type,
         course_task_release_id=task.course_task_release_id,
         submission_status=task.submission_status,
-        submitted_at=task.submitted_at.isoformat() if task.submitted_at else None,
+        submitted_at=utc_isoformat(task.submitted_at),
         submitted_by=task.submitted_by,
         submission_note=task.submission_note,
         artifact_document_id=task.artifact_document_id,
@@ -250,9 +251,9 @@ def to_task_response(task: Task) -> TaskResponse:
         review_status=task.review_status,
         review_comment=task.review_comment,
         reviewed_by=task.reviewed_by,
-        reviewed_at=task.reviewed_at.isoformat() if task.reviewed_at else None,
-        created_at=task.created_at.isoformat(),
-        updated_at=task.updated_at.isoformat(),
+        reviewed_at=utc_isoformat(task.reviewed_at),
+        created_at=utc_isoformat(task.created_at) or "",
+        updated_at=utc_isoformat(task.updated_at) or "",
     )
 
 
@@ -379,7 +380,7 @@ async def auto_submit_due_course_tasks(project_id: Optional[str] = None) -> int:
                     "payload": {
                         "task_id": str(task.id),
                         "course_task_release_id": task.course_task_release_id,
-                        "due_at": task.due_date.isoformat() if task.due_date else None,
+                        "due_at": utc_isoformat(task.due_date),
                     },
                 }
             ],
@@ -546,7 +547,7 @@ async def list_teacher_submissions(
                     {
                         "id": str(document.id),
                         "title": document.title,
-                        "updated_at": document.updated_at.isoformat(),
+                        "updated_at": utc_isoformat(document.updated_at),
                         "source_type": document.source_type,
                     }
                 )
@@ -559,7 +560,7 @@ async def list_teacher_submissions(
                         "id": str(wiki_item.id),
                         "title": wiki_item.title,
                         "item_type": wiki_item.item_type,
-                        "updated_at": wiki_item.updated_at.isoformat(),
+                        "updated_at": utc_isoformat(wiki_item.updated_at),
                     }
                 )
         inquiry_snapshot_artifact = None
@@ -570,7 +571,7 @@ async def list_teacher_submissions(
                 inquiry_snapshot_artifact = {
                     "id": str(inquiry_snapshot.id),
                     "version": inquiry_snapshot.snapshot_version,
-                    "updated_at": inquiry_snapshot.created_at.isoformat(),
+                    "updated_at": utc_isoformat(inquiry_snapshot.created_at),
                 }
         submissions.append(
             TeacherSubmissionResponse(
@@ -1222,7 +1223,7 @@ async def submit_course_task(
                     "task_id": str(task.id),
                     "course_task_release_id": task.course_task_release_id,
                     "submission_status": task.submission_status,
-                    "due_at": task.due_date.isoformat() if task.due_date else None,
+                    "due_at": utc_isoformat(task.due_date),
                     "artifact_document_id": task.artifact_document_id,
                     "artifact_document_ids": getattr(task, "artifact_document_ids", []) or [],
                     "artifact_snapshot_id": task.artifact_snapshot_id,

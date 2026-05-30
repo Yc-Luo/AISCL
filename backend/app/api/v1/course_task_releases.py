@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.v1.auth import get_current_user
+from app.core.datetime_utils import china_datetime_label, utc_isoformat
 from app.repositories.course import Course
 from app.repositories.course_task_release import CourseTaskRelease
 from app.repositories.document import Document
@@ -77,8 +78,8 @@ def _compose_document_content(
         meta = [
             f"<h1>{release_data.title.strip()}</h1>",
             "<section>",
-            f"<p><strong>发布时间：</strong>{published_at.strftime('%Y-%m-%d %H:%M')}</p>",
-            f"<p><strong>截止时间：</strong>{release_data.due_at.strftime('%Y-%m-%d %H:%M') if release_data.due_at else '未设置'}</p>",
+            f"<p><strong>发布时间：</strong>{china_datetime_label(published_at)}</p>",
+            f"<p><strong>截止时间：</strong>{china_datetime_label(release_data.due_at)}</p>",
             f"<p><strong>逾期处理：</strong>{'允许截止后继续提交或完善' if release_data.allow_late_submission else '截止后不再开放提交或完善'}</p>",
             "</section>",
             "<hr />",
@@ -87,8 +88,8 @@ def _compose_document_content(
 
     lines = [
         f"任务标题\n{release_data.title.strip()}",
-        f"发布时间\n{published_at.strftime('%Y-%m-%d %H:%M')}",
-        f"截止时间\n{release_data.due_at.strftime('%Y-%m-%d %H:%M') if release_data.due_at else '未设置'}",
+        f"发布时间\n{china_datetime_label(published_at)}",
+        f"截止时间\n{china_datetime_label(release_data.due_at)}",
         f"逾期处理\n{'允许截止后继续提交或完善' if release_data.allow_late_submission else '截止后不再开放提交或完善'}",
     ]
     section_map = [
@@ -125,7 +126,7 @@ def _to_response(
         collaboration_requirements=release.collaboration_requirements,
         deliverable_requirements=release.deliverable_requirements,
         evaluation_points=release.evaluation_points,
-        due_at=release.due_at.isoformat() if release.due_at else None,
+        due_at=utc_isoformat(release.due_at),
         allow_late_submission=release.allow_late_submission,
         status=release.status,
         target_project_ids=release.target_project_ids,
@@ -139,10 +140,10 @@ def _to_response(
         late_submitted_count=stats.get("late_submitted_count", 0),
         auto_submitted_count=stats.get("auto_submitted_count", 0),
         created_by=release.created_by,
-        created_at=release.created_at.isoformat(),
-        updated_at=release.updated_at.isoformat(),
-        published_at=release.published_at.isoformat(),
-        closed_at=release.closed_at.isoformat() if release.closed_at else None,
+        created_at=utc_isoformat(release.created_at) or "",
+        updated_at=utc_isoformat(release.updated_at) or "",
+        published_at=utc_isoformat(release.published_at) or "",
+        closed_at=utc_isoformat(release.closed_at),
     )
 
 
@@ -344,7 +345,7 @@ async def create_course_task_release(
             metadata={
                 "course_id": course_id,
                 "task_id": str(task.id),
-                "due_at": release.due_at.isoformat() if release.due_at else None,
+                "due_at": utc_isoformat(release.due_at),
             },
         )
 
@@ -365,7 +366,7 @@ async def create_course_task_release(
                         "task_id": str(task.id),
                         "document_id": str(document.id),
                         "title": release.title,
-                        "due_at": release.due_at.isoformat() if release.due_at else None,
+                        "due_at": utc_isoformat(release.due_at),
                     },
                 }
             ],

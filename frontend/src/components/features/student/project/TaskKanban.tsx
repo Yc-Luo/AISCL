@@ -15,7 +15,7 @@ interface TaskKanbanProps {
   canSubmitCourseTask?: boolean
 }
 
-const MAX_ARTIFACT_SIZE_MB = 300
+const MAX_ARTIFACT_SIZE_MB = 50
 const MAX_ARTIFACT_SIZE = MAX_ARTIFACT_SIZE_MB * 1024 * 1024
 const ARTIFACT_ACCEPT = [
   '.pdf',
@@ -387,6 +387,19 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
     return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
   }
 
+  const isSupplementSubmission = (task?: Task | null) => (
+    task?.submission_status === 'submitted' || task?.submission_status === 'late_submitted'
+  )
+
+  const getSubmitButtonLabel = (task: Task) => {
+    if (submittingTaskId === task.id) return '提交中'
+    if (!canSubmitCourseTask) return '组长提交'
+    if (task.submission_status === 'auto_submitted') return '补交'
+    if (task.submission_status === 'late_submitted') return '继续补充'
+    if (task.submission_status === 'submitted') return '补充资料'
+    return '提交'
+  }
+
   const formatFileSize = (size: number) => {
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
     return `${(size / 1024 / 1024).toFixed(1)} MB`
@@ -435,7 +448,9 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
       })
       setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
       setToast({
-        message: updated.submission_status === 'late_submitted' ? '成果已逾期提交。' : '成果已提交。',
+        message: isSupplementSubmission(task)
+          ? '补充内容已保存。'
+          : updated.submission_status === 'late_submitted' ? '成果已逾期提交。' : '成果已提交。',
         type: 'success'
       })
       trackingService.track({
@@ -658,25 +673,16 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
                                 type="button"
                                 disabled={
                                   submittingTaskId === task.id
-                                  || task.submission_status === 'submitted'
                                   || !canSubmitCourseTask
                                 }
                                 onClick={() => {
                                   setPendingSubmitTask(task)
-                                  setSubmissionNote('')
+                                  setSubmissionNote(task.submission_note || '')
                                 }}
-                                title={canSubmitCourseTask ? '提交小组任务' : '当前仅组长可提交小组任务'}
+                                title={canSubmitCourseTask ? '提交或补充小组任务' : '当前仅组长可提交小组任务'}
                                 className="w-full shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
                               >
-                                {submittingTaskId === task.id
-                                  ? '提交中'
-                                  : !canSubmitCourseTask
-                                    ? '组长提交'
-                                  : task.submission_status === 'submitted'
-                                    ? '已提交'
-                                    : task.submission_status === 'auto_submitted'
-                                      ? '补交'
-                                      : '提交'}
+                                {getSubmitButtonLabel(task)}
                               </button>
                             </div>
                           )}
@@ -782,9 +788,13 @@ export default function TaskKanban({ projectId, canSubmitCourseTask = true }: Ta
       />
       <ConfirmDialog
         open={Boolean(pendingSubmitTask)}
-        title="提交小组任务"
-        description={`确认提交“${pendingSubmitTask?.title || ''}”？提交后会记录提交人、提交时间和当前小组任务状态。`}
-        confirmLabel="确认提交"
+        title={isSupplementSubmission(pendingSubmitTask) ? '补充小组任务资料' : '提交小组任务'}
+        description={
+          isSupplementSubmission(pendingSubmitTask)
+            ? `继续补充“${pendingSubmitTask?.title || ''}”？保存后教师端会看到更新后的成果文件、协作成果引用和提交说明。`
+            : `确认提交“${pendingSubmitTask?.title || ''}”？提交后会记录提交人、提交时间和当前小组任务状态。后续仍可在开放期内继续补充资料。`
+        }
+        confirmLabel={isSupplementSubmission(pendingSubmitTask) ? '保存补充' : '确认提交'}
         loading={Boolean(submittingTaskId)}
         contentClassName="max-w-3xl"
         onOpenChange={(open) => {

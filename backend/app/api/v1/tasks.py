@@ -318,6 +318,23 @@ def _hash_and_upload_file_object(file_obj, file_key: str, mime_type: str, length
     return digest.hexdigest()
 
 
+async def ensure_task_submission_editable(task: Task, current_user: User) -> None:
+    """Allow supplements unless the release is closed by deadline policy."""
+    if current_user.role != "student":
+        return
+    if task.source_type != "course_task_release" or not task.course_task_release_id:
+        return
+
+    release = await CourseTaskRelease.get(task.course_task_release_id)
+    allow_late_submission = release.allow_late_submission if release else True
+    is_overdue = bool(task.due_date and datetime.utcnow() > task.due_date)
+    if is_overdue and not allow_late_submission:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="任务已截止，教师未开放逾期提交或继续完善",
+        )
+
+
 async def auto_submit_due_course_tasks(project_id: Optional[str] = None) -> int:
     """Mark due course-released tasks as automatically submitted.
 
@@ -595,7 +612,7 @@ async def export_teacher_submissions(
         "小组",
         "任务",
         "状态",
-        "提交时间",
+        "提交/补充时间",
         "逾期截止",
         "成果文件数",
         "成果文件名",
@@ -748,8 +765,7 @@ async def upload_task_artifact(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     if task.source_type != "course_task_release" or not task.course_task_release_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only teacher-released tasks accept artifacts")
-    if task.submission_status == "submitted" and current_user.role == "student":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submitted tasks cannot be modified")
+    await ensure_task_submission_editable(task, current_user)
 
     project = await Project.get(task.project_id)
     if not project:
@@ -862,8 +878,7 @@ async def delete_task_artifact(
     artifact = await TaskSubmissionArtifact.get(artifact_id)
     if not task or not artifact or artifact.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
-    if task.submission_status == "submitted" and current_user.role == "student":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Submitted artifacts cannot be deleted")
+    await ensure_task_submission_editable(task, current_user)
     project = await Project.get(task.project_id)
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -1100,6 +1115,7 @@ async def submit_course_task(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="当前仅组长可以提交小组任务",
         )
+    await ensure_task_submission_editable(task, current_user)
 
     now = datetime.utcnow()
     release = await CourseTaskRelease.get(task.course_task_release_id)

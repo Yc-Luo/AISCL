@@ -117,7 +117,7 @@ class Settings(BaseSettings):
 
     # File Upload
     MAX_FILE_SIZE: int = 52428800  # 50MB
-    MAX_TASK_ARTIFACT_SIZE: int = 314572800  # 300MB
+    MAX_TASK_ARTIFACT_SIZE: int = 52428800  # 50MB
     MAX_PROJECT_STORAGE: int = 5368709120  # 5GB
 
     # Project Limits

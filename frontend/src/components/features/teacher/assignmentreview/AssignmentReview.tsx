@@ -203,7 +203,7 @@ export default function AssignmentReview() {
                   <th className="px-4 py-3">任务</th>
                   <th className="px-4 py-3">状态</th>
                   <th className="px-4 py-3">成果</th>
-                  <th className="px-4 py-3">提交时间</th>
+                  <th className="px-4 py-3">提交/补充时间</th>
                   <th className="px-4 py-3">评审</th>
                   <th className="px-4 py-3 text-right">操作</th>
                 </tr>

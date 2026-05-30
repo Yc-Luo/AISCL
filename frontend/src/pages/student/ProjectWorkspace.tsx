@@ -122,6 +122,7 @@ export default function Main() {
   const [_project, setProject] = useState<Project | null>(null)
   const [experimentVersion, setExperimentVersion] = useState<ExperimentVersion | null>(null)
   const [currentDocumentId, setCurrentDocumentId] = useState<string | undefined>(undefined)
+  const [documentListOpenOnEntry, setDocumentListOpenOnEntry] = useState(true)
   const [workspaceLoading, setWorkspaceLoading] = useState(true)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [workspaceReloadToken, setWorkspaceReloadToken] = useState(0)
@@ -347,7 +348,14 @@ export default function Main() {
   }, [currentDocumentId, setContextDocumentId])
 
   useEffect(() => {
+    if (activeTab === 'document') {
+      setDocumentListOpenOnEntry(true)
+    }
+  }, [activeTab])
+
+  useEffect(() => {
     setCurrentDocumentId(undefined)
+    setDocumentListOpenOnEntry(true)
     setDocumentResolving(false)
     setDocumentResolveError(null)
     previousGuidedStageRef.current = null
@@ -1024,6 +1032,8 @@ export default function Main() {
                         experimentVersion={experimentVersion}
                         initialTaskDocumentId={_project?.initial_task_document_id}
                         onDocumentChange={setCurrentDocumentId}
+                        initialDocumentListOpen={documentListOpenOnEntry}
+                        onDocumentListVisibilityChange={setDocumentListOpenOnEntry}
                       />
                     ) : documentResolving ? (
                       <div className="flex-1 flex items-center justify-center text-gray-400">

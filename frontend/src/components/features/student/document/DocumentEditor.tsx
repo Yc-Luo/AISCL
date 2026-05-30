@@ -48,6 +48,8 @@ interface DocumentEditorProps {
   experimentVersion?: ExperimentVersion | null
   initialTaskDocumentId?: string
   onDocumentChange?: (id: string) => void
+  initialDocumentListOpen?: boolean
+  onDocumentListVisibilityChange?: (open: boolean) => void
 }
 
 function escapeHtml(value: string) {
@@ -76,6 +78,8 @@ export default function DocumentEditor({
   experimentVersion,
   initialTaskDocumentId,
   onDocumentChange,
+  initialDocumentListOpen = false,
+  onDocumentListVisibilityChange,
 }: DocumentEditorProps) {
   const { user } = useAuthStore()
   const currentStage = useContextStore((state) => state.currentStage)
@@ -92,7 +96,7 @@ export default function DocumentEditor({
   const [showToast, setShowToast] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
 
-  const [showDocumentList, setShowDocumentList] = useState(false)
+  const [showDocumentList, setShowDocumentList] = useState(initialDocumentListOpen)
   const [documents, setDocuments] = useState<Document[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const [isListLoading, setIsListLoading] = useState(false)
@@ -116,6 +120,17 @@ export default function DocumentEditor({
   }, [documents, initialTaskDocumentId])
 
   const { addMaterial } = useScrapbookActions(projectId || '')
+
+  const setDocumentListOpen = useCallback((open: boolean) => {
+    setShowDocumentList(open)
+    onDocumentListVisibilityChange?.(open)
+  }, [onDocumentListVisibilityChange])
+
+  useEffect(() => {
+    if (initialDocumentListOpen) {
+      setShowDocumentList(true)
+    }
+  }, [initialDocumentListOpen])
 
   const handleInsertImageFile = useCallback(async (file: File, targetEditor?: TiptapEditor | null) => {
     if (!projectId) {
@@ -598,8 +613,8 @@ export default function DocumentEditor({
           title: newDoc.title,
         }
       })
+      setDocumentListOpen(false)
       onDocumentChange(newDoc.id)
-      setShowDocumentList(false)
       setToastMessage('新文档已创建')
       setShowToast(true)
     } catch (error) {
@@ -626,8 +641,8 @@ export default function DocumentEditor({
       })
     }
     if (onDocumentChange) {
+      setDocumentListOpen(false)
       onDocumentChange(id)
-      setShowDocumentList(false)
     }
   }
 
@@ -878,7 +893,7 @@ export default function DocumentEditor({
                 {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
               </button>
               <button
-                onClick={() => setShowDocumentList(false)}
+                onClick={() => setDocumentListOpen(false)}
                 className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 transition-colors"
                 title="关闭侧边栏"
               >
@@ -956,7 +971,7 @@ export default function DocumentEditor({
             onInsertImageClick={handleOpenImagePicker}
             onSaveToScrapbook={handleSaveToScrapbook}
             onSave={handleSave}
-            onHistoryClick={() => setShowDocumentList(!showDocumentList)}
+            onHistoryClick={() => setDocumentListOpen(!showDocumentList)}
             isImageUploading={isImageUploading}
           />
         )}

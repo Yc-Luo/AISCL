@@ -41,9 +41,20 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 MASKED_SECRET_VALUE = "********"
 SECRET_CONFIG_KEYS = {
     "llm_key",
+    "llm_key_pool",
     "embedding_key",
     "web_search_key",
     "mineru_api_token",
+}
+
+ALLOWED_LLM_ROLE_KEYS = {
+    "default_chat",
+    "group_multi_agent",
+    "tutor_multi_agent",
+    "problem_progressor",
+    "evidence_researcher",
+    "viewpoint_challenger",
+    "feedback_prompter",
 }
 
 
@@ -137,6 +148,106 @@ def _merge_custom_model_secret_keys(next_value: str, current_value: Optional[str
     return json.dumps(merged, ensure_ascii=False)
 
 
+def _validate_custom_models(value: str) -> None:
+    """Validate the admin-managed model pool shape."""
+    try:
+        models = json.loads(value)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_custom_models must be a valid JSON array",
+        ) from exc
+    if not isinstance(models, list):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_custom_models must be a JSON array",
+        )
+
+    seen_ids: set[str] = set()
+    for index, item in enumerate(models):
+        if not isinstance(item, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model item #{index + 1} must be an object",
+            )
+        model_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        provider = str(item.get("provider") or "openai_compatible").strip()
+        base_url = str(item.get("base_url") or item.get("url") or item.get("api_base") or "").strip()
+        if not model_id or not name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model item #{index + 1} requires id and name",
+            )
+        if model_id in seen_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Duplicate model id: {model_id}",
+            )
+        seen_ids.add(model_id)
+        if provider != "ollama" and not base_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model {model_id} requires base_url",
+            )
+
+
+def _validate_role_model_map(value: str) -> None:
+    if not value.strip():
+        return
+    try:
+        role_map = json.loads(value)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="llm_role_model_map must be a valid JSON object",
+        ) from exc
+    if not isinstance(role_map, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="llm_role_model_map must be a JSON object",
+        )
+    invalid_roles = [role for role in role_map if role not in ALLOWED_LLM_ROLE_KEYS]
+    if invalid_roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported role model binding keys: {', '.join(invalid_roles)}",
+        )
+    for role, model_id in role_map.items():
+        if model_id is not None and not isinstance(model_id, str):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Role binding {role} must be a model id string",
+            )
+
+
+def _validate_positive_int_config(key: str, value: str, *, minimum: int, maximum: int) -> None:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{key} must be an integer",
+        ) from exc
+    if parsed < minimum or parsed > maximum:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{key} must be between {minimum} and {maximum}",
+        )
+
+
+def _validate_system_config_value(key: str, value: str) -> None:
+    """Validate high-risk runtime config before persisting it."""
+    if key == "user_custom_models":
+        _validate_custom_models(value)
+    elif key == "llm_role_model_map":
+        _validate_role_model_map(value)
+    elif key == "llm_max_concurrent_requests":
+        _validate_positive_int_config(key, value, minimum=1, maximum=64)
+    elif key == "llm_key_cooldown_seconds":
+        _validate_positive_int_config(key, value, minimum=1, maximum=3600)
+
+
 async def _get_config_map(keys: List[str]) -> Dict[str, Optional[str]]:
     """Read selected system config values."""
     result: Dict[str, Optional[str]] = {}
@@ -193,6 +304,8 @@ async def update_system_config(
         next_value = config.value
     if config and key == "user_custom_models":
         next_value = _merge_custom_model_secret_keys(next_value, config.value)
+
+    _validate_system_config_value(key, next_value)
 
     if not config:
         config = SystemConfig(

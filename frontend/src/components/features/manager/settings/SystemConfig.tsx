@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
     Settings,
     Key,
@@ -20,7 +20,7 @@ import {
     FileSearch
 } from 'lucide-react'
 import { Button, Input } from '../../../ui'
-import { adminService } from '../../../../services/api/admin'
+import { adminService, ModelConfigTestResult } from '../../../../services/api/admin'
 import {
     Dialog,
     DialogContent,
@@ -29,6 +29,80 @@ import {
     DialogDescription,
     DialogFooter
 } from '../../../ui/dialog'
+
+type CustomModelConfig = {
+    id: string
+    name: string
+    provider: string
+    url: string
+    key: string
+    usage?: string
+}
+
+type RoleModelAssignments = Record<string, string>
+
+const MASKED_SECRET_VALUE = '********'
+
+const ROLE_BINDINGS = [
+    { key: 'default_chat', label: '默认聊天模型', hint: '对照组/普通 AI 对话使用' },
+    { key: 'group_multi_agent', label: '小组多智能体默认模型', hint: '小组聊天 @AI 时的默认模型' },
+    { key: 'tutor_multi_agent', label: 'AI 导师模型', hint: '学生个人 AI 对话使用' },
+    { key: 'problem_progressor', label: '问题推进者', hint: '澄清焦点、切分下一步' },
+    { key: 'evidence_researcher', label: '资料研究员', hint: '资料线索、证据标准、来源判断' },
+    { key: 'viewpoint_challenger', label: '观点挑战者', hint: '反例、替代解释、逻辑漏洞' },
+    { key: 'feedback_prompter', label: '反馈追问者', hint: '依据、表达、推理链、修订方向' },
+]
+
+const safeJsonParse = <T,>(value: string, fallback: T): T => {
+    try {
+        return JSON.parse(value) as T
+    } catch {
+        return fallback
+    }
+}
+
+const DEFAULT_CONFIG_VALUES = {
+    llmProvider: 'openai_compatible',
+    llmKey: '',
+    llmKeyPool: '',
+    llmBaseUrl: 'https://api.minimaxi.com/v1',
+    llmModel: 'gpt-4o',
+    llmMaxConcurrentRequests: '8',
+    llmKeyCooldownSeconds: '60',
+    llmRoleModelMap: '{}',
+    embeddingProvider: 'minimax',
+    embeddingKey: '',
+    embeddingBaseUrl: 'https://api.minimax.chat/v1/embeddings',
+    embeddingModel: 'embo-01',
+    embeddingType: 'db',
+    embeddingGroupId: '',
+    embeddingDimensions: '',
+    webSearchEnabled: 'false',
+    webSearchProvider: 'searxng',
+    webSearchKey: '',
+    webSearchBaseUrl: '',
+    webSearchMaxResults: '3',
+    documentParseProvider: 'none',
+    mineruApiToken: '',
+    mineruBaseUrl: 'https://mineru.net',
+    mineruModelVersion: 'vlm',
+    mineruEnableTable: 'true',
+    mineruEnableFormula: 'true',
+    mineruIsOcr: 'false',
+    mineruLanguage: 'ch',
+    storageQuota: 5,
+    fileLimit: 50,
+    memberLimit: 5,
+    dataRetention: 365,
+    modelPricing: '{}',
+}
+
+type ConfigValues = typeof DEFAULT_CONFIG_VALUES
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+    const possible = error as { response?: { data?: { detail?: string } }; message?: string }
+    return possible.response?.data?.detail || possible.message || fallback
+}
 
 export default function SystemConfig() {
     const [isLoading, setIsLoading] = useState(true)
@@ -41,51 +115,24 @@ export default function SystemConfig() {
     const [isTestingEmbedding, setIsTestingEmbedding] = useState(false)
     const [isTestingWebSearch, setIsTestingWebSearch] = useState(false)
     const [isTestingDocumentParse, setIsTestingDocumentParse] = useState(false)
-    const [llmTestResult, setLlmTestResult] = useState<any>(null)
-    const [embeddingTestResult, setEmbeddingTestResult] = useState<any>(null)
-    const [webSearchTestResult, setWebSearchTestResult] = useState<any>(null)
-    const [documentParseTestResult, setDocumentParseTestResult] = useState<any>(null)
+    const [llmTestResult, setLlmTestResult] = useState<ModelConfigTestResult | null>(null)
+    const [embeddingTestResult, setEmbeddingTestResult] = useState<ModelConfigTestResult | null>(null)
+    const [webSearchTestResult, setWebSearchTestResult] = useState<ModelConfigTestResult | null>(null)
+    const [documentParseTestResult, setDocumentParseTestResult] = useState<ModelConfigTestResult | null>(null)
 
     // Mapping keys to local state for easier UI handling
-    const [configValues, setConfigValues] = useState({
-        llmProvider: 'openai_compatible',
-        llmKey: '',
-        llmBaseUrl: 'https://api.minimaxi.com/v1',
-        llmModel: 'gpt-4o',
-        embeddingProvider: 'minimax',
-        embeddingKey: '',
-        embeddingBaseUrl: 'https://api.minimax.chat/v1/embeddings',
-        embeddingModel: 'embo-01',
-        embeddingType: 'db',
-        embeddingGroupId: '',
-        embeddingDimensions: '',
-        webSearchEnabled: 'false',
-        webSearchProvider: 'searxng',
-        webSearchKey: '',
-        webSearchBaseUrl: '',
-        webSearchMaxResults: '3',
-        documentParseProvider: 'none',
-        mineruApiToken: '',
-        mineruBaseUrl: 'https://mineru.net',
-        mineruModelVersion: 'vlm',
-        mineruEnableTable: 'true',
-        mineruEnableFormula: 'true',
-        mineruIsOcr: 'false',
-        mineruLanguage: 'ch',
-        storageQuota: 5,
-        fileLimit: 50,
-        memberLimit: 5,
-        dataRetention: 365,
-        modelPricing: '{}'
-    })
+    const [configValues, setConfigValues] = useState<ConfigValues>({ ...DEFAULT_CONFIG_VALUES })
 
-    const [customModels, setCustomModels] = useState<any[]>([])
+    const [customModels, setCustomModels] = useState<CustomModelConfig[]>([])
+    const [roleModelAssignments, setRoleModelAssignments] = useState<RoleModelAssignments>({})
     const [isModelModalOpen, setIsModelModalOpen] = useState(false)
-    const [tempModel, setTempModel] = useState({
+    const [tempModel, setTempModel] = useState<CustomModelConfig>({
         id: '',
         name: '',
+        provider: 'openai_compatible',
         url: '',
-        key: ''
+        key: '',
+        usage: 'general',
     })
 
     const [notice, setNotice] = useState<{
@@ -100,22 +147,25 @@ export default function SystemConfig() {
         type: 'success'
     })
 
-    useEffect(() => {
-        fetchConfigs()
-    }, [])
-
-    const fetchConfigs = async () => {
+    const fetchConfigs = useCallback(async () => {
         try {
             setIsLoading(true)
             const data = await adminService.getConfigs()
 
             // Sync data to state
-            const newValues = { ...configValues }
+            const newValues = { ...DEFAULT_CONFIG_VALUES }
             data.forEach(c => {
                 if (c.key === 'llm_provider') newValues.llmProvider = c.value
                 if (c.key === 'llm_key') newValues.llmKey = c.value
+                if (c.key === 'llm_key_pool') newValues.llmKeyPool = c.value
                 if (c.key === 'llm_base_url') newValues.llmBaseUrl = c.value
                 if (c.key === 'llm_model') newValues.llmModel = c.value
+                if (c.key === 'llm_max_concurrent_requests') newValues.llmMaxConcurrentRequests = c.value
+                if (c.key === 'llm_key_cooldown_seconds') newValues.llmKeyCooldownSeconds = c.value
+                if (c.key === 'llm_role_model_map') {
+                    newValues.llmRoleModelMap = c.value || '{}'
+                    setRoleModelAssignments(safeJsonParse<RoleModelAssignments>(c.value || '{}', {}))
+                }
                 if (c.key === 'embedding_provider') newValues.embeddingProvider = c.value
                 if (c.key === 'embedding_key') newValues.embeddingKey = c.value
                 if (c.key === 'embedding_base_url') newValues.embeddingBaseUrl = c.value
@@ -155,9 +205,13 @@ export default function SystemConfig() {
         } finally {
             setIsLoading(false)
         }
-    }
+    }, [])
 
-    const handleChange = (field: string, value: any) => {
+    useEffect(() => {
+        fetchConfigs()
+    }, [fetchConfigs])
+
+    const handleChange = <K extends keyof ConfigValues>(field: K, value: ConfigValues[K]) => {
         setConfigValues(prev => ({ ...prev, [field]: value }))
     }
 
@@ -165,7 +219,66 @@ export default function SystemConfig() {
         return typeof value === 'string' && value.trim().length > 0
     }
 
-    const formatTestSummary = (result: any) => {
+    const getEffectiveRoleModelMap = () => {
+        const cleanEntries = Object.entries(roleModelAssignments)
+            .filter(([, modelId]) => modelId && modelId !== 'follow_system_default')
+        return Object.fromEntries(cleanEntries)
+    }
+
+    const getModelOptions = () => {
+        const base = [
+            { id: 'follow_system_default', name: '跟随系统默认模型' },
+            { id: configValues.llmModel, name: `系统默认：${configValues.llmModel}` },
+        ].filter((item, index, array) => item.id && array.findIndex((next) => next.id === item.id) === index)
+        const custom = customModels.map((model) => ({ id: model.id, name: model.name || model.id }))
+        return [...base, ...custom]
+    }
+
+    const validateRuntimeConfig = () => {
+        const concurrent = Number(configValues.llmMaxConcurrentRequests)
+        const cooldown = Number(configValues.llmKeyCooldownSeconds)
+        if (!Number.isInteger(concurrent) || concurrent < 1 || concurrent > 64) {
+            return 'LLM 并发数需要是 1-64 之间的整数。'
+        }
+        if (!Number.isInteger(cooldown) || cooldown < 1 || cooldown > 3600) {
+            return 'API Key 冷却时间需要是 1-3600 秒之间的整数。'
+        }
+        const ids = new Set<string>()
+        for (const model of customModels) {
+            if (!model.id.trim() || !model.name.trim()) return '模型池中的每个模型都需要填写名称和模型 ID。'
+            if (ids.has(model.id.trim())) return `模型 ID 重复：${model.id}`
+            ids.add(model.id.trim())
+            if (model.provider !== 'ollama' && !model.url.trim()) return `模型 ${model.name || model.id} 需要填写 Base URL。`
+            if (!model.key.trim() && model.key !== MASKED_SECRET_VALUE && model.provider !== 'ollama') return `模型 ${model.name || model.id} 需要填写 API Key。`
+        }
+        return null
+    }
+
+    const buildLLMConfigUpdates = () => {
+        const roleMap = getEffectiveRoleModelMap()
+        const normalizedModels = customModels.map((model) => ({
+            id: model.id.trim(),
+            name: model.name.trim(),
+            provider: model.provider.trim() || 'openai_compatible',
+            url: model.url.trim(),
+            base_url: model.url.trim(),
+            key: model.key,
+            usage: model.usage || 'general',
+        }))
+        return [
+            adminService.updateConfig('llm_provider', configValues.llmProvider, 'LLM provider type'),
+            adminService.updateConfig('llm_key', configValues.llmKey, 'LLM API Authorization Key'),
+            adminService.updateConfig('llm_key_pool', configValues.llmKeyPool, 'Comma-separated LLM API key pool'),
+            adminService.updateConfig('llm_base_url', configValues.llmBaseUrl, 'LLM API base URL'),
+            adminService.updateConfig('llm_model', configValues.llmModel, 'Default LLM model'),
+            adminService.updateConfig('llm_max_concurrent_requests', configValues.llmMaxConcurrentRequests, 'Max concurrent LLM calls per backend process'),
+            adminService.updateConfig('llm_key_cooldown_seconds', configValues.llmKeyCooldownSeconds, 'Cooldown seconds for failed or rate-limited LLM API keys'),
+            adminService.updateConfig('llm_role_model_map', JSON.stringify(roleMap), 'Role-specific LLM model binding map'),
+            adminService.updateConfig('user_custom_models', JSON.stringify(normalizedModels), 'User defined LLM models'),
+        ]
+    }
+
+    const formatTestSummary = (result: ModelConfigTestResult) => {
         if (!result) return ''
         if (result.success) {
             if (result.service === 'embedding') {
@@ -182,7 +295,7 @@ export default function SystemConfig() {
         return `测试失败：${result.error || '未知错误'}`
     }
 
-    const renderTestResult = (result: any) => {
+    const renderTestResult = (result: ModelConfigTestResult | null) => {
         if (!result) return null
         return (
             <div className={`rounded-xl border p-3 text-xs leading-relaxed ${result.success
@@ -203,25 +316,24 @@ export default function SystemConfig() {
     }
 
     const handleTestLLM = async () => {
+        const validationError = validateRuntimeConfig()
+        if (validationError) {
+            setLlmTestResult({ success: false, service: 'llm', error: validationError })
+            return
+        }
         try {
             setIsTestingLLM(true)
             setIsSavingLLM(true)
             setLlmTestResult(null)
-            await Promise.all([
-                adminService.updateConfig('llm_provider', configValues.llmProvider, 'LLM provider type'),
-                adminService.updateConfig('llm_key', configValues.llmKey, 'LLM API Authorization Key'),
-                adminService.updateConfig('llm_base_url', configValues.llmBaseUrl, 'LLM API base URL'),
-                adminService.updateConfig('llm_model', configValues.llmModel, 'Default LLM model'),
-                adminService.updateConfig('user_custom_models', JSON.stringify(customModels), 'User defined LLM models'),
-            ])
+            await Promise.all(buildLLMConfigUpdates())
             const result = await adminService.testLLMConfig()
             setLlmTestResult(result)
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Failed to test LLM config:', error)
             setLlmTestResult({
                 success: false,
                 service: 'llm',
-                error: error?.response?.data?.detail || error?.message || '请求测试接口失败'
+                error: getErrorMessage(error, '请求测试接口失败')
             })
         } finally {
             setIsTestingLLM(false)
@@ -245,12 +357,12 @@ export default function SystemConfig() {
             ])
             const result = await adminService.testEmbeddingConfig()
             setEmbeddingTestResult(result)
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Failed to test embedding config:', error)
             setEmbeddingTestResult({
                 success: false,
                 service: 'embedding',
-                error: error?.response?.data?.detail || error?.message || '请求测试接口失败'
+                error: getErrorMessage(error, '请求测试接口失败')
             })
         } finally {
             setIsTestingEmbedding(false)
@@ -272,12 +384,12 @@ export default function SystemConfig() {
             ])
             const result = await adminService.testWebSearchConfig()
             setWebSearchTestResult(result)
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Failed to test web search config:', error)
             setWebSearchTestResult({
                 success: false,
                 service: 'web_search',
-                error: error?.response?.data?.detail || error?.message || '请求测试接口失败'
+                error: getErrorMessage(error, '请求测试接口失败')
             })
         } finally {
             setIsTestingWebSearch(false)
@@ -302,12 +414,12 @@ export default function SystemConfig() {
             ])
             const result = await adminService.testDocumentParseConfig()
             setDocumentParseTestResult(result)
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Failed to test document parser config:', error)
             setDocumentParseTestResult({
                 success: false,
                 service: 'document_parse',
-                error: error?.response?.data?.detail || error?.message || '请求测试接口失败'
+                error: getErrorMessage(error, '请求测试接口失败')
             })
         } finally {
             setIsTestingDocumentParse(false)
@@ -316,13 +428,20 @@ export default function SystemConfig() {
     }
 
     const handleSave = async () => {
+        const validationError = validateRuntimeConfig()
+        if (validationError) {
+            setNotice({
+                isOpen: true,
+                title: '配置校验未通过',
+                message: validationError,
+                type: 'error'
+            })
+            return
+        }
         try {
             setIsSaving(true)
             await Promise.all([
-                adminService.updateConfig('llm_provider', configValues.llmProvider, 'LLM provider type'),
-                adminService.updateConfig('llm_key', configValues.llmKey, 'LLM API Authorization Key'),
-                adminService.updateConfig('llm_base_url', configValues.llmBaseUrl, 'LLM API base URL'),
-                adminService.updateConfig('llm_model', configValues.llmModel, 'Default LLM model'),
+                ...buildLLMConfigUpdates(),
                 adminService.updateConfig('embedding_provider', configValues.embeddingProvider, 'Embedding provider type for RAG and Wiki retrieval'),
                 adminService.updateConfig('embedding_key', configValues.embeddingKey, 'Embedding API Authorization Key'),
                 adminService.updateConfig('embedding_base_url', configValues.embeddingBaseUrl, 'Embedding API base URL'),
@@ -348,7 +467,6 @@ export default function SystemConfig() {
                 adminService.updateConfig('member_limit', String(configValues.memberLimit), 'Max members per project'),
                 adminService.updateConfig('data_retention', String(configValues.dataRetention), 'Data retention period in days'),
                 adminService.updateConfig('model_pricing', configValues.modelPricing, 'Model input/output token pricing map'),
-                adminService.updateConfig('user_custom_models', JSON.stringify(customModels), 'User defined LLM models')
             ])
             setNotice({
                 isOpen: true,
@@ -370,19 +488,23 @@ export default function SystemConfig() {
     }
 
     const handleSaveLLM = async () => {
+        const validationError = validateRuntimeConfig()
+        if (validationError) {
+            setNotice({
+                isOpen: true,
+                title: '模型配置校验未通过',
+                message: validationError,
+                type: 'error'
+            })
+            return
+        }
         try {
             setIsSavingLLM(true)
-            await Promise.all([
-                adminService.updateConfig('llm_provider', configValues.llmProvider, 'LLM provider type'),
-                adminService.updateConfig('llm_key', configValues.llmKey, 'LLM API Authorization Key'),
-                adminService.updateConfig('llm_base_url', configValues.llmBaseUrl, 'LLM API base URL'),
-                adminService.updateConfig('llm_model', configValues.llmModel, 'Default LLM model'),
-                adminService.updateConfig('user_custom_models', JSON.stringify(customModels), 'User defined LLM models'),
-            ])
+            await Promise.all(buildLLMConfigUpdates())
             setNotice({
                 isOpen: true,
                 title: '模型参数已同步',
-                message: '大模型 Provider、Base URL、模型 ID 与 API Key 已保存。后端启用数据库配置模式后会立即按新配置调用。',
+                message: '模型池、角色绑定、API Key 池和运行时策略已保存。后端启用数据库配置模式后会立即按新配置调用。',
                 type: 'success'
             })
         } catch (error) {
@@ -491,17 +613,28 @@ export default function SystemConfig() {
     }
 
     const handleAddCustomModel = () => {
-        if (!tempModel.id || !tempModel.name || !tempModel.url || !tempModel.key) {
-            alert('请完整填写所有必填字段')
+        if (!tempModel.id.trim() || !tempModel.name.trim() || (tempModel.provider !== 'ollama' && (!tempModel.url.trim() || !tempModel.key.trim()))) {
+            alert('请完整填写模型名称、模型 ID、Base URL 和 API Key')
             return
         }
-        setCustomModels([...customModels, { ...tempModel }])
-        setTempModel({ id: '', name: '', url: '', key: '' })
+        if (customModels.some((model) => model.id === tempModel.id.trim())) {
+            alert('模型 ID 已存在，请使用唯一 ID')
+            return
+        }
+        setCustomModels([...customModels, { ...tempModel, id: tempModel.id.trim(), name: tempModel.name.trim(), url: tempModel.url.trim() }])
+        setTempModel({ id: '', name: '', provider: 'openai_compatible', url: '', key: '', usage: 'general' })
         setIsModelModalOpen(false)
     }
 
     const removeCustomModel = (id: string) => {
         setCustomModels(customModels.filter(m => m.id !== id))
+        setRoleModelAssignments((previous) => {
+            const next = { ...previous }
+            Object.entries(next).forEach(([roleKey, modelId]) => {
+                if (modelId === id) delete next[roleKey]
+            })
+            return next
+        })
     }
 
     if (isLoading) {
@@ -611,6 +744,22 @@ export default function SystemConfig() {
 
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Key className="w-4 h-4 text-slate-400" />
+                                API Key 池（可选）
+                            </label>
+                            <textarea
+                                className="min-h-[86px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                                value={configValues.llmKeyPool}
+                                onChange={(e) => handleChange('llmKeyPool', e.target.value)}
+                                placeholder="多个 Key 用英文逗号或换行分隔；已配置时会显示为遮罩"
+                            />
+                            <p className="text-xs text-slate-400 leading-relaxed">
+                                后端会按 Key 轮询调用；遇到限流、超时或 5xx 时，该 Key 会短暂冷却后再使用。
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                                 <Globe className="w-4 h-4 text-slate-400" />
                                 API Base URL
                             </label>
@@ -637,6 +786,74 @@ export default function SystemConfig() {
                             <p className="text-xs text-slate-400 leading-relaxed">
                                 按服务商控制台显示的模型 ID 原样填写。已配置时输入框会加载当前模型 ID。
                             </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <Cpu className="w-4 h-4 text-slate-400" />
+                                    全局 LLM 并发
+                                </label>
+                                <Input
+                                    type="number"
+                                    min="1"
+                                    max="64"
+                                    value={configValues.llmMaxConcurrentRequests}
+                                    onChange={(e) => handleChange('llmMaxConcurrentRequests', e.target.value)}
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    每个后端进程同时调用模型的上限。2 个班建议先用 8-12，配置多个 Key 后可再提高。
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <History className="w-4 h-4 text-slate-400" />
+                                    Key 冷却秒数
+                                </label>
+                                <Input
+                                    type="number"
+                                    min="1"
+                                    max="3600"
+                                    value={configValues.llmKeyCooldownSeconds}
+                                    onChange={(e) => handleChange('llmKeyCooldownSeconds', e.target.value)}
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    某个 Key 限流或超时后暂停使用的时间，默认 60 秒。
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <div>
+                                <p className="text-sm font-bold text-slate-800">角色模型分配</p>
+                                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                                    先在下方模型池添加模型，再按角色选择。未选择的角色跟随系统默认模型。
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3">
+                                {ROLE_BINDINGS.map((role) => (
+                                    <div key={role.key} className="grid grid-cols-[140px_1fr] items-center gap-3">
+                                        <div>
+                                            <p className="text-xs font-bold text-slate-700">{role.label}</p>
+                                            <p className="text-[11px] leading-4 text-slate-400">{role.hint}</p>
+                                        </div>
+                                        <select
+                                            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                                            value={roleModelAssignments[role.key] || 'follow_system_default'}
+                                            onChange={(event) => setRoleModelAssignments((previous) => ({
+                                                ...previous,
+                                                [role.key]: event.target.value,
+                                            }))}
+                                        >
+                                            {getModelOptions().map((model) => (
+                                                <option key={`${role.key}-${model.id}`} value={model.id}>
+                                                    {model.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
 
                         <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 text-xs text-indigo-900 space-y-2">
@@ -1031,7 +1248,7 @@ export default function SystemConfig() {
                     <div className="flex justify-between items-center border-b border-gray-50 pb-4">
                         <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                             <ModelIcon className="w-5 h-5 text-indigo-600" />
-                            自定义模型广场
+                            LLM 模型池
                         </h3>
                         <Button
                             variant="outline"
@@ -1047,7 +1264,7 @@ export default function SystemConfig() {
                     <div className="space-y-3 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar">
                         {customModels.length === 0 ? (
                             <div className="py-8 text-center border-2 border-dashed border-slate-50 rounded-xl">
-                                <p className="text-xs text-slate-400 font-medium">暂无自定义模型，点击上方按钮添加</p>
+                                <p className="text-xs text-slate-400 font-medium">暂无模型池配置，点击上方按钮添加</p>
                             </div>
                         ) : (
                             customModels.map((m) => (
@@ -1058,7 +1275,10 @@ export default function SystemConfig() {
                                         </div>
                                         <div>
                                             <p className="text-sm font-bold text-slate-700">{m.name}</p>
-                                            <p className="text-[10px] text-slate-400 font-mono truncate max-w-[150px] uppercase">ID: {m.id}</p>
+                                            <p className="text-[10px] text-slate-400 font-mono truncate max-w-[220px]">ID: {m.id}</p>
+                                            <p className="text-[10px] text-slate-400 truncate max-w-[220px]">
+                                                {m.provider || 'openai_compatible'} · {m.usage || 'general'} · {m.url || '本地/默认地址'}
+                                            </p>
                                         </div>
                                     </div>
                                     <button
@@ -1199,7 +1419,7 @@ export default function SystemConfig() {
                 <DialogContent className="max-w-md p-6 bg-white border-none shadow-2xl rounded-3xl">
                     <DialogHeader className="space-y-1 mb-4 text-left sm:text-left">
                         <DialogTitle className="text-xl font-bold text-slate-800">添加自定义模型</DialogTitle>
-                        <DialogDescription className="text-slate-500">输入 OpenAI 兼容接口的模型配置</DialogDescription>
+                        <DialogDescription className="text-slate-500">输入模型池配置，保存后可分配给不同智能体角色</DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
@@ -1214,9 +1434,18 @@ export default function SystemConfig() {
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">模型标识符 (ID)</label>
                             <Input
-                                placeholder="如：glm-4"
+                                placeholder="如：deepseek-chat、MiniMax-M2.7、Qwen/Qwen3-235B-A22B-Instruct-2507"
                                 value={tempModel.id}
                                 onChange={(e) => setTempModel({ ...tempModel, id: e.target.value })}
+                            />
+                            <p className="text-[11px] text-slate-400">这里填写服务商真实模型 ID，角色分配时也使用这个 ID。</p>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Provider</label>
+                            <Input
+                                placeholder="openai_compatible、deepseek、openai、ollama"
+                                value={tempModel.provider}
+                                onChange={(e) => setTempModel({ ...tempModel, provider: e.target.value })}
                             />
                         </div>
                         <div className="space-y-2">
@@ -1234,6 +1463,14 @@ export default function SystemConfig() {
                                 placeholder="sk-..."
                                 value={tempModel.key}
                                 onChange={(e) => setTempModel({ ...tempModel, key: e.target.value })}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">用途标签</label>
+                            <Input
+                                placeholder="fast、reasoning、long-context、stable"
+                                value={tempModel.usage || ''}
+                                onChange={(e) => setTempModel({ ...tempModel, usage: e.target.value })}
                             />
                         </div>
                     </div>

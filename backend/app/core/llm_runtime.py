@@ -14,19 +14,51 @@ from app.core.config import settings
 T = TypeVar("T")
 
 _global_semaphore: Optional[asyncio.Semaphore] = None
+_global_semaphore_limit: Optional[int] = None
 _group_locks: Dict[str, asyncio.Lock] = {}
 _key_cursor: Dict[str, int] = defaultdict(int)
 _key_cooldowns: Dict[str, float] = {}
+_runtime_cache: Dict[str, Any] = {"expires_at": 0.0}
 
 
 def _max_concurrency() -> int:
     return max(1, int(getattr(settings, "LLM_MAX_CONCURRENT_REQUESTS", 8) or 8))
 
 
-def _get_global_semaphore() -> asyncio.Semaphore:
-    global _global_semaphore
-    if _global_semaphore is None:
-        _global_semaphore = asyncio.Semaphore(_max_concurrency())
+async def _get_runtime_int_config(key: str, fallback: int, *, minimum: int, maximum: int) -> int:
+    """Read runtime integer config from DB with a short cache."""
+    now = time.monotonic()
+    cached_key = f"int:{key}"
+    if _runtime_cache.get("expires_at", 0.0) > now and cached_key in _runtime_cache:
+        return int(_runtime_cache[cached_key])
+
+    value = fallback
+    try:
+        from app.repositories.system_config import SystemConfig
+
+        config = await SystemConfig.find_one(SystemConfig.key == key)
+        if config and config.value:
+            value = int(config.value)
+    except Exception:
+        value = fallback
+
+    value = max(minimum, min(maximum, value))
+    _runtime_cache[cached_key] = value
+    _runtime_cache["expires_at"] = now + 15
+    return value
+
+
+async def _get_global_semaphore() -> asyncio.Semaphore:
+    global _global_semaphore, _global_semaphore_limit
+    max_concurrency = await _get_runtime_int_config(
+        "llm_max_concurrent_requests",
+        _max_concurrency(),
+        minimum=1,
+        maximum=64,
+    )
+    if _global_semaphore is None or _global_semaphore_limit != max_concurrency:
+        _global_semaphore = asyncio.Semaphore(max_concurrency)
+        _global_semaphore_limit = max_concurrency
     return _global_semaphore
 
 
@@ -79,7 +111,7 @@ def mark_llm_failure(llm: Any, exc: Exception) -> None:
     message = str(exc).lower()
     if not any(token in message for token in ("429", "rate", "limit", "quota", "timeout", "5xx", "500", "502", "503", "504")):
         return
-    cooldown = max(1, int(getattr(settings, "LLM_KEY_COOLDOWN_SECONDS", 60) or 60))
+    cooldown = max(1, int(_runtime_cache.get("int:llm_key_cooldown_seconds") or getattr(settings, "LLM_KEY_COOLDOWN_SECONDS", 60) or 60))
     _key_cooldowns[f"{provider}:{key_fingerprint}"] = time.monotonic() + cooldown
 
 
@@ -96,7 +128,14 @@ def attach_llm_metadata(llm: Any, *, provider: str, api_key: Optional[str], mode
 
 async def guarded_ainvoke(llm: Any, payload: Any) -> Any:
     """Run one non-streaming LLM call under the global concurrency guard."""
-    async with _get_global_semaphore():
+    await _get_runtime_int_config(
+        "llm_key_cooldown_seconds",
+        max(1, int(getattr(settings, "LLM_KEY_COOLDOWN_SECONDS", 60) or 60)),
+        minimum=1,
+        maximum=3600,
+    )
+    semaphore = await _get_global_semaphore()
+    async with semaphore:
         try:
             return await llm.ainvoke(payload)
         except Exception as exc:
@@ -106,7 +145,14 @@ async def guarded_ainvoke(llm: Any, payload: Any) -> Any:
 
 async def guarded_astream(llm: Any, payload: Any) -> AsyncIterator[Any]:
     """Run one streaming LLM call under the global concurrency guard."""
-    async with _get_global_semaphore():
+    await _get_runtime_int_config(
+        "llm_key_cooldown_seconds",
+        max(1, int(getattr(settings, "LLM_KEY_COOLDOWN_SECONDS", 60) or 60)),
+        minimum=1,
+        maximum=3600,
+    )
+    semaphore = await _get_global_semaphore()
+    async with semaphore:
         try:
             async for chunk in llm.astream(payload):
                 yield chunk
@@ -117,7 +163,8 @@ async def guarded_astream(llm: Any, payload: Any) -> AsyncIterator[Any]:
 
 async def guarded_call(factory: Callable[[], Awaitable[T]]) -> T:
     """Run an arbitrary LLM-backed operation under the global concurrency guard."""
-    async with _get_global_semaphore():
+    semaphore = await _get_global_semaphore()
+    async with semaphore:
         return await factory()
 
 

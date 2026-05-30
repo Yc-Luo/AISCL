@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Any
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.core.config import settings
+from app.core.datetime_utils import utc_isoformat
 from app.repositories.analytics_daily_stats import AnalyticsDailyStats
 from app.repositories.dashboard_snapshot import DashboardSnapshot
 from app.core.llm_config import get_llm
@@ -1996,7 +1997,7 @@ JSON Output Format:
             "interaction_network": snapshot.interaction_network,
             "learning_suggestions": snapshot.learning_suggestions if include_feedback else [],
             "summary": snapshot.summary,
-            "last_updated": snapshot.updated_at.isoformat()
+            "last_updated": utc_isoformat(snapshot.updated_at)
         }
 
         end_datetime = datetime.utcnow()
@@ -2171,7 +2172,7 @@ JSON Output Format:
             "project_count": len(valid_snapshots),
             "class_average": class_average,
             "group_deviation": group_deviation,
-            "last_updated": max(last_updated_values).isoformat() if last_updated_values else None,
+            "last_updated": utc_isoformat(max(last_updated_values)) if last_updated_values else None,
         }
 
     @classmethod

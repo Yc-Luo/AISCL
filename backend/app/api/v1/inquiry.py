@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, Field
 
 from app.api.v1.auth import get_current_user
+from app.core.datetime_utils import utc_isoformat
 from app.core.permissions import check_project_member_permission, get_user_role_in_project_sync, can_edit_collaboration
 from app.repositories.project import Project
 from app.repositories.user import User
@@ -55,7 +56,7 @@ async def get_inquiry_snapshot(
         "snapshot_id": str(snapshot.id),
         "data": base64.b64encode(snapshot_data).decode("utf-8"),
         "version": snapshot.snapshot_version,
-        "updated_at": snapshot.created_at.isoformat(),
+        "updated_at": utc_isoformat(snapshot.created_at),
         "updated_by": snapshot.created_by,
     }
 
@@ -114,6 +115,6 @@ async def save_inquiry_snapshot(
         "message": "Saved",
         "snapshot_id": snapshot_id,
         "version": latest.snapshot_version if latest else None,
-        "updated_at": latest.created_at.isoformat() if latest else None,
+        "updated_at": utc_isoformat(latest.created_at) if latest else None,
         "updated_by": latest.created_by if latest else None,
     }

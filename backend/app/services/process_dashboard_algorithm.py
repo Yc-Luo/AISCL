@@ -14,6 +14,8 @@ from html import unescape
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 import re
 
+from app.core.datetime_utils import utc_isoformat
+
 
 ALGORITHM_VERSION = "process_goal_shared_regulation_v2"
 WINDOW_DAYS = 14
@@ -178,7 +180,7 @@ def build_student_process_dashboard(
     return {
         "dashboardTitle": "小组协作学习状态面板",
         "subtitle": "人智协同学习过程与批判性思维发展分析",
-        "updatedAt": now.isoformat(),
+        "updatedAt": utc_isoformat(now),
         "algorithmVersion": ALGORITHM_VERSION,
         "currentStage": current_stage,
         "stages": stages,

@@ -29,6 +29,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.repositories.refresh_token import RefreshToken
 from app.repositories.user import User
 from app.core.config import settings
+from app.core.datetime_utils import utc_isoformat
 from app.core.db.mongodb import mongodb
 from app.core.security import limiter
 from app.core.schemas.auth import (
@@ -95,7 +96,7 @@ def _serialize_user(current_user: User) -> dict:
         "avatar_url": current_user.avatar_url,
         "settings": current_user.settings,
         "is_active": current_user.is_active,
-        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+        "created_at": utc_isoformat(current_user.created_at),
     }
 
 
@@ -193,7 +194,7 @@ async def register(request: Request, register_data: RegisterRequest) -> TokenRes
             "avatar_url": None,
             "settings": user_payload["settings"],
             "is_active": user_payload["is_active"],
-            "created_at": user_payload["created_at"].isoformat(),
+            "created_at": utc_isoformat(user_payload["created_at"]),
         },
     )
 

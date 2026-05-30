@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.core.datetime_utils import utc_isoformat
 from app.core.llm_config import get_llm
 from app.core.llm_runtime import guarded_ainvoke
 from app.repositories.chat_log import ChatLog
@@ -395,7 +396,7 @@ class GroupMemoryService:
             "content": cls.format_memory_for_prompt(memory),
             "memory_id": str(memory.id),
             "version": memory.version,
-            "updated_at": memory.updated_at.isoformat() if memory.updated_at else None,
+            "updated_at": utc_isoformat(memory.updated_at),
         }
 
     @staticmethod
@@ -428,7 +429,7 @@ class GroupMemoryService:
             "content": _format_state_for_prompt(memory.content),
             "memory_id": str(memory.id),
             "version": memory.version,
-            "updated_at": memory.updated_at.isoformat() if memory.updated_at else None,
+            "updated_at": utc_isoformat(memory.updated_at),
         }
 
     @classmethod

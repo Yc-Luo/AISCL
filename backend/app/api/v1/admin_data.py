@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.api.v1.auth import get_current_user
+from app.core.datetime_utils import utc_isoformat
 from app.core.db.mongodb import mongodb
 from app.repositories.activity_log import ActivityLog
 from app.repositories.ai_conversation import AIConversation
@@ -261,11 +262,11 @@ async def export_research_data(
         writer = csv.writer(output)
         writer.writerow(["source", "id", "project_id", "user_id", "type", "content", "timestamp"])
         for item in chat_logs:
-            writer.writerow(["chat", str(item.id), item.project_id, item.user_id, item.message_type, item.content, item.created_at.isoformat()])
+            writer.writerow(["chat", str(item.id), item.project_id, item.user_id, item.message_type, item.content, utc_isoformat(item.created_at)])
         for item in research_events:
-            writer.writerow(["research_event", str(item.id), item.project_id, item.user_id or "", item.event_type, json.dumps(item.payload, ensure_ascii=False), item.event_time.isoformat()])
+            writer.writerow(["research_event", str(item.id), item.project_id, item.user_id or "", item.event_type, json.dumps(item.payload, ensure_ascii=False), utc_isoformat(item.event_time)])
         for item in activity_logs:
-            writer.writerow(["activity_log", str(item.id), item.project_id, item.user_id, item.action, json.dumps(item.metadata or {}, ensure_ascii=False), item.timestamp.isoformat()])
+            writer.writerow(["activity_log", str(item.id), item.project_id, item.user_id, item.action, json.dumps(item.metadata or {}, ensure_ascii=False), utc_isoformat(item.timestamp)])
         output.seek(0)
         filename = f"aiscl_research_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
         return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})

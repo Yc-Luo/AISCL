@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
+from app.core.datetime_utils import utc_isoformat
 from app.repositories.system_config import SystemConfig
 from app.repositories.system_log import SystemLog
 from app.repositories.user import User
@@ -949,7 +950,7 @@ async def export_behavior_logs(
     for log in logs:
         writer.writerow([
             str(log.id),
-            log.timestamp.isoformat(),
+            utc_isoformat(log.timestamp),
             user_map.get(log.user_id, log.user_id),
             log.project_id,
             log.module,

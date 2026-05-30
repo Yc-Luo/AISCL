@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
+from app.core.datetime_utils import utc_isoformat
 from app.core.permissions import check_project_member_permission
 from app.repositories.chat_log import ChatLog
 from app.repositories.project import Project
@@ -492,7 +493,7 @@ async def reply_teacher_help_request(
 
     request_metadata["status"] = "replied"
     request_metadata["replied_by"] = str(current_user.id)
-    request_metadata["replied_at"] = now.isoformat()
+    request_metadata["replied_at"] = utc_isoformat(now)
     request_message.metadata = request_metadata
     await request_message.save()
 
@@ -618,7 +619,7 @@ async def update_teacher_help_request_status(
     metadata = dict(message.metadata or {})
     metadata["status"] = payload.status
     metadata["status_updated_by"] = str(current_user.id)
-    metadata["status_updated_at"] = datetime.utcnow().isoformat()
+    metadata["status_updated_at"] = utc_isoformat(datetime.utcnow())
     message.metadata = metadata
     await message.save()
 

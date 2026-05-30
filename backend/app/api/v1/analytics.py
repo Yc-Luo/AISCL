@@ -7,6 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
+from app.core.datetime_utils import utc_isoformat
 from app.core.permissions import can_manage_project_scope, check_project_member_permission
 from app.repositories.user import User
 from app.core.schemas.analytics import (
@@ -710,7 +711,7 @@ async def export_analytics_data(
 
     return {
         "project_id": project_id,
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": utc_isoformat(datetime.utcnow()),
         "format": format,
         "data": {
             "dashboard": dashboard_data,

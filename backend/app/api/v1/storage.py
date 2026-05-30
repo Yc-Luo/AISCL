@@ -15,6 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.api.v1.auth import get_current_user
 from app.core.config import settings
+from app.core.datetime_utils import utc_isoformat
 from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.core.security import content_disposition_header, sanitize_filename
 from app.repositories.course import Course
@@ -86,11 +87,11 @@ def _serialize_resource(resource: Resource, *, url: Optional[str] = None) -> dic
         "scope": resource.scope,
         "source_type": resource.source_type,
         "uploaded_by": resource.uploaded_by,
-        "uploaded_at": resource.uploaded_at.isoformat(),
+        "uploaded_at": utc_isoformat(resource.uploaded_at),
         "parse_status": getattr(resource, "parse_status", None) or "pending",
         "parse_provider": getattr(resource, "parse_provider", None),
         "parse_error": getattr(resource, "parse_error", None),
-        "parsed_at": resource.parsed_at.isoformat() if getattr(resource, "parsed_at", None) else None,
+        "parsed_at": utc_isoformat(getattr(resource, "parsed_at", None)),
     }
 
 

@@ -6,6 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.auth import get_current_user
+from app.core.datetime_utils import utc_isoformat
 from app.core.permissions import can_edit_project_content, check_project_member_permission
 from app.repositories.calendar_event import CalendarEvent
 from app.repositories.project import Project
@@ -73,12 +74,12 @@ async def get_calendar_events(
                 id=str(e.id),
                 project_id=e.project_id,
                 title=e.title,
-                start_time=e.start_time.isoformat(),
-                end_time=e.end_time.isoformat(),
+                start_time=utc_isoformat(e.start_time) or "",
+                end_time=utc_isoformat(e.end_time) or "",
                 type=e.type,
                 created_by=e.created_by,
                 is_private=e.is_private,
-                created_at=e.created_at.isoformat(),
+                created_at=utc_isoformat(e.created_at) or "",
             )
             for e in events
         ]
@@ -117,12 +118,12 @@ async def create_calendar_event(
         id=str(new_event.id),
         project_id=new_event.project_id,
         title=new_event.title,
-        start_time=new_event.start_time.isoformat(),
-        end_time=new_event.end_time.isoformat(),
+        start_time=utc_isoformat(new_event.start_time) or "",
+        end_time=utc_isoformat(new_event.end_time) or "",
         type=new_event.type,
         created_by=new_event.created_by,
         is_private=new_event.is_private,
-        created_at=new_event.created_at.isoformat(),
+        created_at=utc_isoformat(new_event.created_at) or "",
     )
 
 
@@ -170,12 +171,12 @@ async def update_calendar_event(
         id=str(event.id),
         project_id=event.project_id,
         title=event.title,
-        start_time=event.start_time.isoformat(),
-        end_time=event.end_time.isoformat(),
+        start_time=utc_isoformat(event.start_time) or "",
+        end_time=utc_isoformat(event.end_time) or "",
         type=event.type,
         created_by=event.created_by,
         is_private=event.is_private,
-        created_at=event.created_at.isoformat(),
+        created_at=utc_isoformat(event.created_at) or "",
     )
 
 

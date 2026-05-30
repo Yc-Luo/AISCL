@@ -181,7 +181,7 @@ export default function ProjectManager() {
                             onClick={() => setFilterStatus('completed')}
                             size="sm"
                         >
-                            已完成
+                            已归档
                         </Button>
                     </div>
                 </div>

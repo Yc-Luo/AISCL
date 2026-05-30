@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     BarChart3,
@@ -19,7 +19,7 @@ import { useToast } from '../../../ui/Toast';
 import { courseService, Course } from '../../../../services/api/course';
 import { projectService } from '../../../../services/api/project';
 import { analyticsService } from '../../../../services/api/analytics';
-import { chatService } from '../../../../services/api/chat';
+import { chatService, TeacherHelpRequest } from '../../../../services/api/chat';
 import { Project } from '../../../../types';
 import { trackingService } from '../../../../services/tracking/TrackingService';
 import { formatStageLabel } from '../../../../lib/stageModel';
@@ -28,6 +28,18 @@ import { ChatOperation } from '../../../../types/sync';
 import { usePresenceStore } from '../../../../stores/presenceStore';
 
 type GroupStatus = 'normal' | 'attention' | 'help' | 'inactive';
+type ArchiveFilter = 'all' | 'active' | 'archived';
+type ProjectAnalyticsSnapshot = {
+    four_c?: Record<string, number>;
+    summary?: {
+        activity_breakdown?: Record<string, number>;
+        total_messages?: number | string;
+    };
+    activity_trend?: Array<{
+        date?: string;
+        activity_score?: number | string;
+    }>;
+};
 
 type HelpRequest = {
     id: string;
@@ -54,7 +66,7 @@ type SupportHistoryItem = {
     createdAt: string;
 };
 
-function mapHelpRequest(request: any): HelpRequest {
+function mapHelpRequest(request: TeacherHelpRequest): HelpRequest {
     return {
         id: request.id,
         projectId: request.project_id,
@@ -167,7 +179,8 @@ export default function ProjectMonitor() {
     const [projects, setProjects] = useState<Project[]>([]);
     const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
     const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-    const [projectAnalytics, setProjectAnalytics] = useState<Record<string, any>>({});
+    const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>('all');
+    const [projectAnalytics, setProjectAnalytics] = useState<Record<string, ProjectAnalyticsSnapshot>>({});
     const [loading, setLoading] = useState(true);
     const [analyticsLoading, setAnalyticsLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -194,15 +207,11 @@ export default function ProjectMonitor() {
                     courseService.getCourses(),
                     projectService.getProjects(),
                 ]);
-                const activeProjects = projectsData.projects.filter((project: Project) => !project.is_archived);
-
                 setCourses(coursesData);
-                setProjects(activeProjects);
-                if (!selectedProjectId && activeProjects.length > 0) {
-                    setSelectedProjectId(activeProjects[0].id);
-                }
+                setProjects(projectsData.projects);
+                setSelectedProjectId((current) => current || projectsData.projects[0]?.id || '');
                 const helpRequestGroups = await Promise.all(
-                    activeProjects.map(async (project) => {
+                    projectsData.projects.map(async (project: Project) => {
                         try {
                             const response = await chatService.getTeacherHelpRequests(project.id, 'pending');
                             return response.requests.map(mapHelpRequest);
@@ -263,7 +272,7 @@ export default function ProjectMonitor() {
         }, {});
     }, [helpRequests]);
 
-    const getProjectMetrics = (project: Project) => {
+    const getProjectMetrics = useCallback((project: Project) => {
         const analytics = projectAnalytics[project.id];
         const progressScore = Math.max(0, Math.min(100, Math.round(project.progress || 0)));
         const fourC: Record<string, number> = analytics?.four_c || {
@@ -304,7 +313,7 @@ export default function ProjectMonitor() {
             pendingHelpCount,
             status,
         };
-    };
+    }, [pendingHelpCountByProject, projectAnalytics]);
 
     const filteredProjects = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
@@ -319,9 +328,13 @@ export default function ProjectMonitor() {
                 || (project.description || '').toLowerCase().includes(query);
             const metrics = getProjectMetrics(project);
             const matchesAttention = !onlyNeedsAttention || metrics.status !== 'normal';
-            return matchesCourse && matchesSearch && matchesAttention;
+            const matchesArchive =
+                archiveFilter === 'all'
+                || (archiveFilter === 'active' && !project.is_archived)
+                || (archiveFilter === 'archived' && project.is_archived);
+            return matchesCourse && matchesSearch && matchesAttention && matchesArchive;
         });
-    }, [onlyNeedsAttention, projectAnalytics, projects, searchQuery, selectedCourseId]);
+    }, [archiveFilter, getProjectMetrics, onlyNeedsAttention, projects, searchQuery, selectedCourseId]);
 
     const groupedProjects = useMemo(() => {
         const groups = courses.map((course) => ({
@@ -368,21 +381,24 @@ export default function ProjectMonitor() {
             )
         ).length
         : 0;
+    const selectedProjectTrackingId = selectedProject?.id;
+    const selectedProjectCourseId = selectedProject?.course_id;
+    const selectedPendingHelpCount = selectedHelpRequests.length;
 
     useEffect(() => {
-        if (!selectedProject) return;
+        if (!selectedProjectTrackingId) return;
         trackingService.trackResearchEvent({
-            project_id: selectedProject.id,
+            project_id: selectedProjectTrackingId,
             actor_type: 'teacher',
             event_domain: 'dialogue',
             event_type: dashboardViewTrackedRef.current ? 'teacher_observation_open' : 'teacher_dashboard_view',
             payload: {
-                course_id: selectedProject.course_id,
-                pending_help_count: selectedHelpRequests.length,
+                course_id: selectedProjectCourseId,
+                pending_help_count: selectedPendingHelpCount,
             },
         });
         dashboardViewTrackedRef.current = true;
-    }, [selectedProject?.id]);
+    }, [selectedPendingHelpCount, selectedProjectCourseId, selectedProjectTrackingId]);
 
     useEffect(() => {
         if (!selectedProject?.id) return;
@@ -598,6 +614,25 @@ export default function ProjectMonitor() {
                                     ))}
                                     <option value={UNASSIGNED_COURSE_ID}>未绑定班级</option>
                                 </select>
+                                <div className="grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1 text-xs font-semibold">
+                                    {([
+                                        ['all', '全部'],
+                                        ['active', '进行中'],
+                                        ['archived', '已归档'],
+                                    ] as const).map(([value, label]) => (
+                                        <button
+                                            key={value}
+                                            type="button"
+                                            onClick={() => setArchiveFilter(value)}
+                                            className={`rounded-md px-2 py-1.5 transition ${archiveFilter === value
+                                                ? 'bg-white text-indigo-700 shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-900'
+                                                }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
                                 <button
                                     type="button"
                                     onClick={() => setOnlyNeedsAttention((value) => !value)}
@@ -647,6 +682,11 @@ export default function ProjectMonitor() {
                                                                 <div className="flex items-center gap-2">
                                                                     <span className={`h-2 w-2 shrink-0 rounded-full ${statusMeta.dot}`} />
                                                                     <p className="truncate text-sm font-semibold text-slate-900">{project.name}</p>
+                                                                    {project.is_archived ? (
+                                                                        <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                                                                            已归档
+                                                                        </span>
+                                                                    ) : null}
                                                                 </div>
                                                                 <p className="mt-1 text-xs text-slate-500">
                                                                     {getLearningMemberCount(project)} 人 · {formatDateTime(project.updated_at)}
@@ -682,6 +722,11 @@ export default function ProjectMonitor() {
                                             <Badge className={getStatusMeta(selectedMetrics.status).badge}>
                                                 {getStatusMeta(selectedMetrics.status).label}
                                             </Badge>
+                                            {selectedProject.is_archived ? (
+                                                <Badge className="border-slate-200 bg-slate-100 text-slate-600">
+                                                    已归档
+                                                </Badge>
+                                            ) : null}
                                         </div>
                                         <p className="mt-2 text-sm text-slate-500">
                                             {getCourseLabel(selectedCourse)} · {getLearningMemberCount(selectedProject)} 名成员 · {onlineLearningCount} 在线 · 最近活动 {formatDateTime(selectedProject.updated_at)}
@@ -758,7 +803,7 @@ export default function ProjectMonitor() {
                                     <h3 className="text-base font-bold text-slate-900">最近活动趋势</h3>
                                     <p className="mt-1 text-xs text-slate-500">用于判断是否需要教师低频介入</p>
                                     <div className="mt-4 flex h-28 items-end gap-2">
-                                        {(selectedMetrics.analytics?.activity_trend || []).slice(-7).map((item: any, index: number) => {
+                                        {(selectedMetrics.analytics?.activity_trend || []).slice(-7).map((item, index: number) => {
                                             const height = Math.max(8, Math.min(100, Number(item.activity_score || 0)));
                                             return (
                                                 <div key={`${item.date || index}`} className="flex flex-1 flex-col items-center gap-2">

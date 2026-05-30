@@ -55,6 +55,7 @@ export const API_ENDPOINTS = {
         DATA_PROJECTS: '/admin/data/projects',
         DATA_PROJECT_ARCHIVE: (id: string) => `/admin/data/projects/${id}/archive`,
         DATA_PROJECT_UNARCHIVE: (id: string) => `/admin/data/projects/${id}/unarchive`,
+        DATA_COURSE_RESEARCH_PACKAGE: (id: string) => `/admin/data/courses/${id}/research-package`,
         DATA_EXPORT: '/admin/data/export',
         DATA_BACKUP_CONFIG: '/admin/data/backup/config',
         DATA_RESTORE_CONFIG: '/admin/data/backup/config/restore',

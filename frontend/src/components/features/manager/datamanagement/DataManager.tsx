@@ -1,57 +1,66 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Archive, BarChart3, Database, Download, FileArchive, Loader2, RotateCcw, ShieldAlert, Trash2 } from 'lucide-react'
 import { Button, Input, Badge } from '../../../ui'
-import { adminService } from '../../../../services/api/admin'
+import { adminService, type DataProject, type DataRetentionPreview, type DataStorageOverview, type DataStorageProject } from '../../../../services/api/admin'
+import { courseService, type Course } from '../../../../services/api/course'
 
 export default function DataManager() {
-    const [overview, setOverview] = useState<any>(null)
-    const [storageRows, setStorageRows] = useState<any[]>([])
-    const [projects, setProjects] = useState<any[]>([])
-    const [retention, setRetention] = useState<any>(null)
+    const [overview, setOverview] = useState<DataStorageOverview | null>(null)
+    const [storageRows, setStorageRows] = useState<DataStorageProject[]>([])
+    const [projects, setProjects] = useState<DataProject[]>([])
+    const [courses, setCourses] = useState<Course[]>([])
+    const [selectedCourseId, setSelectedCourseId] = useState('')
+    const [includeFiles, setIncludeFiles] = useState(true)
+    const [includeRawHeartbeat, setIncludeRawHeartbeat] = useState(false)
+    const [retention, setRetention] = useState<DataRetentionPreview | null>(null)
     const [search, setSearch] = useState('')
     const [olderThanDays, setOlderThanDays] = useState(90)
     const [notice, setNotice] = useState('')
     const [isLoading, setIsLoading] = useState(true)
     const [isBusy, setIsBusy] = useState(false)
+    const [isExportingCourse, setIsExportingCourse] = useState(false)
 
-    useEffect(() => {
-        void fetchAll()
-    }, [])
-
-    useEffect(() => {
-        const timer = window.setTimeout(() => void fetchProjects(), 250)
-        return () => window.clearTimeout(timer)
-    }, [search])
-
-    const fetchAll = async () => {
+    const fetchAll = useCallback(async () => {
         try {
             setIsLoading(true)
-            const [overviewData, storageData, retentionData, projectData] = await Promise.all([
+            const [overviewData, storageData, retentionData, projectData, courseData] = await Promise.all([
                 adminService.getDataStorageOverview(),
                 adminService.getDataStorageByProject(50),
                 adminService.getDataRetentionPreview(olderThanDays),
-                adminService.getDataProjects({ page: 1, limit: 20, search: search.trim() || undefined }),
+                adminService.getDataProjects({ page: 1, limit: 20 }),
+                courseService.getCourses(),
             ])
             setOverview(overviewData)
             setStorageRows(storageData.items || [])
             setRetention(retentionData)
             setProjects(projectData.items || [])
+            setCourses(courseData)
+            setSelectedCourseId((current) => current || courseData[0]?.id || '')
         } catch (error) {
             console.error('Failed to load data manager:', error)
             setNotice('数据管理信息加载失败，请检查管理员权限或后端状态。')
         } finally {
             setIsLoading(false)
         }
-    }
+    }, [olderThanDays])
 
-    const fetchProjects = async () => {
+    const fetchProjects = useCallback(async () => {
         try {
             const projectData = await adminService.getDataProjects({ page: 1, limit: 20, search: search.trim() || undefined })
             setProjects(projectData.items || [])
         } catch (error) {
             console.error('Failed to fetch data projects:', error)
         }
-    }
+    }, [search])
+
+    useEffect(() => {
+        void fetchAll()
+    }, [fetchAll])
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => void fetchProjects(), 250)
+        return () => window.clearTimeout(timer)
+    }, [fetchProjects])
 
     const refreshRetention = async () => {
         const data = await adminService.getDataRetentionPreview(olderThanDays)
@@ -68,15 +77,15 @@ export default function DataManager() {
             })
             setNotice(`已清理运维数据：${JSON.stringify(result.deleted)}`)
             await Promise.all([refreshRetention(), fetchAll()])
-        } catch (error: any) {
+        } catch (error) {
             console.error('Failed to cleanup retention data:', error)
-            setNotice(error?.response?.data?.detail || '清理失败。研究核心数据默认不会被清理。')
+            setNotice(getErrorDetail(error, '清理失败。研究核心数据默认不会被清理。'))
         } finally {
             setIsBusy(false)
         }
     }
 
-    const toggleArchive = async (project: any) => {
+    const toggleArchive = async (project: DataProject) => {
         try {
             setIsBusy(true)
             if (project.is_archived) {
@@ -106,6 +115,27 @@ export default function DataManager() {
         link.click()
         document.body.removeChild(link)
         window.URL.revokeObjectURL(url)
+    }
+
+    const downloadCourseResearchPackage = async () => {
+        if (!selectedCourseId) {
+            setNotice('请先选择要导出的班级。')
+            return
+        }
+        try {
+            setIsExportingCourse(true)
+            await adminService.exportCourseResearchPackage(selectedCourseId, {
+                include_files: includeFiles,
+                include_raw_heartbeat: includeRawHeartbeat,
+            })
+            const course = courses.find((item) => item.id === selectedCourseId)
+            setNotice(`已生成班级研究数据包：${course?.name || selectedCourseId}`)
+        } catch (error) {
+            console.error('Failed to export course research package:', error)
+            setNotice(getErrorDetail(error, '班级研究数据包导出失败，请检查后端日志或稍后重试。'))
+        } finally {
+            setIsExportingCourse(false)
+        }
     }
 
     if (isLoading) {
@@ -153,6 +183,71 @@ export default function DataManager() {
                 <MetricCard label="研究事件" value={overview?.research_event_count || 0} hint="结构化研究日志" />
                 <MetricCard label="聊天/AI记录" value={(overview?.group_chat_count || 0) + (overview?.ai_message_count || 0)} hint="群聊与 AI 对话" />
             </div>
+
+            <section className="rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm">
+                <div className="mb-5 flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+                            <FileArchive className="h-5 w-5 text-indigo-600" />
+                            班级研究数据包
+                        </h3>
+                        <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+                            按班级集中导出 raw 原始记录、cleaned 清洗数据、analysis-ready 行为序列、数据字典和资料文件。心跳默认会被压缩成在线会话，原始心跳可按需附带。
+                        </p>
+                    </div>
+                    <Button
+                        disabled={isExportingCourse || !selectedCourseId}
+                        onClick={downloadCourseResearchPackage}
+                        className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                        {isExportingCourse ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        导出班级数据包
+                    </Button>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-[minmax(260px,0.8fr)_1fr]">
+                    <label className="space-y-2">
+                        <span className="text-sm font-semibold text-slate-700">选择班级</span>
+                        <select
+                            value={selectedCourseId}
+                            onChange={(event) => setSelectedCourseId(event.target.value)}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                        >
+                            {courses.length === 0 ? <option value="">暂无班级</option> : null}
+                            {courses.map((course) => (
+                                <option key={course.id} value={course.id}>
+                                    {course.name}{course.semester ? ` · ${course.semester}` : ''}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <div className="grid gap-3 md:grid-cols-2">
+                        <label className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                            <input
+                                type="checkbox"
+                                checked={includeFiles}
+                                onChange={(event) => setIncludeFiles(event.target.checked)}
+                                className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span>
+                                <span className="block text-sm font-bold text-slate-800">包含资料文件</span>
+                                <span className="mt-1 block text-xs leading-5 text-slate-500">打包资源、任务成果附件和共享文档 HTML；文件多时导出会更慢。</span>
+                            </span>
+                        </label>
+                        <label className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                            <input
+                                type="checkbox"
+                                checked={includeRawHeartbeat}
+                                onChange={(event) => setIncludeRawHeartbeat(event.target.checked)}
+                                className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span>
+                                <span className="block text-sm font-bold text-slate-800">附带原始心跳</span>
+                                <span className="mt-1 block text-xs leading-5 text-slate-500">默认只导出会话化心跳；原始心跳量大，通常只在复核时使用。</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            </section>
 
             <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
                 <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
@@ -288,4 +383,14 @@ function formatTime(value?: string) {
     if (!value) return '-'
     const date = new Date(value)
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN')
+}
+
+function getErrorDetail(error: unknown, fallback: string) {
+    if (typeof error === 'object' && error !== null && 'response' in error) {
+        const response = (error as { response?: { data?: { detail?: unknown } } }).response
+        if (typeof response?.data?.detail === 'string') {
+            return response.data.detail
+        }
+    }
+    return fallback
 }

@@ -84,8 +84,58 @@ export interface ActivityLog {
     action: string
     target_id?: string
     duration: number
-    metadata?: any
+    metadata?: Record<string, unknown>
     timestamp: string
+}
+
+export interface BehaviorStreamItem {
+    timestamp?: string
+    metadata?: Record<string, unknown>
+    [key: string]: unknown
+}
+
+export interface DataStorageOverview {
+    resource_count: number
+    total_resource_size: number
+    project_count: number
+    archived_project_count: number
+    research_event_count: number
+    activity_log_count: number
+    group_chat_count: number
+    ai_conversation_count: number
+    ai_message_count: number
+    document_count: number
+    behavior_stream_count: number
+    heartbeat_stream_count: number
+    by_type?: Record<string, { count: number, size: number }>
+    by_scope?: Record<string, { count: number, size: number }>
+}
+
+export interface DataStorageProject {
+    project_id: string
+    project_name: string
+    file_count: number
+    total_size: number
+}
+
+export interface DataRetentionPreview {
+    older_than_days: number
+    cutoff: string
+    operational_cleanup_candidates: Record<string, number>
+    protected_research_data: Record<string, number>
+    note?: string
+}
+
+export interface DataProject {
+    id: string
+    name: string
+    course_id?: string
+    owner_id?: string
+    leader_id?: string
+    member_count: number
+    is_archived: boolean
+    created_at: string
+    updated_at: string
 }
 
 export const adminService = {
@@ -165,7 +215,7 @@ export const adminService = {
     },
 
     // New method for fetching raw behavior stream
-    getBehaviorStream: async (projectId: string, limit = 1000): Promise<{ behaviors: any[], total: number }> => {
+    getBehaviorStream: async (projectId: string, limit = 1000): Promise<{ behaviors: BehaviorStreamItem[], total: number }> => {
         // Note: Using the analytics endpoint directly as admin usually has access
         // Ideally there should be an admin-specific endpoint for this if permission logic differs greatly
         const response = await api.get(`/analytics/projects/${projectId}/behavior`, {
@@ -239,27 +289,27 @@ export const adminService = {
         return response.data
     },
 
-    getDataStorageOverview: async () => {
+    getDataStorageOverview: async (): Promise<DataStorageOverview> => {
         const response = await api.get(API_ENDPOINTS.ADMIN.DATA_STORAGE_OVERVIEW)
         return response.data
     },
 
-    getDataStorageByProject: async (limit = 50) => {
+    getDataStorageByProject: async (limit = 50): Promise<{ items: DataStorageProject[], total: number }> => {
         const response = await api.get(API_ENDPOINTS.ADMIN.DATA_STORAGE_BY_PROJECT, { params: { limit } })
         return response.data
     },
 
-    getDataRetentionPreview: async (older_than_days = 90) => {
+    getDataRetentionPreview: async (older_than_days = 90): Promise<DataRetentionPreview> => {
         const response = await api.get(API_ENDPOINTS.ADMIN.DATA_RETENTION_PREVIEW, { params: { older_than_days } })
         return response.data
     },
 
-    runDataRetentionCleanup: async (data: { collections: string[], older_than_days: number, confirm_operational_only?: boolean }) => {
+    runDataRetentionCleanup: async (data: { collections: string[], older_than_days: number, confirm_operational_only?: boolean }): Promise<{ deleted: Record<string, number>, cutoff: string }> => {
         const response = await api.post(API_ENDPOINTS.ADMIN.DATA_RETENTION_CLEANUP, data)
         return response.data
     },
 
-    getDataProjects: async (params: { page?: number, limit?: number, search?: string, archived?: boolean }) => {
+    getDataProjects: async (params: { page?: number, limit?: number, search?: string, archived?: boolean }): Promise<{ items: DataProject[], total: number }> => {
         const response = await api.get(API_ENDPOINTS.ADMIN.DATA_PROJECTS, { params })
         return response.data
     },
@@ -293,12 +343,27 @@ export const adminService = {
         return response.data
     },
 
+    exportCourseResearchPackage: async (courseId: string, params: { include_files?: boolean, include_raw_heartbeat?: boolean }) => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_COURSE_RESEARCH_PACKAGE(courseId), {
+            params,
+            responseType: 'blob'
+        })
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }))
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', `aiscl_course_research_${courseId}_${new Date().toISOString().slice(0, 10)}.zip`)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+    },
+
     backupConfigs: async () => {
         const response = await api.get(API_ENDPOINTS.ADMIN.DATA_BACKUP_CONFIG)
         return response.data
     },
 
-    restoreConfigs: async (configs: any[]) => {
+    restoreConfigs: async (configs: Record<string, unknown>[]) => {
         const response = await api.post(API_ENDPOINTS.ADMIN.DATA_RESTORE_CONFIG, { configs })
         return response.data
     }

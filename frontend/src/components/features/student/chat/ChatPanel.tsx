@@ -580,7 +580,11 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
       {lightboxImage && (
         <div
           className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-200"
-          onClick={() => setLightboxImage(null)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setLightboxImage(null)
+            }
+          }}
         >
           {/* Controls */}
           <div
@@ -590,6 +594,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
             <span className="text-white font-medium text-sm truncate max-w-sm">{lightboxImage.name}</span>
             <div className="flex items-center gap-4">
               <button
+                type="button"
                 onClick={() => setLightboxZoom(prev => Math.min(prev + 0.5, 4))}
                 className="p-2 text-white/70 hover:text-white transition-colors"
                 title="Zoom In"
@@ -597,6 +602,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                 <ZoomIn className="w-5 h-5" />
               </button>
               <button
+                type="button"
                 onClick={() => setLightboxZoom(prev => Math.max(prev - 0.5, 0.5))}
                 className="p-2 text-white/70 hover:text-white transition-colors"
                 title="Zoom Out"
@@ -604,6 +610,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                 <ZoomOut className="w-5 h-5" />
               </button>
               <button
+                type="button"
                 onClick={() => setLightboxRotation(prev => prev + 90)}
                 className="p-2 text-white/70 hover:text-white transition-colors"
                 title="Rotate"
@@ -611,6 +618,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                 <RotateCw className="w-5 h-5" />
               </button>
               <button
+                type="button"
                 onClick={() => handleDownload(lightboxImage.url, lightboxImage.name)}
                 className="p-2 text-white/70 hover:text-white transition-colors"
                 title="Download"
@@ -618,6 +626,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                 <Download className="w-5 h-5" />
               </button>
               <button
+                type="button"
                 onClick={() => setLightboxImage(null)}
                 className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all"
                 title="Close"
@@ -842,7 +851,9 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                           onLoad={() => {
                             scrollToBottom('smooth')
                           }}
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
                             setLightboxImage({ url: msg.file_info!.url, name: msg.file_info!.name })
                             setLightboxZoom(1)
                             setLightboxRotation(0)

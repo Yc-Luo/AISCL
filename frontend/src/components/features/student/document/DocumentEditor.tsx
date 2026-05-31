@@ -72,6 +72,13 @@ function normalizeInitialDocumentContent(content: string) {
     .join('')
 }
 
+function isTimestampOlder(candidate?: string | null, baseline?: string | null) {
+  if (!candidate || !baseline) return false
+  const candidateTime = new Date(candidate).getTime()
+  const baselineTime = new Date(baseline).getTime()
+  return Number.isFinite(candidateTime) && Number.isFinite(baselineTime) && candidateTime < baselineTime
+}
+
 export default function DocumentEditor({
   documentId,
   projectId,
@@ -284,8 +291,11 @@ export default function DocumentEditor({
     loadDocument()
   }, [documentId, projectId, reloadToken])
 
-  const { provider, ydoc, isSynced, syncError } = useDocumentSync({
+  const { provider, ydoc, isSynced, syncError, snapshotUpdatedAt } = useDocumentSync({
     documentId: documentId || document?.id || '',
+    documentUpdatedAt: document?.updated_at,
+    disableLocalFallback: Boolean(document?.content),
+    enabled: Boolean(documentId && document),
   })
 
   const isConnected = !!provider
@@ -293,9 +303,9 @@ export default function DocumentEditor({
   const extensions = useMemo(() => {
     return [
       StarterKit.configure({
-        history: false,
+        undoRedo: false,
         codeBlock: false,
-      } as any),
+      }),
       CodeBlock.configure({
         languageClassPrefix: 'language-',
       }),
@@ -436,11 +446,12 @@ export default function DocumentEditor({
     if (!editor || !documentId || !document?.content || !isSynced) return
 
     const isProjectDescriptionDocument = document.id === initialTaskDocumentId
+    const snapshotOlderThanDocument = isTimestampOlder(snapshotUpdatedAt, document.updated_at)
     const seedKey = isProjectDescriptionDocument
       ? `${documentId}:${document.updated_at || ''}`
-      : documentId
+      : `${documentId}:${snapshotOlderThanDocument ? document.updated_at || 'document-html' : 'initial'}`
     if (seededInitialContentDocumentRef.current === seedKey) return
-    if (!isProjectDescriptionDocument && !editor.isEmpty) return
+    if (!isProjectDescriptionDocument && !editor.isEmpty && !snapshotOlderThanDocument) return
 
     const initialContent = normalizeInitialDocumentContent(document.content)
     if (!initialContent) return
@@ -448,7 +459,7 @@ export default function DocumentEditor({
     seededInitialContentDocumentRef.current = seedKey
     if (isProjectDescriptionDocument && editor.getHTML() === initialContent) return
 
-    editor.commands.setContent(initialContent, { emitUpdate: true })
+    editor.chain().setMeta('addToHistory', false).setContent(initialContent, { emitUpdate: true }).run()
     setContextDocumentContent(editor.getText())
 
     try {
@@ -468,6 +479,7 @@ export default function DocumentEditor({
     initialTaskDocumentId,
     isSynced,
     setContextDocumentContent,
+    snapshotUpdatedAt,
     ydoc,
   ])
 
@@ -564,14 +576,25 @@ export default function DocumentEditor({
   const handleSave = useCallback(async () => {
     if (!documentId || !editor) return
     try {
-      // 1. Sync HTML to database
-      await documentService.updateDocument(documentId, undefined, editor.getHTML())
+      const html = editor.getHTML()
+      const text = editor.getText().trim()
+      const previousContent = (document?.content || '').trim()
+      const isEmptyHtml = !text && (!html || html === '<p></p>')
 
-      // 2. Force snapshot Yjs to backend
-      if (ydoc) {
-        const update = Y.encodeStateAsUpdate(ydoc)
-        await documentService.saveSnapshot(documentId, update)
+      if (isEmptyHtml && previousContent && previousContent !== '<p></p>') {
+        setToastMessage('当前编辑器内容为空，已阻止覆盖已有文档。请刷新后确认内容再保存。')
+        setShowToast(true)
+        return
       }
+
+      // 1. Sync HTML to database
+      const savedDocument = await documentService.updateDocument(documentId, undefined, html)
+      setDocument((current) => current ? { ...current, ...savedDocument, content: html } : savedDocument)
+      setDocuments((current) => current.map((item) => item.id === documentId ? { ...item, ...savedDocument, content: html } : item))
+
+      // Manual save canonicalizes the HTML record. The collaboration snapshot can lag
+      // behind the editor, so loading ignores older snapshots instead of letting them
+      // overwrite this saved HTML on the next open.
 
       if (projectId) {
         trackingService.trackResearchEvent({
@@ -588,6 +611,7 @@ export default function DocumentEditor({
         })
       }
 
+      lastCommittedTextRef.current = editor.getText()
       setToastMessage('文档已保存')
       setShowToast(true)
     } catch (error) {
@@ -595,7 +619,7 @@ export default function DocumentEditor({
       setToastMessage('保存失败')
       setShowToast(true)
     }
-  }, [documentId, editor, ydoc])
+  }, [currentStage, document?.content, documentId, editor, experimentVersionId, projectId])
 
   const handleCreateNewDocument = async () => {
     if (!projectId || !onDocumentChange) return

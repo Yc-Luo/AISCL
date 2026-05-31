@@ -37,6 +37,7 @@ export function useYjsProseMirror({
     extensions: [
       StarterKit.configure({
         // history is disabled by default when using Collaboration, use Y.js UndoManager
+        undoRedo: false,
       }),
       CodeBlock.configure({
         languageClassPrefix: 'language-',
@@ -96,6 +97,7 @@ export function useYjsProseMirror({
       extensions: [
         StarterKit.configure({
           // history is disabled by default when using Collaboration
+          undoRedo: false,
         }),
         CodeBlock.configure({
           languageClassPrefix: 'language-',
@@ -181,4 +183,3 @@ function getColorForUser(userId: string): string {
   }, 0)
   return colors[Math.abs(hash) % colors.length]
 }
-

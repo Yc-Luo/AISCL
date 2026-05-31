@@ -492,6 +492,7 @@ function ToolbarButton({
 }) {
     return (
         <button
+            type="button"
             onClick={onClick}
             disabled={disabled}
             title={title}
@@ -522,6 +523,7 @@ function DropdownItem({
 }) {
     return (
         <button
+            type="button"
             onClick={onClick}
             disabled={disabled}
             className={`

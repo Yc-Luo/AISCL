@@ -82,6 +82,8 @@ export class ChatAdapter {
             this.onMessageReceived({ ...message, isPending: false });
         } catch (e) {
             console.error('Failed to send message:', e);
+            this.onMessageReceived({ ...message, isPending: false, send_failed: true });
+            throw e;
         }
 
         return message;

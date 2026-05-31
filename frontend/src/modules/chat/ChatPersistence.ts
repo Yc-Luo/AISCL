@@ -32,6 +32,7 @@ export interface ChatMessage {
     mentions: string[];
     timestamp: string;
     isPending?: boolean;
+    send_failed?: boolean;
     ai_meta?: {
         primary_agent?: string;
         primary_view?: string;

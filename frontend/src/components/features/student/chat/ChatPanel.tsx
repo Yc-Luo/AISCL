@@ -493,11 +493,12 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
 
 
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!inputValue.trim() && !replyingTo) return
     if (!connected) return
 
     const sendContent = inputValue.replace(/＠/g, '@')
+    const previousReplyingTo = replyingTo
 
     // Extract mentions...
     const mentionRegex = /@([\w\u4e00-\u9fa5]+)/g
@@ -517,7 +518,20 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
       mentions.push('ai_assistant')
     }
 
-    sendMessage(sendContent, mentions, undefined, replyingTo?.id)
+    setInputValue('')
+    setReplyingTo(null)
+    setShowMentionMenu(false)
+    setShowEmojiPicker(false)
+
+    try {
+      await sendMessage(sendContent, mentions, undefined, previousReplyingTo?.id)
+    } catch (error) {
+      console.error('Failed to send chat message:', error)
+      setInputValue(sendContent)
+      setReplyingTo(previousReplyingTo)
+      setToast({ message: '消息发送失败，请检查网络后重试。', type: 'error' })
+      return
+    }
 
     trackingService.track({
       module: 'chat',
@@ -527,14 +541,9 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
         type: 'text',
         length: sendContent.length,
         hasMentions: mentions.length > 0,
-        isReply: !!replyingTo
+        isReply: !!previousReplyingTo
       }
     })
-
-    setInputValue('')
-    setReplyingTo(null)
-    setShowMentionMenu(false)
-    setShowEmojiPicker(false)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -569,9 +578,15 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
 
       {/* Lightbox Overlay */}
       {lightboxImage && (
-        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-200">
+        <div
+          className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-200"
+          onClick={() => setLightboxImage(null)}
+        >
           {/* Controls */}
-          <div className="absolute top-0 inset-x-0 p-6 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent">
+          <div
+            className="absolute top-0 inset-x-0 p-6 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent"
+            onClick={(event) => event.stopPropagation()}
+          >
             <span className="text-white font-medium text-sm truncate max-w-sm">{lightboxImage.name}</span>
             <div className="flex items-center gap-4">
               <button
@@ -612,12 +627,13 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
             </div>
           </div>
 
-          <div className="flex-1 w-full flex items-center justify-center p-12 overflow-hidden">
+          <div className="flex-1 w-full flex items-center justify-center p-12 overflow-auto">
             <img
               src={lightboxImage.url}
               className="max-w-full max-h-full transition-transform duration-300 shadow-2xl"
               style={{ transform: `scale(${lightboxZoom}) rotate(${lightboxRotation}deg)` }}
               alt="Preview"
+              onClick={(event) => event.stopPropagation()}
             />
           </div>
         </div>
@@ -840,6 +856,11 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                 {msg.isPending && (
                   <div className="text-[10px] mt-1 opacity-50 flex justify-end">
                     发送中...
+                  </div>
+                )}
+                {msg.send_failed && (
+                  <div className={`text-[10px] mt-1 ${isOwnMessage ? 'text-red-200' : 'text-red-600'} flex justify-end`}>
+                    发送失败
                   </div>
                 )}
               </div>

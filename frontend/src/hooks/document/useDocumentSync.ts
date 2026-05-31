@@ -14,15 +14,33 @@ interface UseDocumentSyncProps {
     documentId: string;
     initialData?: Uint8Array;
     onMount?: () => void;
+    documentUpdatedAt?: string;
+    disableLocalFallback?: boolean;
+    enabled?: boolean;
 }
 
-export function useDocumentSync({ documentId, initialData, onMount }: UseDocumentSyncProps) {
+const isOlderThan = (candidate?: string, baseline?: string): boolean => {
+    if (!candidate || !baseline) return false;
+    const candidateTime = new Date(candidate).getTime();
+    const baselineTime = new Date(baseline).getTime();
+    return Number.isFinite(candidateTime) && Number.isFinite(baselineTime) && candidateTime < baselineTime;
+};
+
+export function useDocumentSync({
+    documentId,
+    initialData,
+    onMount,
+    documentUpdatedAt,
+    disableLocalFallback = false,
+    enabled = true,
+}: UseDocumentSyncProps) {
     const { user } = useAuthStore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const ydoc = useMemo(() => new Y.Doc(), [documentId]);
     const [provider, setProvider] = useState<SyncServiceYjsProvider | null>(null);
     const [isSynced, setIsSynced] = useState(false);
     const [syncError, setSyncError] = useState<string | null>(null);
+    const [snapshotUpdatedAt, setSnapshotUpdatedAt] = useState<string | null>(null);
 
     // 确保 SyncService 已初始化
     useEffect(() => {
@@ -47,12 +65,13 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
 
     // 初始化 Provider 和加载数据
     useEffect(() => {
-        if (!documentId) return;
+        if (!documentId || !enabled) return;
 
         console.log('[useDocumentSync] Initializing for document:', documentId);
 
         setIsSynced(false);
         setSyncError(null);
+        setSnapshotUpdatedAt(null);
 
         // 1. 创建 Provider
         // 使用 documentId 作为 roomId，前缀 'doc:'
@@ -69,7 +88,7 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
                 const { collaborationService } = await import('../../services/api/collaboration');
                 const snapshot = await collaborationService.getSnapshot(documentId, 'document');
 
-                if (snapshot && snapshot.data) {
+                if (snapshot && snapshot.data && !isOlderThan(snapshot.updated_at, documentUpdatedAt)) {
                     const binaryString = window.atob(snapshot.data);
                     const bytes = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) {
@@ -78,6 +97,12 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
                     Y.applyUpdate(ydoc, bytes);
                     console.log('[useDocumentSync] Loaded snapshot from server:', bytes.length, 'bytes');
                     loadedFromServer = true;
+                    setSnapshotUpdatedAt(snapshot.updated_at || null);
+                } else if (snapshot?.data) {
+                    console.warn('[useDocumentSync] Ignoring stale document snapshot:', {
+                        snapshotUpdatedAt: snapshot.updated_at,
+                        documentUpdatedAt,
+                    });
                 }
             } catch (error) {
                 console.error('[useDocumentSync] Failed to fetch snapshot from server:', error);
@@ -86,12 +111,14 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
             // Server snapshot is authoritative. Only use IndexedDB as a fallback
             // when the server has no document state; otherwise stale local state can
             // overwrite the shared document and make formatting appear corrupted.
-            if (!loadedFromServer) {
+            if (!loadedFromServer && !disableLocalFallback) {
                 try {
                     loadedFromLocal = await DocumentPersistence.loadSnapshot(roomId, ydoc);
                 } catch (error) {
                     console.warn('[useDocumentSync] Failed to load local fallback snapshot:', error);
                 }
+            } else if (!loadedFromServer && disableLocalFallback) {
+                console.log('[useDocumentSync] Skipping local fallback snapshot; document HTML will seed editor.');
             }
 
             // 如果都没有，但有传入的 initialData (参数)，则使用
@@ -131,10 +158,11 @@ export function useDocumentSync({ documentId, initialData, onMount }: UseDocumen
             setProvider(null);
             setIsSynced(false);
             setSyncError(null);
+            setSnapshotUpdatedAt(null);
         };
-    }, [documentId, initialData, onMount, ydoc]);
+    }, [disableLocalFallback, documentId, documentUpdatedAt, enabled, initialData, onMount, ydoc]);
 
-    return { provider, ydoc, isSynced, syncError };
+    return { provider, ydoc, isSynced, syncError, snapshotUpdatedAt };
 }
 
 // 辅助函数：生成颜色

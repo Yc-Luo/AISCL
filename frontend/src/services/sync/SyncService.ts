@@ -62,6 +62,14 @@ export interface SyncServiceConfig {
     autoConnect?: boolean;
 }
 
+interface BatchOperationsAck {
+    status?: string;
+    message?: string;
+    processed?: number;
+    denied?: number;
+    count?: number;
+}
+
 /**
  * 同步服务类
  */
@@ -355,7 +363,15 @@ export class SyncService extends EventEmitter {
 
         try {
             // 批量发送 - 给更长的超时时间 (30s) 处理包含大资产（如图片）或高负载的情况
-            await this.connectionManager.sendWithAck('batch-operations', { operations }, 30000);
+            const ack = await this.connectionManager.sendWithAck('batch-operations', { operations }, 30000) as BatchOperationsAck | undefined;
+            if (!ack || ack.status !== 'success') {
+                throw new Error(ack?.message || 'Server did not accept the operation batch');
+            }
+            const processed = ack.processed ?? ack.count ?? operations.length;
+            const denied = ack.denied ?? 0;
+            if (denied > 0 || processed < operations.length) {
+                throw new Error(`Server only processed ${processed}/${operations.length} operations`);
+            }
 
             // 确认发送成功
             for (const op of operations) {

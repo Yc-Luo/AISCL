@@ -1143,13 +1143,16 @@ async def handle_chat_op(sio, sid, data, user_id):
             
             # Log as activity for dashboard/dynamics
             from app.services.activity_service import activity_service
-            await activity_service.log_activity(
-                project_id=project_id,
-                user_id=user_id,
-                module="chat",
-                action="send",
-                metadata={"length": len(content)}
-            )
+            try:
+                await activity_service.log_activity(
+                    project_id=project_id,
+                    user_id=user_id,
+                    module="chat",
+                    action="send",
+                    metadata={"length": len(content)}
+                )
+            except Exception as activity_error:  # noqa: BLE001
+                logger.warning("Chat activity logging failed for %s: %s", room_id, activity_error)
             
             # Get sender info for richer broadcast
             sender = await User.get(user_id)
@@ -1185,42 +1188,48 @@ async def handle_chat_op(sio, sid, data, user_id):
                 is_ai_mentioned = True
             peer_scaffold_signals = _classify_peer_message_for_scaffold(content)
 
-            await research_event_service.record_batch_events(
-                events=[
-                    {
-                        "project_id": project_id,
-                        "experiment_version_id": experiment_version_id,
-                        "room_id": room_id,
-                        "group_id": room_id,
-                        "user_id": user_id,
-                        "actor_type": sender_actor_type,
-                        "event_domain": "dialogue",
-                        "event_type": "peer_message_send",
-                        "stage_id": current_stage,
-                        "payload": {
-                            "message_length": len(content),
-                            "mention_count": len(mentions),
-                            "contains_ai_mention": is_ai_mentioned,
-                            **peer_scaffold_signals,
-                            "preferred_subagent": (
-                                _detect_preferred_subagent(content)
-                                if experiment_version.get("ai_scaffold_mode") == "multi_agent"
-                                else None
-                            ),
-                        },
-                    }
-                ],
-                current_user_id=user_id,
-            )
+            try:
+                await research_event_service.record_batch_events(
+                    events=[
+                        {
+                            "project_id": project_id,
+                            "experiment_version_id": experiment_version_id,
+                            "room_id": room_id,
+                            "group_id": room_id,
+                            "user_id": user_id,
+                            "actor_type": sender_actor_type,
+                            "event_domain": "dialogue",
+                            "event_type": "peer_message_send",
+                            "stage_id": current_stage,
+                            "payload": {
+                                "message_length": len(content),
+                                "mention_count": len(mentions),
+                                "contains_ai_mention": is_ai_mentioned,
+                                **peer_scaffold_signals,
+                                "preferred_subagent": (
+                                    _detect_preferred_subagent(content)
+                                    if experiment_version.get("ai_scaffold_mode") == "multi_agent"
+                                    else None
+                                ),
+                            },
+                        }
+                    ],
+                    current_user_id=user_id,
+                )
+            except Exception as research_error:  # noqa: BLE001
+                logger.warning("Chat research event logging failed for %s: %s", room_id, research_error)
 
             if not is_ai_mentioned:
-                await _evaluate_shadow_prompt_candidates(
-                    sio=sio,
-                    project=project,
-                    room_id=room_id,
-                    current_user_id=user_id,
-                    current_user_role=sender_actor_type,
-                )
+                try:
+                    await _evaluate_shadow_prompt_candidates(
+                        sio=sio,
+                        project=project,
+                        room_id=room_id,
+                        current_user_id=user_id,
+                        current_user_role=sender_actor_type,
+                    )
+                except Exception as prompt_error:  # noqa: BLE001
+                    logger.warning("Auto prompt evaluation failed for %s: %s", room_id, prompt_error)
                 
             if is_ai_mentioned:
                 routing_context = _extract_routing_context(project, content) if project else {}

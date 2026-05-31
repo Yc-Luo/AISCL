@@ -1,6 +1,7 @@
 """Chat log API routes."""
 
 from datetime import datetime
+import logging
 import uuid
 from typing import Optional
 
@@ -28,6 +29,7 @@ from app.services.research_event_service import research_event_service
 from app.websocket.socketio_server import sio
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 SPECIAL_CHAT_SENDERS = {
     "ai_assistant": {
@@ -369,52 +371,55 @@ async def create_teacher_help_request(
     )
     await chat_log.insert()
 
-    await activity_service.log_activity(
-        project_id=project_id,
-        user_id=str(current_user.id),
-        module="teacher_support",
-        action="request",
-        metadata={
-            "help_type": payload.help_type,
-            "allow_public_reply": payload.allow_public_reply,
-            "stage_id": payload.stage_id,
-            "page_source": payload.page_source,
-            "message_length": len(content),
-            "room_id": room_id,
-        },
-    )
-
-    experiment_version = getattr(project, "experiment_version", None) or {}
-    current_stage = experiment_version.get("current_stage")
-    experiment_version_id = (
-        experiment_version.get("version_name")
-        or experiment_version.get("name")
-        or experiment_version.get("template_release_id")
-    )
-    await research_event_service.record_batch_events(
-        events=[
-            {
-                "project_id": project_id,
-                "experiment_version_id": experiment_version_id,
+    try:
+        await activity_service.log_activity(
+            project_id=project_id,
+            user_id=str(current_user.id),
+            module="teacher_support",
+            action="request",
+            metadata={
+                "help_type": payload.help_type,
+                "allow_public_reply": payload.allow_public_reply,
+                "stage_id": payload.stage_id,
+                "page_source": payload.page_source,
+                "message_length": len(content),
                 "room_id": room_id,
-                "group_id": room_id,
-                "user_id": str(current_user.id),
-                "actor_type": "student",
-                "event_domain": "dialogue",
-                "event_type": "teacher_help_request",
-                "stage_id": current_stage,
-                "payload": {
-                    "help_type": payload.help_type,
-                    "allow_public_reply": payload.allow_public_reply,
-                    "page_source": payload.page_source,
-                    "message_length": len(content),
-                    "source": "student_teacher_support",
-                    "client_message_id": client_message_id,
-                },
-            }
-        ],
-        current_user_id=str(current_user.id),
-    )
+            },
+        )
+
+        experiment_version = getattr(project, "experiment_version", None) or {}
+        current_stage = experiment_version.get("current_stage")
+        experiment_version_id = (
+            experiment_version.get("version_name")
+            or experiment_version.get("name")
+            or experiment_version.get("template_release_id")
+        )
+        await research_event_service.record_batch_events(
+            events=[
+                {
+                    "project_id": project_id,
+                    "experiment_version_id": experiment_version_id,
+                    "room_id": room_id,
+                    "group_id": room_id,
+                    "user_id": str(current_user.id),
+                    "actor_type": "student",
+                    "event_domain": "dialogue",
+                    "event_type": "teacher_help_request",
+                    "stage_id": current_stage,
+                    "payload": {
+                        "help_type": payload.help_type,
+                        "allow_public_reply": payload.allow_public_reply,
+                        "page_source": payload.page_source,
+                        "message_length": len(content),
+                        "source": "student_teacher_support",
+                        "client_message_id": client_message_id,
+                    },
+                }
+            ],
+            current_user_id=str(current_user.id),
+        )
+    except Exception as exc:
+        logger.warning("Teacher help request side effects failed for %s: %s", chat_log.id, exc)
 
     return build_chat_response(chat_log, {str(current_user.id): current_user})
 
@@ -497,81 +502,84 @@ async def reply_teacher_help_request(
     request_message.metadata = request_metadata
     await request_message.save()
 
-    await activity_service.log_activity(
-        project_id=request_message.project_id,
-        user_id=str(current_user.id),
-        module="teacher_support",
-        action="group_guidance_send" if public_reply else "private_reply",
-        target_id=str(request_message.id),
-        metadata={
-            "support_type": payload.support_type,
-            "public_reply": public_reply,
-            "message_length": len(content),
-        },
-    )
-
-    experiment_version = getattr(project, "experiment_version", None) or {}
-    current_stage = request_metadata.get("stage_id") or experiment_version.get("current_stage")
-    experiment_version_id = (
-        experiment_version.get("version_name")
-        or experiment_version.get("name")
-        or experiment_version.get("template_release_id")
-    )
-    await research_event_service.record_batch_events(
-        events=[
-            {
-                "project_id": request_message.project_id,
-                "experiment_version_id": experiment_version_id,
-                "room_id": room_id,
-                "group_id": room_id,
-                "user_id": str(current_user.id),
-                "actor_type": "teacher",
-                "event_domain": "dialogue",
-                "event_type": "teacher_group_guidance_send" if public_reply else "teacher_private_reply",
-                "stage_id": current_stage,
-                "payload": {
-                    "help_request_id": str(request_message.id),
-                    "support_type": payload.support_type,
-                    "public_reply": public_reply,
-                    "student_allowed_public_reply": allow_public_reply,
-                    "message_length": len(content),
-                    "source": "teacher_monitor",
-                    "client_message_id": client_message_id,
-                },
-            }
-        ],
-        current_user_id=str(current_user.id),
-    )
-
-    if public_reply:
-        await sio.emit(
-            "operation",
-            {
-                "id": client_message_id,
-                "module": "chat",
-                "roomId": room_id,
-                "timestamp": int(now.timestamp() * 1000),
-                "clientId": str(current_user.id),
-                "version": 0,
-                "type": "message",
-                "data": {
-                    "messageId": client_message_id,
-                    "clientMessageId": client_message_id,
-                    "content": content,
-                    "mentions": [],
-                    "sender": {
-                        "id": str(current_user.id),
-                        "username": current_user.username or current_user.email,
-                        "avatar": current_user.avatar_url,
-                    },
-                    "teacherSupport": {
-                        "supportType": payload.support_type,
-                        "source": "teacher_monitor",
-                    },
-                },
+    try:
+        await activity_service.log_activity(
+            project_id=request_message.project_id,
+            user_id=str(current_user.id),
+            module="teacher_support",
+            action="group_guidance_send" if public_reply else "private_reply",
+            target_id=str(request_message.id),
+            metadata={
+                "support_type": payload.support_type,
+                "public_reply": public_reply,
+                "message_length": len(content),
             },
-            room=room_id,
         )
+
+        experiment_version = getattr(project, "experiment_version", None) or {}
+        current_stage = request_metadata.get("stage_id") or experiment_version.get("current_stage")
+        experiment_version_id = (
+            experiment_version.get("version_name")
+            or experiment_version.get("name")
+            or experiment_version.get("template_release_id")
+        )
+        await research_event_service.record_batch_events(
+            events=[
+                {
+                    "project_id": request_message.project_id,
+                    "experiment_version_id": experiment_version_id,
+                    "room_id": room_id,
+                    "group_id": room_id,
+                    "user_id": str(current_user.id),
+                    "actor_type": "teacher",
+                    "event_domain": "dialogue",
+                    "event_type": "teacher_group_guidance_send" if public_reply else "teacher_private_reply",
+                    "stage_id": current_stage,
+                    "payload": {
+                        "help_request_id": str(request_message.id),
+                        "support_type": payload.support_type,
+                        "public_reply": public_reply,
+                        "student_allowed_public_reply": allow_public_reply,
+                        "message_length": len(content),
+                        "source": "teacher_monitor",
+                        "client_message_id": client_message_id,
+                    },
+                }
+            ],
+            current_user_id=str(current_user.id),
+        )
+
+        if public_reply:
+            await sio.emit(
+                "operation",
+                {
+                    "id": client_message_id,
+                    "module": "chat",
+                    "roomId": room_id,
+                    "timestamp": int(now.timestamp() * 1000),
+                    "clientId": str(current_user.id),
+                    "version": 0,
+                    "type": "message",
+                    "data": {
+                        "messageId": client_message_id,
+                        "clientMessageId": client_message_id,
+                        "content": content,
+                        "mentions": [],
+                        "sender": {
+                            "id": str(current_user.id),
+                            "username": current_user.username or current_user.email,
+                            "avatar": current_user.avatar_url,
+                        },
+                        "teacherSupport": {
+                            "supportType": payload.support_type,
+                            "source": "teacher_monitor",
+                        },
+                    },
+                },
+                room=room_id,
+            )
+    except Exception as exc:
+        logger.warning("Teacher help reply side effects failed for %s: %s", reply_log.id, exc)
 
     return build_help_reply_response(reply_log, {str(current_user.id): current_user})
 
@@ -724,76 +732,79 @@ async def send_teacher_support_message(
     )
     await chat_log.insert()
 
-    await activity_service.log_activity(
-        project_id=project_id,
-        user_id=str(current_user.id),
-        module="teacher_support",
-        action="send",
-        metadata={
-            "support_type": payload.support_type,
-            "message_length": len(content),
-            "room_id": room_id,
-        },
-    )
-
-    experiment_version = getattr(project, "experiment_version", None) or {}
-    current_stage = experiment_version.get("current_stage")
-    experiment_version_id = (
-        experiment_version.get("version_name")
-        or experiment_version.get("name")
-        or experiment_version.get("template_release_id")
-    )
-
-    await research_event_service.record_batch_events(
-        events=[
-            {
-                "project_id": project_id,
-                "experiment_version_id": experiment_version_id,
+    try:
+        await activity_service.log_activity(
+            project_id=project_id,
+            user_id=str(current_user.id),
+            module="teacher_support",
+            action="send",
+            metadata={
+                "support_type": payload.support_type,
+                "message_length": len(content),
                 "room_id": room_id,
-                "group_id": room_id,
-                "user_id": str(current_user.id),
-                "actor_type": "teacher",
-                "event_domain": "dialogue",
-                "event_type": "teacher_group_guidance_send",
-                "stage_id": current_stage,
-                "payload": {
-                    "support_type": payload.support_type,
-                    "message_length": len(content),
-                    "source": "teacher_monitor",
-                    "client_message_id": client_message_id,
-                },
-            }
-        ],
-        current_user_id=str(current_user.id),
-    )
+            },
+        )
 
-    await sio.emit(
-        "operation",
-        {
-            "id": client_message_id,
-            "module": "chat",
-            "roomId": room_id,
-            "timestamp": int(now.timestamp() * 1000),
-            "clientId": str(current_user.id),
-            "version": 0,
-            "type": "message",
-            "data": {
-                "messageId": client_message_id,
-                "clientMessageId": client_message_id,
-                "content": content,
-                "mentions": [],
-                "sender": {
-                    "id": str(current_user.id),
-                    "username": current_user.username or current_user.email,
-                    "avatar": current_user.avatar_url,
-                },
-                "teacherSupport": {
-                    "supportType": payload.support_type,
-                    "source": "teacher_monitor",
+        experiment_version = getattr(project, "experiment_version", None) or {}
+        current_stage = experiment_version.get("current_stage")
+        experiment_version_id = (
+            experiment_version.get("version_name")
+            or experiment_version.get("name")
+            or experiment_version.get("template_release_id")
+        )
+
+        await research_event_service.record_batch_events(
+            events=[
+                {
+                    "project_id": project_id,
+                    "experiment_version_id": experiment_version_id,
+                    "room_id": room_id,
+                    "group_id": room_id,
+                    "user_id": str(current_user.id),
+                    "actor_type": "teacher",
+                    "event_domain": "dialogue",
+                    "event_type": "teacher_group_guidance_send",
+                    "stage_id": current_stage,
+                    "payload": {
+                        "support_type": payload.support_type,
+                        "message_length": len(content),
+                        "source": "teacher_monitor",
+                        "client_message_id": client_message_id,
+                    },
+                }
+            ],
+            current_user_id=str(current_user.id),
+        )
+
+        await sio.emit(
+            "operation",
+            {
+                "id": client_message_id,
+                "module": "chat",
+                "roomId": room_id,
+                "timestamp": int(now.timestamp() * 1000),
+                "clientId": str(current_user.id),
+                "version": 0,
+                "type": "message",
+                "data": {
+                    "messageId": client_message_id,
+                    "clientMessageId": client_message_id,
+                    "content": content,
+                    "mentions": [],
+                    "sender": {
+                        "id": str(current_user.id),
+                        "username": current_user.username or current_user.email,
+                        "avatar": current_user.avatar_url,
+                    },
+                    "teacherSupport": {
+                        "supportType": payload.support_type,
+                        "source": "teacher_monitor",
+                    },
                 },
             },
-        },
-        room=room_id,
-    )
+            room=room_id,
+        )
+    except Exception as exc:
+        logger.warning("Teacher support message side effects failed for %s: %s", chat_log.id, exc)
 
     return build_chat_response(chat_log, {str(current_user.id): current_user})

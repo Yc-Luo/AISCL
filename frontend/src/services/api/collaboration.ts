@@ -9,11 +9,16 @@ export interface CollaborationSnapshot {
     updated_at: string;
 }
 
+export interface CollaborationSnapshotPayload {
+    data: string;
+    updated_at?: string;
+}
+
 export const collaborationService = {
     /**
      * Get the latest snapshot for a project or document.
      */
-    async getSnapshot(id: string, type: 'whiteboard' | 'document' | 'inquiry' = 'whiteboard'): Promise<{ data: string } | null> {
+    async getSnapshot(id: string, type: 'whiteboard' | 'document' | 'inquiry' = 'whiteboard'): Promise<CollaborationSnapshotPayload | null> {
         try {
             const response = await api.get(API_ENDPOINTS.COLLABORATION.SNAPSHOT(id), {
                 params: {
@@ -23,7 +28,10 @@ export const collaborationService = {
 
             // The backend returns { project_id, snapshot: { data: ... }, updated_at }
             if (response.data && response.data.snapshot) {
-                return response.data.snapshot;
+                return {
+                    ...response.data.snapshot,
+                    updated_at: response.data.updated_at,
+                };
             }
             return null;
         } catch (error) {

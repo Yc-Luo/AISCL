@@ -127,7 +127,11 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     setLightboxImage(null)
     setReplyingTo(null)
     setContextMenu(null)
-  }, [onUnreadChange, projectId])
+    // Only reset transient chat UI when switching projects. Parent callbacks may
+    // be recreated during normal renders; depending on them here closes the image
+    // preview immediately after it opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
 
   useEffect(() => {
     if (!isActive) return

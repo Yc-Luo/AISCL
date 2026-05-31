@@ -104,6 +104,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messageListRef = useRef<HTMLDivElement>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(true)
   const knownMessageKeysRef = useRef<Set<string> | null>(null)
   const unreadRef = useRef({ chatUnread: 0, chatMentions: 0 })
@@ -328,6 +329,7 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
   // Context Menu Handlers
   const handleContextMenu = (e: React.MouseEvent, msg: ChatMessage) => {
     e.preventDefault()
+    e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY, message: msg })
   }
 
@@ -349,12 +351,22 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
     }
   }
 
-  // Close menus on click anywhere
+  // Close the custom context menu only on an outside left-button pointer down.
+  // A global click listener is too broad: some browsers emit a click-like event
+  // after contextmenu, which immediately closes the menu that was just opened.
   useEffect(() => {
-    const handleClick = () => setContextMenu(null)
-    window.addEventListener('click', handleClick)
-    return () => window.removeEventListener('click', handleClick)
-  }, [])
+    if (!contextMenu) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return
+      const target = event.target as Node | null
+      if (target && contextMenuRef.current?.contains(target)) return
+      setContextMenu(null)
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown, true)
+    return () => window.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [contextMenu])
 
   // Listen for typing events
   useEffect(() => {
@@ -655,9 +667,12 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
       {/* Context Menu */}
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className="fixed z-[110] w-48 bg-white border border-gray-100 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] py-2 animate-in zoom-in-95 duration-100"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
         >
           <button
             onClick={() => handleReplyMessage(contextMenu.message)}

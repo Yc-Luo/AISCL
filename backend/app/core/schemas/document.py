@@ -20,6 +20,12 @@ class DocumentUpdateRequest(BaseModel):
     content: Optional[str] = None
 
 
+class DocumentReorderRequest(BaseModel):
+    """Request schema for persisting project document order."""
+
+    document_ids: List[str] = Field(..., min_items=1, max_items=100)
+
+
 class DocumentResponse(BaseModel):
     """Response schema for a document."""
 
@@ -32,6 +38,7 @@ class DocumentResponse(BaseModel):
     is_archived: bool
     source_type: Optional[str] = None
     course_task_release_id: Optional[str] = None
+    sort_order: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -54,6 +61,7 @@ class DocumentDetailResponse(BaseModel):
     is_archived: bool
     source_type: Optional[str] = None
     course_task_release_id: Optional[str] = None
+    sort_order: int = 0
     created_at: datetime
     updated_at: datetime
 

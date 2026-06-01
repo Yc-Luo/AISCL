@@ -14,6 +14,7 @@ from app.core.schemas.document import (
     DocumentCreateRequest,
     DocumentDetailResponse,
     DocumentListResponse,
+    DocumentReorderRequest,
     DocumentResponse,
     DocumentUpdateRequest,
     DocumentVersionListResponse,
@@ -60,9 +61,12 @@ async def get_documents(
     if archived is not None:
         query["is_archived"] = archived
 
-    # Get documents
-    documents_cursor = Document.find(query).skip(skip).limit(limit).sort("-updated_at")
-    documents_list = await documents_cursor.to_list()
+    # Get documents. Existing records without a custom order keep the previous
+    # updated-at behavior until the group explicitly reorders the list.
+    all_documents = await Document.find(query).sort("-updated_at").to_list()
+    if any(getattr(doc, "sort_order", 0) for doc in all_documents):
+        all_documents.sort(key=lambda doc: (getattr(doc, "sort_order", 0), doc.created_at))
+    documents_list = all_documents[skip: skip + limit]
     total = await Document.find(query).count()
 
     return DocumentListResponse(
@@ -77,6 +81,7 @@ async def get_documents(
                 is_archived=doc.is_archived,
                 source_type=doc.source_type,
                 course_task_release_id=doc.course_task_release_id,
+                sort_order=getattr(doc, "sort_order", 0),
                 created_at=doc.created_at,
                 updated_at=doc.updated_at,
             )
@@ -121,6 +126,7 @@ async def create_document(
         content_state=b"",  # Empty initial state
         preview_text=None,
         last_modified_by=str(current_user.id),
+        sort_order=await Document.find({"project_id": project_id}).count(),
     )
     await new_document.insert()
 
@@ -144,8 +150,75 @@ async def create_document(
         is_archived=new_document.is_archived,
         source_type=new_document.source_type,
         course_task_release_id=new_document.course_task_release_id,
+        sort_order=new_document.sort_order,
         created_at=new_document.created_at,
         updated_at=new_document.updated_at,
+    )
+
+
+@router.put("/projects/{project_id}/order", response_model=DocumentListResponse)
+async def reorder_documents(
+    project_id: str,
+    reorder_data: DocumentReorderRequest,
+    current_user: User = Depends(get_current_user),
+) -> DocumentListResponse:
+    """Persist the visible order of project documents."""
+    project = await Project.get(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    if not await can_edit_project_content(current_user, project):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only editor and owner can reorder documents",
+        )
+
+    documents = await Document.find({"project_id": project_id}).to_list()
+    documents_by_id = {str(document.id): document for document in documents}
+    requested_ids = reorder_data.document_ids
+    if len(set(requested_ids)) != len(requested_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document order contains duplicate documents",
+        )
+    missing_ids = [document_id for document_id in requested_ids if document_id not in documents_by_id]
+    if missing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document order contains documents outside this project",
+        )
+
+    requested_id_set = set(requested_ids)
+    ordered_ids = requested_ids + [document_id for document_id in documents_by_id if document_id not in requested_id_set]
+    for index, document_id in enumerate(ordered_ids):
+        document = documents_by_id[document_id]
+        document.sort_order = index
+        await document.save()
+
+    ordered_documents = [documents_by_id[document_id] for document_id in ordered_ids]
+
+    return DocumentListResponse(
+        documents=[
+            DocumentResponse(
+                id=str(doc.id),
+                project_id=doc.project_id,
+                title=doc.title,
+                content=doc.content,
+                preview_text=doc.preview_text,
+                last_modified_by=doc.last_modified_by,
+                is_archived=doc.is_archived,
+                source_type=doc.source_type,
+                course_task_release_id=doc.course_task_release_id,
+                sort_order=getattr(doc, "sort_order", 0),
+                created_at=doc.created_at,
+                updated_at=doc.updated_at,
+            )
+            for doc in ordered_documents
+        ],
+        total=len(ordered_documents),
     )
 
 
@@ -187,6 +260,7 @@ async def get_document(
         is_archived=document.is_archived,
         source_type=document.source_type,
         course_task_release_id=document.course_task_release_id,
+        sort_order=getattr(document, "sort_order", 0),
         created_at=document.created_at,
         updated_at=document.updated_at,
     )

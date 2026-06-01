@@ -8,6 +8,7 @@ export interface Document {
   content?: string
   source_type?: string
   course_task_release_id?: string
+  sort_order?: number
   created_at: string
   updated_at: string
   created_by: string
@@ -127,6 +128,17 @@ export const documentService = {
     const response = await api.put(`${API_ENDPOINTS.DOCUMENTS.BASE}/${documentId}`, {
       title,
       content,
+    })
+    return response.data
+  },
+
+  // Persist project document order
+  async reorderDocuments(
+    projectId: string,
+    documentIds: string[]
+  ): Promise<DocumentListResponse> {
+    const response = await api.put(`${API_ENDPOINTS.DOCUMENTS.BY_PROJECT(projectId)}/order`, {
+      document_ids: documentIds,
     })
     return response.data
   },

@@ -29,7 +29,7 @@ import { useContextStore } from '../../../../stores/contextStore'
 import { useScrapbookActions } from '../../../../modules/inquiry/hooks/useScrapbookActions'
 import { Toast } from '../../../ui/Toast'
 import * as Y from 'yjs'
-import { Plus, FileText, Loader2, X, Trash2, AlertTriangle } from 'lucide-react'
+import { Plus, FileText, Loader2, X, Trash2, AlertTriangle, GripVertical } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -79,6 +79,16 @@ function isTimestampOlder(candidate?: string | null, baseline?: string | null) {
   return Number.isFinite(candidateTime) && Number.isFinite(baselineTime) && candidateTime < baselineTime
 }
 
+function moveDocumentInList(items: Document[], draggedId: string, targetId: string) {
+  const fromIndex = items.findIndex((item) => item.id === draggedId)
+  const toIndex = items.findIndex((item) => item.id === targetId)
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return items
+  const next = [...items]
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  return next
+}
+
 export default function DocumentEditor({
   documentId,
   projectId,
@@ -109,6 +119,9 @@ export default function DocumentEditor({
   const [isListLoading, setIsListLoading] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [draggingDocumentId, setDraggingDocumentId] = useState<string | null>(null)
+  const [dragOverDocumentId, setDragOverDocumentId] = useState<string | null>(null)
+  const [isReordering, setIsReordering] = useState(false)
   const [isImageUploading, setIsImageUploading] = useState(false)
   const experimentVersionId = experimentVersion?.version_name || undefined
   const lastCommittedTextRef = useRef('')
@@ -117,7 +130,7 @@ export default function DocumentEditor({
   const seededInitialContentDocumentRef = useRef<string | null>(null)
 
   const orderedDocuments = useMemo(() => {
-    if (!documents.length || !initialTaskDocumentId) return documents
+    if (!documents.length || documents.some((doc) => (doc.sort_order || 0) > 0) || !initialTaskDocumentId) return documents
     const projectDescriptionDoc = documents.find((doc) => doc.id === initialTaskDocumentId)
     if (!projectDescriptionDoc) return documents
     return [
@@ -670,6 +683,44 @@ export default function DocumentEditor({
     }
   }
 
+  const handleDropDocument = async (targetId: string) => {
+    if (!projectId || !draggingDocumentId || draggingDocumentId === targetId) {
+      setDraggingDocumentId(null)
+      setDragOverDocumentId(null)
+      return
+    }
+    const previousDocuments = documents
+    const reorderedDocuments = moveDocumentInList(orderedDocuments, draggingDocumentId, targetId).map((doc, index) => ({
+      ...doc,
+      sort_order: index,
+    }))
+    setDocuments(reorderedDocuments)
+    setDraggingDocumentId(null)
+    setDragOverDocumentId(null)
+    setIsReordering(true)
+    try {
+      const response = await documentService.reorderDocuments(projectId, reorderedDocuments.map((doc) => doc.id))
+      setDocuments(response.documents)
+      trackingService.trackResearchEvent({
+        project_id: projectId,
+        experiment_version_id: experimentVersionId,
+        actor_type: 'student',
+        event_domain: 'shared_record',
+        event_type: 'shared_record_reorder',
+        payload: {
+          document_ids: reorderedDocuments.map((doc) => doc.id),
+        }
+      })
+    } catch (error) {
+      console.error('Failed to reorder documents:', error)
+      setDocuments(previousDocuments)
+      setToastMessage('排序保存失败，请稍后重试')
+      setShowToast(true)
+    } finally {
+      setIsReordering(false)
+    }
+  }
+
   const handleDeleteDocument = (id: string) => {
     setDeleteConfirmId(id)
   }
@@ -937,19 +988,46 @@ export default function DocumentEditor({
                 暂无文档，点击上方 + 号新建
               </div>
             ) : (
-              orderedDocuments.map((doc) => {
+              <>
+                <div className="px-1 pb-1 text-[10px] leading-4 text-gray-400">
+                  拖动左侧手柄可调整文档顺序{isReordering ? '，正在保存...' : ''}
+                </div>
+                {orderedDocuments.map((doc) => {
                 const isProjectDescription = doc.id === initialTaskDocumentId
                 return (
                 <div
                   key={doc.id}
-                  onClick={() => handleSelectDocument(doc.id)}
-                  className={`w-full flex flex-col items-start p-2.5 rounded-lg border text-left transition-all group cursor-pointer ${doc.id === documentId
+                  draggable
+                  onDragStart={(event) => {
+                    setDraggingDocumentId(doc.id)
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', doc.id)
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = 'move'
+                    setDragOverDocumentId(doc.id)
+                  }}
+                  onDragLeave={() => setDragOverDocumentId((current) => current === doc.id ? null : current)}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    void handleDropDocument(doc.id)
+                  }}
+                  onDragEnd={() => {
+                    setDraggingDocumentId(null)
+                    setDragOverDocumentId(null)
+                  }}
+                  onClick={() => {
+                    if (!isReordering && !draggingDocumentId) handleSelectDocument(doc.id)
+                  }}
+                  className={`w-full flex flex-col items-start p-2.5 rounded-lg border text-left transition-all group cursor-pointer ${draggingDocumentId === doc.id ? 'opacity-50' : ''} ${dragOverDocumentId === doc.id && draggingDocumentId !== doc.id ? 'ring-2 ring-indigo-300' : ''} ${doc.id === documentId
                     ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm ring-1 ring-indigo-100'
                     : 'bg-white border-transparent hover:border-gray-200 text-gray-600 hover:bg-gray-50'
                     }`}
                 >
                   <div className="flex items-center justify-between w-full">
                     <div className="flex items-center gap-2 truncate flex-1 min-w-0">
+                      <GripVertical className="w-3.5 h-3.5 shrink-0 cursor-grab text-gray-300 group-hover:text-gray-500" />
                       <FileText className={`w-3.5 h-3.5 shrink-0 ${doc.id === documentId ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'}`} />
                       <span className="truncate text-sm font-medium">{doc.title || '未命名文档'}</span>
                       {isProjectDescription ? (
@@ -975,7 +1053,8 @@ export default function DocumentEditor({
                     <span>{new Date(doc.updated_at).toLocaleDateString()}</span>
                   </div>
                 </div>
-              )})
+              )})}
+              </>
             )}
           </div>
         </div>

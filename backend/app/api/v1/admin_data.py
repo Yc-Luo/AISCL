@@ -210,7 +210,7 @@ def _data_dictionary_rows() -> List[Dict[str, str]]:
 
 
 def _classify_event(space: str, action: str, actor_type: str = "", metadata: Optional[dict] = None) -> Dict[str, Any]:
-    text = f"{space} {action} {json.dumps(metadata or {}, ensure_ascii=False)}".lower()
+    text = f"{space} {action} {json.dumps(_json_safe(metadata or {}), ensure_ascii=False)}".lower()
     tags: List[str] = []
     if any(token in text for token in ["evidence", "resource", "citation", "资料", "证据"]):
         tags.append("evidence_use")
@@ -1243,9 +1243,9 @@ async def export_research_data(
         for item in chat_logs:
             writer.writerow(["chat", str(item.id), item.project_id, item.user_id, item.message_type, item.content, utc_isoformat(item.created_at)])
         for item in research_events:
-            writer.writerow(["research_event", str(item.id), item.project_id, item.user_id or "", item.event_type, json.dumps(item.payload, ensure_ascii=False), utc_isoformat(item.event_time)])
+            writer.writerow(["research_event", str(item.id), item.project_id, item.user_id or "", item.event_type, json.dumps(_json_safe(item.payload), ensure_ascii=False), utc_isoformat(item.event_time)])
         for item in activity_logs:
-            writer.writerow(["activity_log", str(item.id), item.project_id, item.user_id, item.action, json.dumps(item.metadata or {}, ensure_ascii=False), utc_isoformat(item.timestamp)])
+            writer.writerow(["activity_log", str(item.id), item.project_id, item.user_id, item.action, json.dumps(_json_safe(item.metadata or {}), ensure_ascii=False), utc_isoformat(item.timestamp)])
         output.seek(0)
         filename = f"aiscl_research_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
         return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})

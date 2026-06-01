@@ -132,7 +132,7 @@ export default function DataManager() {
             setNotice(`已生成班级研究数据包：${course?.name || selectedCourseId}`)
         } catch (error) {
             console.error('Failed to export course research package:', error)
-            setNotice(getErrorDetail(error, '班级研究数据包导出失败，请检查后端日志或稍后重试。'))
+            setNotice(await getDownloadErrorDetail(error, '班级研究数据包导出失败，请检查后端日志或稍后重试。'))
         } finally {
             setIsExportingCourse(false)
         }
@@ -393,4 +393,22 @@ function getErrorDetail(error: unknown, fallback: string) {
         }
     }
     return fallback
+}
+
+async function getDownloadErrorDetail(error: unknown, fallback: string) {
+    if (typeof error === 'object' && error !== null && 'response' in error) {
+        const response = (error as { response?: { data?: unknown } }).response
+        if (response?.data instanceof Blob) {
+            try {
+                const text = await response.data.text()
+                const payload = JSON.parse(text) as { detail?: unknown }
+                if (typeof payload.detail === 'string') {
+                    return payload.detail
+                }
+            } catch {
+                return fallback
+            }
+        }
+    }
+    return getErrorDetail(error, fallback)
 }

@@ -5,10 +5,11 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import os
 import tempfile
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,7 +20,7 @@ from bson import ObjectId
 from starlette.background import BackgroundTask
 
 from app.api.v1.auth import get_current_user
-from app.core.datetime_utils import utc_isoformat
+from app.core.datetime_utils import ensure_aware_utc, utc_isoformat
 from app.core.db.mongodb import mongodb
 from app.core.security import content_disposition_header
 from app.repositories.activity_log import ActivityLog
@@ -41,6 +42,7 @@ from app.repositories.wiki_item import WikiItem
 from app.services.storage_service import storage_service
 
 router = APIRouter(prefix="/admin/data", tags=["admin-data"])
+logger = logging.getLogger(__name__)
 
 
 class RetentionCleanupRequest(BaseModel):
@@ -100,11 +102,45 @@ def _write_csv(archive: zipfile.ZipFile, path: str, rows: List[Dict[str, Any]], 
 def _csv_value(value: Any) -> Any:
     if isinstance(value, datetime):
         return utc_isoformat(value)
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (dict, list, tuple, set)):
+        return json.dumps(_json_safe(value), ensure_ascii=False)
+    if isinstance(value, ObjectId):
+        return str(value)
     if value is None:
         return ""
     return value
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return utc_isoformat(value)
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "model_dump"):
+        return _json_safe(value.model_dump(mode="json"))
+    return value
+
+
+def _datetime_or_none(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return ensure_aware_utc(value)
+    if isinstance(value, str):
+        try:
+            return ensure_aware_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
+        except ValueError:
+            return None
+    return None
+
+
+def _safe_isoformat(value: Any) -> str:
+    normalized = _datetime_or_none(value)
+    if normalized:
+        return utc_isoformat(normalized) or ""
+    return str(value or "")
 
 
 def _anonymize_user_id(user_id: Optional[str], user_code_map: Dict[str, str]) -> str:
@@ -411,9 +447,10 @@ async def export_course_research_package(
             package_data,
             include_files,
         )
-    except Exception:
+    except Exception as exc:
         _remove_temp_file(temp_path)
-        raise
+        logger.exception("Failed to build course research package for course_id=%s", course_id)
+        raise HTTPException(status_code=500, detail=f"班级研究数据包生成失败：{exc}") from exc
 
     filename = f"aiscl-course-research-{_zip_safe_segment(course.name, str(course.id))}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.zip"
     return StreamingResponse(
@@ -521,12 +558,12 @@ def _sessionize_heartbeats(heartbeats: List[Dict[str, Any]], user_code_map: Dict
 
     sessions: List[Dict[str, Any]] = []
     for (project_id, user_id), rows in grouped.items():
-        rows.sort(key=lambda item: item.get("timestamp") or datetime.min)
+        rows.sort(key=lambda item: _datetime_or_none(item.get("timestamp")) or datetime.min.replace(tzinfo=timezone.utc))
         current: Optional[Dict[str, Any]] = None
         last_time: Optional[datetime] = None
         for row in rows:
-            timestamp = row.get("timestamp")
-            if not isinstance(timestamp, datetime):
+            timestamp = _datetime_or_none(row.get("timestamp"))
+            if not timestamp:
                 continue
             metadata = row.get("metadata") or {}
             should_start = current is None or last_time is None or (timestamp - last_time).total_seconds() > gap_seconds
@@ -736,7 +773,7 @@ def _sequence_row(
     action: str,
     object_type: str,
     object_id: str,
-    timestamp: datetime,
+    timestamp: Any,
     user_code_map: Dict[str, str],
     stage_id: Optional[str] = None,
     content_length: int = 0,
@@ -753,7 +790,7 @@ def _sequence_row(
         "action": action,
         "object_type": object_type,
         "object_id": object_id,
-        "timestamp": utc_isoformat(timestamp),
+        "timestamp": _safe_isoformat(timestamp),
         "stage_id": stage_id or "",
         "content_length": content_length,
         "semantic_tags": classification["semantic_tags"],

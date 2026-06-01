@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckCircle2, Info, AlertTriangle, XCircle, X } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
@@ -17,14 +17,22 @@ export const Toast: React.FC<ToastProps> = ({
     onClose,
 }) => {
     const [visible, setVisible] = useState(true);
+    const onCloseRef = useRef(onClose);
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setVisible(false);
-            onClose?.();
-        }, duration);
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
+    const close = useCallback(() => {
+        setVisible(false);
+        onCloseRef.current?.();
+    }, []);
+
+    useEffect(() => {
+        setVisible(true);
+        const timer = setTimeout(close, duration);
         return () => clearTimeout(timer);
-    }, [duration, onClose]);
+    }, [close, duration, message, type]);
 
     if (!visible) return null;
 
@@ -32,7 +40,17 @@ export const Toast: React.FC<ToastProps> = ({
 
     return (
         <div
-            className={`fixed bottom-4 right-4 min-w-[200px] p-3 rounded shadow-lg text-white ${bg} animate-fade-in`}
+            className={`fixed bottom-4 right-4 min-w-[200px] cursor-pointer rounded p-3 text-white shadow-lg ${bg} animate-fade-in`}
+            role="button"
+            tabIndex={0}
+            aria-label="点击确认并关闭提示"
+            onClick={close}
+            onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    close();
+                }
+            }}
         >
             {message}
         </div>

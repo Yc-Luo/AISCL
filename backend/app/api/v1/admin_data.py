@@ -1508,7 +1508,25 @@ def _count_followups_after_interventions(interventions: List[Dict[str, Any]], ev
 
 def _write_group_split_package(archive: zipfile.ZipFile, data: Dict[str, Any], user_code_map: Dict[str, str]) -> None:
     """Write analysis-friendly all-group copies and per-group split tables."""
+    conversation_project_map = {str(item.id): item.project_id for item in data["ai_conversations"]}
     _write_csv(archive, "all_groups/metadata/group_conditions.csv", data["project_condition_rows"], CONDITION_FIELDNAMES)
+    _write_csv(archive, "all_groups/raw/groups.csv", _group_rows(data, user_code_map), ["project_id", "project_name", "course_id", "condition_label", "group_condition", "ai_scaffold_mode", "process_scaffold_mode", "stage_control_mode", "leader_anonymous_id", "member_count", "is_archived", "created_at", "updated_at"])
+    _write_csv(archive, "all_groups/raw/group_members.csv", _group_member_rows(data, user_code_map), ["project_id", "project_name", "anonymous_id", "project_role", "is_leader", "joined_at"])
+    _write_csv(archive, "all_groups/raw/chat_logs.csv", _chat_log_rows(data["chat_logs"], user_code_map), ["id", "project_id", "anonymous_id", "message_type", "content", "content_length", "mentions", "metadata", "created_at"])
+    _write_csv(archive, "all_groups/raw/research_events.csv", _research_event_rows(data["research_events"], user_code_map), ["id", "project_id", "group_id", "anonymous_id", "actor_type", "event_domain", "event_type", "stage_id", "sequence_index", "payload", "event_time", "created_at"])
+    _write_csv(archive, "all_groups/raw/activity_logs.csv", _activity_log_rows(data["activity_logs"], user_code_map), ["id", "project_id", "anonymous_id", "module", "action", "target_id", "duration", "metadata", "timestamp"])
+    _write_csv(archive, "all_groups/raw/behavior_stream.csv", _behavior_stream_rows(data["behavior_stream"], user_code_map), ["timestamp", "project_id", "anonymous_id", "module", "action"])
+    if data["heartbeat_stream"]:
+        _write_csv(archive, "all_groups/raw/heartbeat_stream.csv", _heartbeat_stream_rows(data["heartbeat_stream"], user_code_map), ["timestamp", "project_id", "anonymous_id", "module", "resource_id"])
+    _write_csv(archive, "all_groups/raw/resources.csv", _resource_rows(data["resources"], user_code_map), ["id", "project_id", "course_id", "scope", "filename", "file_key", "size", "mime_type", "source_type", "uploaded_by", "uploaded_at", "parse_status"])
+    _write_csv(archive, "all_groups/raw/documents.csv", _document_rows(data["documents"], user_code_map), ["id", "project_id", "title", "content_text_length", "last_modified_by", "is_archived", "source_type", "course_task_release_id", "created_at", "updated_at"])
+    _write_csv(archive, "all_groups/raw/wiki_items.csv", _wiki_item_rows(data["wiki_items"], user_code_map), ["id", "project_id", "stage_id", "item_type", "title", "content", "summary", "source_type", "created_by", "updated_by", "confidence_level", "created_at", "updated_at"])
+    _write_csv(archive, "all_groups/raw/tasks.csv", _task_rows(data["tasks"], user_code_map), ["id", "project_id", "title", "column", "source_type", "course_task_release_id", "submission_status", "submitted_by", "submitted_at", "review_status", "created_at", "updated_at"])
+    _write_csv(archive, "all_groups/raw/ai_conversations.csv", _ai_conversation_rows(data["ai_conversations"], user_code_map), ["id", "project_id", "anonymous_id", "persona_id", "title", "category", "created_at", "updated_at"])
+    _write_csv(archive, "all_groups/raw/ai_messages.csv", _ai_message_rows(data["ai_messages"], conversation_project_map), ["id", "project_id", "conversation_id", "role", "content", "content_length", "citations", "metadata", "created_at"])
+    _write_csv(archive, "all_groups/cleaned/heartbeat_sessions.csv", data["heartbeat_sessions"], [
+        "session_id", "project_id", "anonymous_id", "start_time", "end_time", "duration_seconds", "heartbeat_count", "active_modules", "resource_ids", "overlap_ready"
+    ])
     _write_csv(archive, "all_groups/analysis_ready/event_sequence.csv", data["event_sequence"], EVENT_SEQUENCE_FIELDNAMES)
     _write_csv(archive, "all_groups/analysis_ready/intervention_windows.csv", data["intervention_windows"], INTERVENTION_WINDOW_FIELDNAMES)
     _write_csv(archive, "all_groups/analysis_ready/group_summary.csv", _group_summary_rows(data["project_ids"], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_SUMMARY_FIELDNAMES)
@@ -1516,10 +1534,10 @@ def _write_group_split_package(archive: zipfile.ZipFile, data: Dict[str, Any], u
     _write_csv(archive, "all_groups/analysis_ready/group_stage_summary.csv", _group_stage_summary_rows(data["project_ids"], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_STAGE_SUMMARY_FIELDNAMES)
     _write_csv(archive, "all_groups/analysis_ready/intervention_exposure.csv", _intervention_exposure_rows(data["project_ids"], data["event_sequence"], data), INTERVENTION_EXPOSURE_FIELDNAMES)
 
-    conversation_project_map = {str(item.id): item.project_id for item in data["ai_conversations"]}
     for project_id in data["project_ids"]:
         group_dir = f"groups/{_group_dir_name(project_id, data['project_name_map'])}"
         _write_csv(archive, f"{group_dir}/metadata/group_condition.csv", [data["project_condition_map"].get(project_id, {})], CONDITION_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/raw/group_members.csv", [row for row in _group_member_rows(data, user_code_map) if row["project_id"] == project_id], ["project_id", "project_name", "anonymous_id", "project_role", "is_leader", "joined_at"])
         _write_csv(
             archive,
             f"{group_dir}/raw/chat_logs.csv",
@@ -1586,6 +1604,64 @@ def _write_group_split_package(archive: zipfile.ZipFile, data: Dict[str, Any], u
         _write_csv(archive, f"{group_dir}/analysis_ready/student_summary.csv", _student_summary_rows(group_sequence, group_sessions, data), STUDENT_SUMMARY_FIELDNAMES)
         _write_csv(archive, f"{group_dir}/analysis_ready/group_stage_summary.csv", _group_stage_summary_rows([project_id], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_STAGE_SUMMARY_FIELDNAMES)
         _write_csv(archive, f"{group_dir}/analysis_ready/intervention_exposure.csv", _intervention_exposure_rows([project_id], data["event_sequence"], data), INTERVENTION_EXPOSURE_FIELDNAMES)
+
+
+def _group_rows(data: Dict[str, Any], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "project_id": str(project.id),
+            "project_name": project.name,
+            "course_id": project.course_id,
+            **_condition_event_fields(data["project_condition_map"].get(str(project.id))),
+            "leader_anonymous_id": _anonymize_user_id(project.leader_id, user_code_map),
+            "member_count": len(project.members or []),
+            "is_archived": project.is_archived,
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+        }
+        for project in data["projects"]
+    ]
+
+
+def _group_member_rows(data: Dict[str, Any], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "project_id": str(project.id),
+            "project_name": project.name,
+            "anonymous_id": _anonymize_user_id(member.get("user_id"), user_code_map),
+            "project_role": member.get("role") or "",
+            "is_leader": member.get("user_id") == project.leader_id,
+            "joined_at": member.get("joined_at"),
+        }
+        for project in data["projects"]
+        for member in project.members or []
+    ]
+
+
+def _behavior_stream_rows(items: List[Dict[str, Any]], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "timestamp": item.get("timestamp"),
+            "project_id": (item.get("metadata") or {}).get("project_id"),
+            "anonymous_id": _anonymize_user_id((item.get("metadata") or {}).get("user_id"), user_code_map),
+            "module": (item.get("metadata") or {}).get("module"),
+            "action": (item.get("metadata") or {}).get("action"),
+        }
+        for item in items
+    ]
+
+
+def _heartbeat_stream_rows(items: List[Dict[str, Any]], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "timestamp": item.get("timestamp"),
+            "project_id": (item.get("metadata") or {}).get("project_id"),
+            "anonymous_id": _anonymize_user_id((item.get("metadata") or {}).get("user_id"), user_code_map),
+            "module": (item.get("metadata") or {}).get("module"),
+            "resource_id": (item.get("metadata") or {}).get("resource_id"),
+        }
+        for item in items
+    ]
 
 
 def _chat_log_rows(items: List[ChatLog], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:

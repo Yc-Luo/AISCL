@@ -75,6 +75,13 @@ export interface ModelConfigTestResult {
     }
 }
 
+export interface CandidateLLMModelConfig {
+    id: string
+    provider: string
+    base_url?: string
+    api_key?: string
+}
+
 export interface ActivityLog {
     id: string
     project_id: string
@@ -183,6 +190,11 @@ export const adminService = {
 
     testLLMConfig: async (): Promise<ModelConfigTestResult> => {
         const response = await api.post(API_ENDPOINTS.ADMIN.TEST_LLM_CONFIG)
+        return response.data
+    },
+
+    testLLMModelConfig: async (candidate: CandidateLLMModelConfig): Promise<ModelConfigTestResult> => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.TEST_LLM_MODEL_CONFIG, candidate)
         return response.data
     },
 

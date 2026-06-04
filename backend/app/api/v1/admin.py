@@ -6,9 +6,14 @@ from time import perf_counter
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from langchain_community.llms import Ollama
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 from app.api.v1.auth import get_current_user
+from app.core.config import settings
 from app.core.datetime_utils import utc_isoformat
+from app.core.llm_config import _normalize_provider
 from app.repositories.system_config import SystemConfig
 from app.repositories.system_log import SystemLog
 from app.repositories.user import User
@@ -52,11 +57,27 @@ ALLOWED_LLM_ROLE_KEYS = {
     "default_chat",
     "group_multi_agent",
     "tutor_multi_agent",
+    "langgraph_supervisor",
+    "orchestration_planner",
+    "routing_decision",
+    "retrieval_planner",
+    "answer_synthesizer",
+    "auto_prompt_policy",
+    "group_memory_summarizer",
     "problem_progressor",
     "evidence_researcher",
     "viewpoint_challenger",
     "feedback_prompter",
 }
+
+
+class LLMModelTestRequest(BaseModel):
+    """Candidate model config used before saving a model-pool entry."""
+
+    id: str = Field(..., min_length=1)
+    provider: str = Field(default="openai_compatible")
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 async def _require_admin(current_user: User) -> None:
@@ -364,6 +385,71 @@ async def test_llm_config(
             "latency_ms": elapsed_ms,
             "error": str(exc),
             "config": _safe_config_summary(configs, "llm"),
+        }
+
+
+@router.post("/system-configs/test-llm-model")
+async def test_llm_model_config(
+    request: LLMModelTestRequest,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Test a candidate model-pool entry before it is persisted."""
+    await _require_admin(current_user)
+
+    provider = _normalize_provider(request.provider)
+    model_id = request.id.strip()
+    base_url = (request.base_url or "").strip()
+    api_key = (request.api_key or "").strip()
+    started_at = perf_counter()
+    config_summary = {
+        "provider": provider,
+        "base_url": base_url or None,
+        "model": model_id,
+        "has_key": bool(api_key),
+    }
+
+    try:
+        if provider == "ollama":
+            llm = Ollama(
+                model=model_id,
+                base_url=base_url or settings.OLLAMA_BASE_URL,
+                temperature=0,
+            )
+        elif provider in {"openai", "openai_compatible", "deepseek", "deepseek-chat"}:
+            if not api_key:
+                raise ValueError("API Key is required for this provider")
+            if provider in {"openai_compatible", "deepseek", "deepseek-chat"} and not base_url:
+                raise ValueError("Base URL is required for this provider")
+            llm = ChatOpenAI(
+                model=model_id,
+                temperature=0,
+                openai_api_key=api_key,
+                openai_api_base=base_url or None,
+                max_tokens=min(settings.LLM_MAX_OUTPUT_TOKENS, 256),
+                timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
+                max_retries=1,
+            )
+        else:
+            raise ValueError(f"Unsupported AI provider: {provider}")
+
+        response = await guarded_ainvoke(llm, "请只回复：AISCL_OK")
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        content = response.content if hasattr(response, "content") else str(response)
+        return {
+            "success": True,
+            "service": "llm",
+            "latency_ms": elapsed_ms,
+            "response_preview": content[:120],
+            "config": config_summary,
+        }
+    except Exception as exc:
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        return {
+            "success": False,
+            "service": "llm",
+            "latency_ms": elapsed_ms,
+            "error": str(exc),
+            "config": config_summary,
         }
 
 

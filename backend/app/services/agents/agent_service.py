@@ -66,12 +66,14 @@ class AgentService:
                     "llm_base_url",
                     "llm_key",
                     "user_custom_models",
+                    "llm_role_model_map",
                 ]
                 config_values = {}
                 for key in config_keys:
                     config = await SystemConfig.find_one(SystemConfig.key == key)
                     config_values[key] = config.value if config else ""
-                latest_model_id = config_values.get("llm_model") or (
+                supervisor_model_id = await resolve_role_model_id("langgraph_supervisor")
+                latest_model_id = supervisor_model_id or config_values.get("llm_model") or (
                     settings.OPENAI_MODEL if settings.LLM_PROVIDER == "openai"
                     else settings.DEEPSEEK_MODEL if settings.LLM_PROVIDER in ["deepseek", "deepseek-chat"]
                     else settings.OLLAMA_MODEL if settings.LLM_PROVIDER == "ollama"
@@ -112,7 +114,10 @@ class AgentService:
         # 2. Check if we need to reload (Hot Update Logic)
         if not self.llm or self._current_llm_signature != latest_llm_signature:
             print(f"🔄 Detected model change or first init: {self._current_model_id} -> {latest_model_id}")
-            self.llm = await get_llm(temperature=0.7)
+            self.llm = await get_llm(
+                temperature=0.7,
+                model_id=await resolve_role_model_id("langgraph_supervisor"),
+            )
             self._current_model_id = latest_model_id
             self._current_llm_signature = latest_llm_signature
             # Invalidation: Force graph rebuild

@@ -109,6 +109,15 @@ async def resolve_role_model_id(role_name: str, fallback_model_id: Optional[str]
         "资料研究员": "evidence_researcher",
         "观点挑战者": "viewpoint_challenger",
         "反馈追问者": "feedback_prompter",
+        "LangGraph监督者": "langgraph_supervisor",
+        "LangGraph 监督者": "langgraph_supervisor",
+        "监督者": "langgraph_supervisor",
+        "路由决策者": "routing_decision",
+        "编排规划器": "orchestration_planner",
+        "检索规划器": "retrieval_planner",
+        "回答综合器": "answer_synthesizer",
+        "自动提示策略": "auto_prompt_policy",
+        "小组记忆摘要器": "group_memory_summarizer",
     }
     candidates = [normalized, aliases.get(normalized, "")]
     for candidate in candidates:

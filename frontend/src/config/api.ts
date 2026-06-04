@@ -39,6 +39,7 @@ export const API_ENDPOINTS = {
         CONFIGS: '/admin/system-configs',
         CONFIG_DETAIL: (key: string) => `/admin/system-configs/${key}`,
         TEST_LLM_CONFIG: '/admin/system-configs/test-llm',
+        TEST_LLM_MODEL_CONFIG: '/admin/system-configs/test-llm-model',
         TEST_EMBEDDING_CONFIG: '/admin/system-configs/test-embedding',
         TEST_WEB_SEARCH_CONFIG: '/admin/system-configs/test-web-search',
         TEST_DOCUMENT_PARSE_CONFIG: '/admin/system-configs/test-document-parse',

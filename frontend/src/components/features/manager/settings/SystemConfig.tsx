@@ -47,6 +47,13 @@ const ROLE_BINDINGS = [
     { key: 'default_chat', label: '默认聊天模型', hint: '对照组/普通 AI 对话使用' },
     { key: 'group_multi_agent', label: '小组多智能体默认模型', hint: '小组聊天 @AI 时的默认模型' },
     { key: 'tutor_multi_agent', label: 'AI 导师模型', hint: '学生个人 AI 对话使用' },
+    { key: 'langgraph_supervisor', label: 'LangGraph 监督者', hint: '全局路由、监督与复杂决策' },
+    { key: 'orchestration_planner', label: '编排规划器', hint: '阶段、意图、协作模式规划' },
+    { key: 'routing_decision', label: '路由决策者', hint: '选择角色、判断触发来源' },
+    { key: 'retrieval_planner', label: '检索规划器', hint: '判断是否检索资料/Wiki/任务说明' },
+    { key: 'answer_synthesizer', label: '回答综合器', hint: '多角色结果整合与最终表达' },
+    { key: 'auto_prompt_policy', label: '自动提示策略', hint: '群聊自动提示触发判断' },
+    { key: 'group_memory_summarizer', label: '小组记忆摘要器', hint: '阶段记忆、小组状态与滚动摘要' },
     { key: 'problem_progressor', label: '问题推进者', hint: '澄清焦点、切分下一步' },
     { key: 'evidence_researcher', label: '资料研究员', hint: '资料线索、证据标准、来源判断' },
     { key: 'viewpoint_challenger', label: '观点挑战者', hint: '反例、替代解释、逻辑漏洞' },
@@ -115,10 +122,12 @@ export default function SystemConfig() {
     const [isTestingEmbedding, setIsTestingEmbedding] = useState(false)
     const [isTestingWebSearch, setIsTestingWebSearch] = useState(false)
     const [isTestingDocumentParse, setIsTestingDocumentParse] = useState(false)
+    const [isTestingTempModel, setIsTestingTempModel] = useState(false)
     const [llmTestResult, setLlmTestResult] = useState<ModelConfigTestResult | null>(null)
     const [embeddingTestResult, setEmbeddingTestResult] = useState<ModelConfigTestResult | null>(null)
     const [webSearchTestResult, setWebSearchTestResult] = useState<ModelConfigTestResult | null>(null)
     const [documentParseTestResult, setDocumentParseTestResult] = useState<ModelConfigTestResult | null>(null)
+    const [tempModelTestResult, setTempModelTestResult] = useState<ModelConfigTestResult | null>(null)
 
     // Mapping keys to local state for easier UI handling
     const [configValues, setConfigValues] = useState<ConfigValues>({ ...DEFAULT_CONFIG_VALUES })
@@ -232,6 +241,11 @@ export default function SystemConfig() {
         ].filter((item, index, array) => item.id && array.findIndex((next) => next.id === item.id) === index)
         const custom = customModels.map((model) => ({ id: model.id, name: model.name || model.id }))
         return [...base, ...custom]
+    }
+
+    const updateTempModel = (next: Partial<CustomModelConfig>) => {
+        setTempModel((previous) => ({ ...previous, ...next }))
+        setTempModelTestResult(null)
     }
 
     const validateRuntimeConfig = () => {
@@ -612,17 +626,55 @@ export default function SystemConfig() {
         }
     }
 
-    const handleAddCustomModel = () => {
+    const handleTestTempModel = async () => {
         if (!tempModel.id.trim() || !tempModel.name.trim() || (tempModel.provider !== 'ollama' && (!tempModel.url.trim() || !tempModel.key.trim()))) {
-            alert('请完整填写模型名称、模型 ID、Base URL 和 API Key')
-            return
+            const result: ModelConfigTestResult = {
+                success: false,
+                service: 'llm',
+                error: '请完整填写模型名称、模型 ID、Base URL 和 API Key',
+            }
+            setTempModelTestResult(result)
+            return result
         }
         if (customModels.some((model) => model.id === tempModel.id.trim())) {
-            alert('模型 ID 已存在，请使用唯一 ID')
-            return
+            const result: ModelConfigTestResult = {
+                success: false,
+                service: 'llm',
+                error: '模型 ID 已存在，请使用唯一 ID',
+            }
+            setTempModelTestResult(result)
+            return result
         }
+        try {
+            setIsTestingTempModel(true)
+            setTempModelTestResult(null)
+            const result = await adminService.testLLMModelConfig({
+                id: tempModel.id.trim(),
+                provider: tempModel.provider.trim() || 'openai_compatible',
+                base_url: tempModel.url.trim(),
+                api_key: tempModel.key,
+            })
+            setTempModelTestResult(result)
+            return result
+        } catch (error: unknown) {
+            const result: ModelConfigTestResult = {
+                success: false,
+                service: 'llm',
+                error: getErrorMessage(error, '候选模型测试失败'),
+            }
+            setTempModelTestResult(result)
+            return result
+        } finally {
+            setIsTestingTempModel(false)
+        }
+    }
+
+    const handleAddCustomModel = async () => {
+        const result = await handleTestTempModel()
+        if (!result?.success) return
         setCustomModels([...customModels, { ...tempModel, id: tempModel.id.trim(), name: tempModel.name.trim(), url: tempModel.url.trim() }])
         setTempModel({ id: '', name: '', provider: 'openai_compatible', url: '', key: '', usage: 'general' })
+        setTempModelTestResult(null)
         setIsModelModalOpen(false)
     }
 
@@ -827,12 +879,12 @@ export default function SystemConfig() {
                             <div>
                                 <p className="text-sm font-bold text-slate-800">角色模型分配</p>
                                 <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                                    先在下方模型池添加模型，再按角色选择。未选择的角色跟随系统默认模型。
+                                    先在下方模型池添加并通过测试，再按角色选择。未选择的角色跟随系统默认模型。
                                 </p>
                             </div>
                             <div className="grid grid-cols-1 gap-3">
                                 {ROLE_BINDINGS.map((role) => (
-                                    <div key={role.key} className="grid grid-cols-[140px_1fr] items-center gap-3">
+                                    <div key={role.key} className="grid grid-cols-[168px_1fr] items-center gap-3">
                                         <div>
                                             <p className="text-xs font-bold text-slate-700">{role.label}</p>
                                             <p className="text-[11px] leading-4 text-slate-400">{role.hint}</p>
@@ -1419,7 +1471,7 @@ export default function SystemConfig() {
                 <DialogContent className="max-w-md p-6 bg-white border-none shadow-2xl rounded-3xl">
                     <DialogHeader className="space-y-1 mb-4 text-left sm:text-left">
                         <DialogTitle className="text-xl font-bold text-slate-800">添加自定义模型</DialogTitle>
-                        <DialogDescription className="text-slate-500">输入模型池配置，保存后可分配给不同智能体角色</DialogDescription>
+                        <DialogDescription className="text-slate-500">输入模型池配置。系统会先做连通性测试，通过后才加入模型池。</DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
@@ -1428,7 +1480,7 @@ export default function SystemConfig() {
                             <Input
                                 placeholder="如：智谱 GLM-4"
                                 value={tempModel.name}
-                                onChange={(e) => setTempModel({ ...tempModel, name: e.target.value })}
+                                onChange={(e) => updateTempModel({ name: e.target.value })}
                             />
                         </div>
                         <div className="space-y-2">
@@ -1436,7 +1488,7 @@ export default function SystemConfig() {
                             <Input
                                 placeholder="如：deepseek-chat、MiniMax-M2.7、Qwen/Qwen3-235B-A22B-Instruct-2507"
                                 value={tempModel.id}
-                                onChange={(e) => setTempModel({ ...tempModel, id: e.target.value })}
+                                onChange={(e) => updateTempModel({ id: e.target.value })}
                             />
                             <p className="text-[11px] text-slate-400">这里填写服务商真实模型 ID，角色分配时也使用这个 ID。</p>
                         </div>
@@ -1445,7 +1497,7 @@ export default function SystemConfig() {
                             <Input
                                 placeholder="openai_compatible、deepseek、openai、ollama"
                                 value={tempModel.provider}
-                                onChange={(e) => setTempModel({ ...tempModel, provider: e.target.value })}
+                                onChange={(e) => updateTempModel({ provider: e.target.value })}
                             />
                         </div>
                         <div className="space-y-2">
@@ -1453,7 +1505,7 @@ export default function SystemConfig() {
                             <Input
                                 placeholder="https://api.example.com/v1"
                                 value={tempModel.url}
-                                onChange={(e) => setTempModel({ ...tempModel, url: e.target.value })}
+                                onChange={(e) => updateTempModel({ url: e.target.value })}
                             />
                         </div>
                         <div className="space-y-2">
@@ -1462,7 +1514,7 @@ export default function SystemConfig() {
                                 type="password"
                                 placeholder="sk-..."
                                 value={tempModel.key}
-                                onChange={(e) => setTempModel({ ...tempModel, key: e.target.value })}
+                                onChange={(e) => updateTempModel({ key: e.target.value })}
                             />
                         </div>
                         <div className="space-y-2">
@@ -1470,23 +1522,28 @@ export default function SystemConfig() {
                             <Input
                                 placeholder="fast、reasoning、long-context、stable"
                                 value={tempModel.usage || ''}
-                                onChange={(e) => setTempModel({ ...tempModel, usage: e.target.value })}
+                                onChange={(e) => updateTempModel({ usage: e.target.value })}
                             />
                         </div>
+                        {renderTestResult(tempModelTestResult)}
                     </div>
 
                     <DialogFooter className="mt-8 gap-3 sm:justify-start">
                         <Button
                             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-11 px-6 rounded-xl shadow-lg shadow-indigo-100 flex-1"
                             onClick={handleAddCustomModel}
+                            disabled={isTestingTempModel}
                         >
-                            <Plus className="w-4 h-4 mr-2" />
-                            添加到库
+                            {isTestingTempModel ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                            {isTestingTempModel ? '正在测试...' : '测试通过并添加'}
                         </Button>
                         <Button
                             variant="outline"
                             className="h-11 px-6 rounded-xl flex-1"
-                            onClick={() => setIsModelModalOpen(false)}
+                            onClick={() => {
+                                setIsModelModalOpen(false)
+                                setTempModelTestResult(null)
+                            }}
                         >
                             取消
                         </Button>

@@ -36,6 +36,15 @@ CONTENT_DEFAULT: Dict[str, Any] = {
     "next_steps": [],
 }
 
+CONTENT_LIST_BUDGETS = {
+    "formed_views": 6,
+    "evidence_sources": 6,
+    "controversies": 5,
+    "ai_scaffold_summary": 4,
+    "unresolved_questions": 5,
+    "next_steps": 4,
+}
+
 CONTENT_LABELS = {
     "core_question": "本阶段核心问题",
     "formed_views": "已形成观点/阶段性共识",
@@ -51,6 +60,7 @@ STATE_DEFAULT: Dict[str, Any] = {
     "task_focus": "",
     "task_status": [],
     "resource_status": "",
+    "teacher_ai_knowledge_status": "",
     "wiki_status": "",
     "document_status": "",
     "inquiry_status": "",
@@ -59,11 +69,19 @@ STATE_DEFAULT: Dict[str, Any] = {
     "recommended_support": [],
 }
 
+STATE_LIST_BUDGETS = {
+    "task_status": 6,
+    "recent_progress": 5,
+    "collaboration_risks": 5,
+    "recommended_support": 5,
+}
+
 STATE_LABELS = {
     "current_stage": "当前协作阶段",
     "task_focus": "当前任务焦点",
     "task_status": "任务清单状态",
     "resource_status": "资源库状态",
+    "teacher_ai_knowledge_status": "教师 AI 知识库状态",
     "wiki_status": "知识沉淀状态",
     "document_status": "协作文档状态",
     "inquiry_status": "论证空间状态",
@@ -81,6 +99,11 @@ AI_INTERACTION_THRESHOLD = 2
 ARTIFACT_THRESHOLD = 3
 GROUP_STATE_EVENT_LIMIT = 80
 GROUP_STATE_CHAT_LIMIT = 30
+MEMORY_PROMPT_POLICY = (
+    "记忆使用规则：这些内容是基于可观察事件形成的内部支架记忆，不等同于事实结论。"
+    "回答时必须优先使用带来源的项目任务、资料、Wiki、文档或学生原话；"
+    "对未验证、过旧或互相冲突的信息，只能提示小组核验，不能当作已确认结论。"
+)
 
 
 def _truncate_text(text: str, max_chars: int = 420) -> str:
@@ -88,6 +111,23 @@ def _truncate_text(text: str, max_chars: int = 420) -> str:
     if len(normalized) <= max_chars:
         return normalized
     return normalized[:max_chars].rstrip() + "..."
+
+
+def _normalize_list_value(value: Any, *, max_items: int, max_chars: int = 220) -> List[str]:
+    if isinstance(value, list):
+        items = value
+    elif isinstance(value, str) and value.strip():
+        items = [value]
+    else:
+        items = []
+    normalized: List[str] = []
+    for item in items:
+        text = _truncate_text(str(item), max_chars)
+        if text and text not in normalized:
+            normalized.append(text)
+        if len(normalized) >= max_items:
+            break
+    return normalized
 
 
 def _is_ai_interaction(message: ChatLog) -> bool:
@@ -112,14 +152,12 @@ def _normalize_content(raw_content: Dict[str, Any]) -> Dict[str, Any]:
     for key, default_value in CONTENT_DEFAULT.items():
         value = raw_content.get(key, default_value)
         if isinstance(default_value, list):
-            if isinstance(value, list):
-                content[key] = [str(item).strip() for item in value if str(item).strip()]
-            elif isinstance(value, str) and value.strip():
-                content[key] = [value.strip()]
-            else:
-                content[key] = []
+            content[key] = _normalize_list_value(
+                value,
+                max_items=CONTENT_LIST_BUDGETS.get(key, 5),
+            )
         else:
-            content[key] = str(value or "").strip()
+            content[key] = _truncate_text(str(value or ""), 600)
     return content
 
 
@@ -146,15 +184,32 @@ def _normalize_state_content(raw_content: Dict[str, Any]) -> Dict[str, Any]:
     for key, default_value in STATE_DEFAULT.items():
         value = raw_content.get(key, default_value)
         if isinstance(default_value, list):
-            if isinstance(value, list):
-                content[key] = [str(item).strip() for item in value if str(item).strip()]
-            elif isinstance(value, str) and value.strip():
-                content[key] = [value.strip()]
-            else:
-                content[key] = []
+            content[key] = _normalize_list_value(
+                value,
+                max_items=STATE_LIST_BUDGETS.get(key, 5),
+            )
         else:
-            content[key] = str(value or "").strip()
+            content[key] = _truncate_text(str(value or ""), 700)
     return content
+
+
+def _format_memory_governance_note(memory: GroupMemorySummary) -> str:
+    counts = memory.source_counts or {}
+    source_parts = [
+        f"对话 {counts.get('dialogue', 0)}",
+        f"AI互动 {counts.get('ai_interaction', 0)}",
+        f"学习产物/操作 {counts.get('artifact', 0)}",
+        f"支架事件 {counts.get('scaffold', 0)}",
+    ]
+    if counts.get("resources") is not None:
+        source_parts.append(f"资源 {counts.get('resources', 0)}")
+    if counts.get("wiki_items") is not None:
+        source_parts.append(f"Wiki {counts.get('wiki_items', 0)}")
+    return (
+        f"{MEMORY_PROMPT_POLICY}\n"
+        f"记忆版本：v{memory.version}；更新时间：{utc_isoformat(memory.updated_at)}；"
+        f"来源计数：{ '，'.join(source_parts) }。"
+    )
 
 
 def _format_state_for_prompt(content: Dict[str, Any]) -> str:
@@ -392,11 +447,18 @@ class GroupMemoryService:
         memory = await cls.get_stage_memory(project_id=project_id, group_id=group_id, stage_id=stage_id)
         if not memory:
             return {"content": "", "memory_id": None}
+        content = "\n\n".join(
+            section for section in [
+                cls.format_memory_for_prompt(memory),
+                _format_memory_governance_note(memory),
+            ] if section
+        )
         return {
-            "content": cls.format_memory_for_prompt(memory),
+            "content": content,
             "memory_id": str(memory.id),
             "version": memory.version,
             "updated_at": utc_isoformat(memory.updated_at),
+            "source_counts": memory.source_counts,
         }
 
     @staticmethod
@@ -425,11 +487,18 @@ class GroupMemoryService:
         memory = await cls.get_group_state_memory(project_id=project_id, group_id=group_id)
         if not memory:
             return {"content": "", "memory_id": None}
+        content = "\n\n".join(
+            section for section in [
+                _format_state_for_prompt(memory.content),
+                _format_memory_governance_note(memory),
+            ] if section
+        )
         return {
-            "content": _format_state_for_prompt(memory.content),
+            "content": content,
             "memory_id": str(memory.id),
             "version": memory.version,
             "updated_at": utc_isoformat(memory.updated_at),
+            "source_counts": memory.source_counts,
         }
 
     @classmethod
@@ -778,13 +847,15 @@ class GroupMemoryService:
 请输出严格 JSON，不要 Markdown，不要解释。字段如下：
 {{
   "core_question": "本阶段核心问题，字符串",
-  "formed_views": ["已形成观点或阶段性共识"],
-  "evidence_sources": ["证据与资料线索"],
-  "controversies": ["分歧、争议与待澄清点"],
-  "ai_scaffold_summary": ["AI支架介入摘要"],
-  "unresolved_questions": ["尚未解决的问题"],
-  "next_steps": ["下一步推进建议"]
-}}"""
+  "formed_views": ["已形成观点或阶段性共识，最多6条"],
+  "evidence_sources": ["证据与资料线索，最多6条，尽量保留来源"],
+  "controversies": ["分歧、争议与待澄清点，最多5条"],
+  "ai_scaffold_summary": ["AI支架介入摘要，最多4条，只记录已发生的支架"],
+  "unresolved_questions": ["尚未解决的问题，最多5条"],
+  "next_steps": ["下一步推进建议，最多4条"]
+}}
+
+要求：只根据新增对话和事件更新；无法从来源确认的内容标为“待核验”，不要把 AI 建议写成小组已采纳结论。"""
                 ),
             ]
         )

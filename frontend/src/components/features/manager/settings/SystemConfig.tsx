@@ -60,6 +60,30 @@ const ROLE_BINDINGS = [
     { key: 'feedback_prompter', label: '反馈追问者', hint: '依据、表达、推理链、修订方向' },
 ]
 
+const ROLE_RECOMMENDATIONS: Record<string, string> = {
+    default_chat: '建议使用稳定、成本可控的通用对话模型，保持对照组体验一致。',
+    group_multi_agent: '建议先跟随系统默认模型，避免小组可见回答风格过度分裂。',
+    tutor_multi_agent: '建议使用稳定通用模型；个人导师不宜比小组支架强太多，以免替学生完成任务。',
+    langgraph_supervisor: '建议配置推理能力更强、上下文较长的模型，负责复杂路由和全局判断。',
+    orchestration_planner: '建议跟随 LangGraph 监督者或系统默认；当前主要由规则矩阵约束，不必单独使用昂贵模型。',
+    routing_decision: '建议使用快速稳定模型或跟随默认，降低自动提示和路由延迟。',
+    retrieval_planner: '建议使用快速稳定模型；它只判断是否检索资料、Wiki 和任务说明。',
+    answer_synthesizer: '建议使用表达稳定、上下文较长的模型，用来把多角色输出整合为一条学生可读支架。',
+    auto_prompt_policy: '建议使用低延迟模型；自动提示策略更重触发准确性和并发稳定性。',
+    group_memory_summarizer: '建议使用低温、长上下文、稳定模型；它负责压缩小组态势，避免记忆膨胀和腐烂。',
+    problem_progressor: '建议跟随小组多智能体默认模型，保持亲和、清晰和行动导向。',
+    evidence_researcher: '建议使用可靠的通用或检索友好模型，重点是来源判断和证据标准。',
+    viewpoint_challenger: '可配置推理能力稍强的模型，但需观察是否过度尖锐或输出过长。',
+    feedback_prompter: '建议使用表达稳定模型，重点是温和追问、修订方向和同伴协作。',
+}
+
+const ROLE_GROUP_RECOMMENDATIONS = [
+    '先只给 LangGraph 监督者、回答综合器、小组记忆摘要器配置更强或更稳的模型。',
+    '四个学生可见角色初期建议共用同一个稳定模型，避免同一小组里语气和判断标准混乱。',
+    '自动提示策略和路由决策者优先低延迟，复杂推理交给监督者和回答综合器。',
+    '新增模型必须测试通过后再加入模型池；上线后先观察失败率、平均延迟和学生端可读性。',
+]
+
 const safeJsonParse = <T,>(value: string, fallback: T): T => {
     try {
         return JSON.parse(value) as T
@@ -882,6 +906,14 @@ export default function SystemConfig() {
                                     先在下方模型池添加并通过测试，再按角色选择。未选择的角色跟随系统默认模型。
                                 </p>
                             </div>
+                            <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-xs leading-relaxed text-amber-900">
+                                <p className="font-bold">配置建议</p>
+                                <div className="mt-1 space-y-1">
+                                    {ROLE_GROUP_RECOMMENDATIONS.map((item) => (
+                                        <p key={item}>- {item}</p>
+                                    ))}
+                                </div>
+                            </div>
                             <div className="grid grid-cols-1 gap-3">
                                 {ROLE_BINDINGS.map((role) => (
                                     <div key={role.key} className="grid grid-cols-[168px_1fr] items-center gap-3">
@@ -903,6 +935,9 @@ export default function SystemConfig() {
                                                 </option>
                                             ))}
                                         </select>
+                                        <p className="col-start-2 text-[11px] leading-4 text-slate-400">
+                                            {ROLE_RECOMMENDATIONS[role.key]}
+                                        </p>
                                     </div>
                                 ))}
                             </div>

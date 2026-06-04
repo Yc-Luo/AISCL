@@ -5,14 +5,14 @@ import hashlib
 import operator
 from typing import Dict, Any, AsyncGenerator, Optional, List, Union, Annotated, TypedDict
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from app.core.config import settings
 from app.core.llm_config import get_llm, resolve_role_model_id
-from app.core.llm_runtime import get_group_lock, guarded_astream
+from app.core.llm_runtime import get_group_lock, guarded_ainvoke, guarded_astream
 from app.services.rag_service import rag_service
 from app.services.research_event_service import research_event_service
 from app.services.agents.deep_agents_shim import derive_routing_decision_from_context
@@ -545,7 +545,13 @@ class AgentService:
         final_sections: List[str] = execution["final_sections"]
         processing_summaries: List[str] = execution["processing_summaries"]
 
-        final_content = "\n\n".join(section.strip() for section in final_sections if section.strip()).strip()
+        final_content = await self._synthesize_stage_agent_outputs(
+            message=message,
+            plan=plan,
+            context=merged_context,
+            mode=mode,
+            final_sections=final_sections,
+        )
         if not final_content:
             fallback_agent = active_agents[0]
             fallback_text = "我先帮你们把当前问题收束一下：请明确本轮要判断的核心问题、已有依据和下一步分工。"
@@ -560,6 +566,10 @@ class AgentService:
         ai_meta["processing_summary"] = self._dedupe_processing_summary(
             ai_meta.get("processing_summary", []) + processing_summaries
         )
+        if len([section for section in final_sections if section.strip()]) > 1:
+            ai_meta["processing_summary"] = self._dedupe_processing_summary(
+                ai_meta["processing_summary"] + ["已将多个智能体视角整合为一条小组可读支架。"]
+            )
         yield {
             "type": "process_done",
             "message": "已完成支架选择和回答生成。",
@@ -580,6 +590,11 @@ class AgentService:
             plan=plan,
             retrieval_mode=rag_plan["retrieval_mode"],
             graph_runtime=execution.get("graph_runtime"),
+            final_section_count=len([section for section in final_sections if section.strip()]),
+            synthesis_applied=(
+                mode != "single"
+                and len([section for section in final_sections if section.strip()]) > 1
+            ),
         )
 
     async def _execute_stage_aware_agents(
@@ -785,6 +800,76 @@ class AgentService:
                 else "langgraph_stategraph_sequence"
             ),
         }
+
+    async def _synthesize_stage_agent_outputs(
+        self,
+        *,
+        message: str,
+        plan: Dict[str, Any],
+        context: Dict[str, Any],
+        mode: str,
+        final_sections: List[str],
+    ) -> str:
+        """Merge multi-agent outputs into one low-burden scaffold for students."""
+        sections = [section.strip() for section in final_sections if section and section.strip()]
+        if not sections:
+            return ""
+        if mode == "single" or len(sections) == 1:
+            return sections[0]
+
+        raw_joined = "\n\n".join(sections).strip()
+        if len(raw_joined) <= 1400 and mode == "pipeline":
+            return raw_joined
+
+        try:
+            llm = await get_llm(
+                temperature=0.25,
+                model_id=await resolve_role_model_id("answer_synthesizer"),
+            )
+            response = await guarded_ainvoke(
+                llm,
+                [
+                    SystemMessage(
+                        content=(
+                            "你是 AISCL 的反馈整合节点。你的任务是把多个支架智能体的候选回应"
+                            "整合成一条学生端可读的小组协作支架。不要暴露内部角色争论、路由、"
+                            "模型配置或调试信息。"
+                        )
+                    ),
+                    HumanMessage(
+                        content=f"""学生/小组本轮消息：
+{message}
+
+支架编排：
+- 模式：{mode}
+- 阶段：{plan.get("knowledge_construct_label") or "未识别"}
+- 调节重点：{plan.get("regulation_construct_label") or "未识别"}
+- 支架需要：{plan.get("support_need") or "未识别"}
+
+小组态势记忆：
+{self._clip_context(context.get("group_state_context"), 900)}
+
+阶段记忆：
+{self._clip_context(context.get("stage_memory_context"), 900)}
+
+候选回应：
+{self._clip_context(raw_joined, 4200)}
+
+请整合成一条中文回复，要求：
+- 使用平等、互帮互助的线上小组协作语气；
+- 先点明当前处境，再给出 2-4 个可执行下一步；
+- 保留必要的证据核验、反例或修订提醒；
+- 如提到成员姓名，姓名后加“同学”；
+- 不替小组完成最终答案；
+- 字数通常 500-1200 字，复杂问题最多 1600 字。"""
+                    ),
+                ],
+            )
+            content = response.content if hasattr(response, "content") else str(response)
+            cleaned = str(content or "").strip()
+            return cleaned or raw_joined
+        except Exception:
+            return raw_joined
 
     async def _collect_stage_agent_events(
         self,
@@ -1175,6 +1260,8 @@ class AgentService:
         plan: Dict[str, Any],
         retrieval_mode: str,
         graph_runtime: Optional[str] = None,
+        final_section_count: int = 0,
+        synthesis_applied: bool = False,
     ) -> None:
         await research_event_service.record_batch_events(
             events=[
@@ -1194,6 +1281,16 @@ class AgentService:
                         "graph_runtime": graph_runtime,
                         "session_id": session_id,
                         "message_length": len(message or ""),
+                        "scaffold_episode": {
+                            "final_section_count": final_section_count,
+                            "synthesis_applied": synthesis_applied,
+                            "stage_memory_id": context.get("stage_memory_id"),
+                            "stage_memory_version": context.get("stage_memory_version"),
+                            "stage_memory_source_counts": context.get("stage_memory_source_counts"),
+                            "group_state_memory_id": context.get("group_state_memory_id"),
+                            "group_state_memory_version": context.get("group_state_memory_version"),
+                            "group_state_source_counts": context.get("group_state_source_counts"),
+                        },
                     },
                 }
             ],

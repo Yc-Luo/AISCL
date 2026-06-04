@@ -75,6 +75,7 @@ export interface AIStreamMeta {
     conversation_id?: string
     message_id?: string
     citation_count?: number
+    final_content?: string
 }
 
 export const aiService = {
@@ -224,6 +225,10 @@ export const aiService = {
             }
             if (event === 'done') {
                 const payload = parseJsonPayload<AIStreamMeta>(data, {})
+                if (typeof payload.final_content === 'string') {
+                    fullText = payload.final_content
+                    handlers?.onChunk?.('', fullText)
+                }
                 if (payload.ai_meta) handlers?.onMeta?.(payload)
                 handlers?.onDone?.(payload)
                 return

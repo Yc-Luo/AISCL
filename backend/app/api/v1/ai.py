@@ -260,10 +260,12 @@ async def _build_project_ai_context(
         "stage_memory_updated_at": stage_memory.get("updated_at"),
         "stage_memory_id": stage_memory.get("memory_id"),
         "stage_memory_version": stage_memory.get("version"),
+        "stage_memory_source_counts": stage_memory.get("source_counts"),
         "group_state_context": group_state.get("content"),
         "group_state_updated_at": group_state.get("updated_at"),
         "group_state_memory_id": group_state.get("memory_id"),
         "group_state_memory_version": group_state.get("version"),
+        "group_state_source_counts": group_state.get("source_counts"),
     }
 
 
@@ -663,6 +665,11 @@ async def chat_stream(
                 "stage_memory_updated_at": context.get("stage_memory_updated_at") if context else None,
                 "stage_memory_id": context.get("stage_memory_id") if context else None,
                 "stage_memory_version": context.get("stage_memory_version") if context else None,
+                "stage_memory_source_counts": context.get("stage_memory_source_counts") if context else None,
+                "group_state_context": context.get("group_state_context") if context else "",
+                "group_state_memory_id": context.get("group_state_memory_id") if context else None,
+                "group_state_memory_version": context.get("group_state_memory_version") if context else None,
+                "group_state_source_counts": context.get("group_state_source_counts") if context else None,
                 "runtime_model_id": _tutor_multi_agent_model_id(experiment_version),
             }
 
@@ -778,6 +785,7 @@ async def chat_stream(
                     "conversation_id": str(conversation.id),
                     "message_id": str(ai_message.id),
                     "citation_count": final_event_meta.get("citation_count", len(context.get("citations", [])) if context else 0),
+                    "final_content": assistant_content,
                     "ai_meta": tutor_meta,
                 },
             )

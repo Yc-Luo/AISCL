@@ -304,7 +304,8 @@ async def batch_operations(sid, data):
             await dispatch_operation(sio, sid, op, user_id)
             success_count += 1
         except Exception as e:
-            print(f"Error processing operation in batch: {e}")
+            denied_count += 1
+            logger.exception("Error processing operation in batch from user %s: %s", user_id, e)
 
     # Return ACK
     return {"status": "success", "processed": success_count, "denied": denied_count}

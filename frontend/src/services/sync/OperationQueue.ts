@@ -274,16 +274,19 @@ export class OperationQueue {
         queued.entry.status = 'confirmed';
         queued.entry.confirmedAt = Date.now();
 
-        // 从队列中移除
-        this.queue.delete(operationId);
-
-        // 从存储中删除
-        await storageManager.deleteOperation(operationId);
-
-        // 触发确认回调
         if (this.confirmCallback) {
-            this.confirmCallback(operationId);
+            try {
+                this.confirmCallback(operationId);
+            } catch (error) {
+                console.error(`[OperationQueue] Confirm callback failed: ${operationId}`, error);
+                await storageManager.saveOperation(queued.entry);
+                throw error;
+            }
         }
+
+        // 从队列和持久化存储中移除。放在回调之后，避免回调异常时本地记录丢失。
+        this.queue.delete(operationId);
+        await storageManager.deleteOperation(operationId);
 
         console.log(`[OperationQueue] Operation confirmed: ${operationId}`);
     }

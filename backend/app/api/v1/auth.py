@@ -13,9 +13,9 @@ This module handles user authentication, authorization, and session management.
 - **Refresh Token**: Long-lived (30 days), used to renew access tokens
 
 ## Security Features
-- JWT-based authentication with RSA/ECDSA signing
+- JWT-based authentication with HS256 signing
 - Automatic token refresh
-- Secure password hashing (bcrypt)
+- Secure password hashing (pbkdf2_sha256)
 - Rate limiting and brute force protection
 - Token blacklisting on logout
 """

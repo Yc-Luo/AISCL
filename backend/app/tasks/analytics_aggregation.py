@@ -1,21 +1,24 @@
 """Background task for daily analytics aggregation."""
 
 import asyncio
+import logging
 from datetime import date, datetime, timedelta
 
 from app.services.analytics_service import analytics_service
+
+logger = logging.getLogger(__name__)
 
 
 async def daily_aggregation_task():
     """Run daily aggregation for yesterday's data."""
     target_date = (datetime.utcnow() - timedelta(days=1)).date()
-    print(f"Running daily aggregation for {target_date}")
+    logger.info("Running daily aggregation for %s", target_date)
     
     try:
         count = await analytics_service.aggregate_daily_stats(target_date=target_date)
-        print(f"Aggregation completed: {count} stats records created/updated")
+        logger.info("Aggregation completed: %s stats records created/updated", count)
     except Exception as e:
-        print(f"Error in daily aggregation: {e}")
+        logger.exception("Error in daily aggregation: %s", e)
 
 
 async def run_periodic_aggregation():
@@ -26,11 +29,10 @@ async def run_periodic_aggregation():
         now = datetime.utcnow()
         next_run = (now + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
         wait_seconds = (next_run - now).total_seconds()
-        print(f"Next aggregation scheduled at {next_run} (in {wait_seconds/3600:.1f} hours)")
+        logger.info("Next aggregation scheduled at %s (in %.1f hours)", next_run, wait_seconds / 3600)
         await asyncio.sleep(wait_seconds)
 
 
 if __name__ == "__main__":
     # For manual testing
     asyncio.run(daily_aggregation_task())
-

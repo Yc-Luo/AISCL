@@ -1,10 +1,13 @@
 """AI intervention service for automatic AI interventions."""
 
+import logging
 from datetime import datetime
 from typing import List, Optional, Set
 
 from app.repositories.ai_intervention_rule import AIInterventionRule
 from app.services.ai_service import ai_service
+
+logger = logging.getLogger(__name__)
 
 
 class InterventionService:
@@ -309,8 +312,10 @@ class InterventionService:
                         trigger_reason = "ai_assistance_ratio"
 
             elif rule.rule_type == "custom":
-                # TODO: Evaluate custom condition
-                pass
+                logger.warning(
+                    "Custom intervention rule %s is configured but not supported; skipping.",
+                    str(rule.id),
+                )
 
             if should_trigger:
                 # Generate intervention message

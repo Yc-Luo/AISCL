@@ -21,6 +21,8 @@ from app.core.security import content_disposition_header, sanitize_filename
 from app.repositories.course import Course
 from app.repositories.project import Project
 from app.repositories.resource import Resource
+from app.repositories.system_config import SystemConfig
+from app.repositories.task_submission_artifact import TaskSubmissionArtifact
 from app.repositories.user import User
 from app.services.storage_service import storage_service
 from app.services.resource_preview_service import (
@@ -187,6 +189,49 @@ async def ensure_course_manage_access(current_user: User, course: Course, detail
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
+async def _get_storage_quota_bytes() -> int:
+    """Read the per-project/course storage quota from system config."""
+    default_gb = 5.0
+    config = await SystemConfig.find_one(SystemConfig.key == "storage_quota")
+    try:
+        quota_gb = float(config.value) if config and config.value else default_gb
+    except (TypeError, ValueError):
+        quota_gb = default_gb
+    return max(int(quota_gb * 1024 * 1024 * 1024), 0)
+
+
+async def _get_scope_storage_usage_bytes(
+    *,
+    project_id: Optional[str] = None,
+    course_id: Optional[str] = None,
+) -> int:
+    """Calculate current persisted upload usage for one project or course."""
+    resource_query = {"project_id": project_id} if project_id else {"course_id": course_id}
+    artifact_query = {"project_id": project_id} if project_id else {"course_id": course_id}
+
+    resources = await Resource.find(resource_query).to_list()
+    artifacts = await TaskSubmissionArtifact.find(artifact_query).to_list()
+    return sum(int(item.size or 0) for item in resources) + sum(int(item.size or 0) for item in artifacts)
+
+
+async def _ensure_storage_quota_available(
+    *,
+    incoming_size: int,
+    project_id: Optional[str] = None,
+    course_id: Optional[str] = None,
+) -> None:
+    quota_bytes = await _get_storage_quota_bytes()
+    if quota_bytes <= 0:
+        return
+
+    current_usage = await _get_scope_storage_usage_bytes(project_id=project_id, course_id=course_id)
+    if current_usage + incoming_size > quota_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Storage quota exceeded",
+        )
+
+
 @router.post("/presigned-url")
 async def generate_presigned_url(
     filename: str = Query(...),
@@ -239,8 +284,11 @@ async def generate_presigned_url(
         file_id = str(uuid.uuid4())
         file_key = f"projects/{project_id}/files/{file_id}"
 
-    # Check storage quota
-    # TODO: Calculate current project/course storage usage
+    await _ensure_storage_quota_available(
+        incoming_size=size,
+        project_id=project_id,
+        course_id=course_id,
+    )
 
     # Generate presigned URL
     upload_url = storage_service.generate_presigned_put_url(
@@ -407,6 +455,11 @@ async def _create_resource_from_uploaded_object(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file size does not match the resource metadata",
         )
+    await _ensure_storage_quota_available(
+        incoming_size=actual_size,
+        project_id=resource_data.project_id,
+        course_id=resource_data.course_id,
+    )
 
     if normalized_mime_type in INLINE_IMAGE_MIME_TYPES:
         prefix = await run_in_threadpool(storage_service.get_file_prefix, resource_data.file_key, 16)

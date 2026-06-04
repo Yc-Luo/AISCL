@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import logging
 import time
 from contextlib import asynccontextmanager
 
@@ -39,6 +40,8 @@ from app.websocket.socketio_server import socketio_app
 from app.websocket.yjs_server import websocket_endpoint
 from app.core.tasks import run_periodic_updates, run_resource_parse_updates
 import asyncio
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -170,7 +173,7 @@ async def add_security_headers(request: Request, call_next):
     try:
         del response.headers["Server"]
     except KeyError:
-        pass
+        logger.debug("Server header was not present in response")
 
     return response
 

@@ -72,9 +72,10 @@ class StorageService:
 
             self._ensure_bucket_exists()
         else:
-            # TODO: Add S3 support
-            self.client = None
-            self.signer_client = None
+            raise NotImplementedError(
+                f"Storage type '{settings.STORAGE_TYPE}' is not implemented. "
+                "Use STORAGE_TYPE=minio until S3 support is added."
+            )
 
     def _ensure_bucket_exists(self):
         """Ensure bucket exists."""

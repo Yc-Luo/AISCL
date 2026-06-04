@@ -898,7 +898,7 @@ Keywords:"""
             keywords = [k.strip() for k in raw_keywords.split(",") if k.strip()][:5]
             return keywords
         except Exception as e:
-            print(f"Keyword extraction error: {e}")
+            logger.warning("Keyword extraction error: %s", e)
             return []
 
     @classmethod

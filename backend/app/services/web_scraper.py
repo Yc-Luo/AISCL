@@ -24,21 +24,9 @@ class WebScraperService:
         Returns:
             Dict with extracted content and metadata
         """
-        # TODO: Implement Playwright-based scraping
-        # For now, return placeholder structure
-        # In production, this would:
-        # 1. Use Playwright to fetch page
-        # 2. Apply Readability algorithm to extract main content
-        # 3. Use DOM Purify to sanitize HTML
-        # 4. Return clean content
-
-        return {
-            "url": url,
-            "url_hash": WebScraperService.hash_url(url),
-            "title": "Page Title",
-            "content": "Extracted page content",
-            "cleaned_html": "<div>Cleaned HTML content</div>",
-        }
+        raise NotImplementedError(
+            "Web scraping is not enabled. Configure a real scraper before using this endpoint."
+        )
 
     @staticmethod
     def sanitize_html(html: str) -> str:
@@ -94,4 +82,3 @@ class WebScraperService:
 
 
 web_scraper_service = WebScraperService()
-

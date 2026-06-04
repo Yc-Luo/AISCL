@@ -49,6 +49,9 @@ class FastAPIWebsocketAdapter:
 
 # Store active YRooms
 rooms: Dict[str, YRoom] = {}
+room_connection_counts: Dict[str, int] = {}
+room_observers: Dict[str, object] = {}
+rooms_lock = asyncio.Lock()
 
 
 def parse_room_name(room_name: str) -> Tuple[str, str]:
@@ -88,7 +91,11 @@ def setup_persistence(room: YRoom, room_name: str):
 
     def on_update(event):
         try:
-            state = Y.encode_state_as_update(room.ydoc)
+            state = (
+                event.get_update()
+                if event is not None and hasattr(event, "get_update")
+                else Y.encode_state_as_update(room.ydoc)
+            )
             if state and len(state) > 0:
                 asyncio.create_task(
                     collaboration_service.debounced_save(project_id, state, snapshot_type)
@@ -99,8 +106,61 @@ def setup_persistence(room: YRoom, room_name: str):
         except Exception as e:
             logger.error(f"Persistence error for {room_name}: {str(e)}")
 
-    room.ydoc.observe_update(on_update)
+    observer = room.ydoc.observe_after_transaction(on_update)
+    if observer:
+        room_observers[room_name] = observer
     logger.info(f"Persistence setup completed for room: {room_name}")
+
+
+async def get_or_create_room(room_name: str) -> YRoom:
+    """Create or reuse a YRoom and track active websocket sessions."""
+    async with rooms_lock:
+        room = rooms.get(room_name)
+        if room is None:
+            room = YRoom()
+            await load_room_data(room, room_name)
+            setup_persistence(room, room_name)
+            rooms[room_name] = room
+            logger.info("Created new YRoom: %s", room_name)
+
+        room_connection_counts[room_name] = room_connection_counts.get(room_name, 0) + 1
+        return room
+
+
+def cleanup_room(room: YRoom, room_name: str) -> None:
+    """Best-effort cleanup for an unused YRoom."""
+    observer = room_observers.pop(room_name, None)
+    for method_name in ("unsubscribe", "dispose", "cancel"):
+        method = getattr(observer, method_name, None)
+        if callable(method):
+            try:
+                method()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("YRoom observer cleanup failed for %s: %s", room_name, exc)
+            break
+
+    for target in (room, getattr(room, "ydoc", None)):
+        destroy = getattr(target, "destroy", None)
+        if callable(destroy):
+            try:
+                destroy()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("YRoom cleanup hook failed for %s: %s", room_name, exc)
+
+
+async def release_room(room_name: str, room: YRoom) -> None:
+    """Release one websocket session and evict the room when idle."""
+    async with rooms_lock:
+        remaining = max(room_connection_counts.get(room_name, 1) - 1, 0)
+        if remaining > 0:
+            room_connection_counts[room_name] = remaining
+            return
+
+        room_connection_counts.pop(room_name, None)
+        if rooms.get(room_name) is room:
+            rooms.pop(room_name, None)
+            cleanup_room(room, room_name)
+            logger.info("Released idle YRoom: %s", room_name)
 
 
 async def websocket_endpoint(websocket: WebSocket, room_name: str, token: str = Query(None)):
@@ -157,14 +217,7 @@ async def websocket_endpoint(websocket: WebSocket, room_name: str, token: str = 
         logger.error("Failed to accept WebSocket connection for user %s in room %s: %s", user_id, room_name, str(e))
         return
 
-    # Get or create YRoom
-    if room_name not in rooms:
-        rooms[room_name] = YRoom()
-        logger.info(f"Created new YRoom: {room_name}")
-        await load_room_data(rooms[room_name], room_name)
-        setup_persistence(rooms[room_name], room_name)
-    
-    room = rooms[room_name]
+    room = await get_or_create_room(room_name)
     snapshot_type, project_id = parse_room_name(room_name)
     
     adapter = FastAPIWebsocketAdapter(websocket)
@@ -182,3 +235,4 @@ async def websocket_endpoint(websocket: WebSocket, room_name: str, token: str = 
             logger.info(f"Saved immediate snapshot on disconnect for {room_name}")
         except Exception as e:
             logger.error(f"Failed to save snapshot on disconnect for {room_name}: {e}")
+        await release_room(room_name, room)

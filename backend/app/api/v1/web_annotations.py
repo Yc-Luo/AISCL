@@ -38,8 +38,13 @@ async def scrape_webpage(
     current_user: User = Depends(get_current_user),
 ) -> WebScrapeResponse:
     """Scrape and extract content from a webpage."""
-    # Scrape content
-    result = await web_scraper_service.scrape_content(scrape_data.url)
+    try:
+        result = await web_scraper_service.scrape_content(scrape_data.url)
+    except NotImplementedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=str(exc),
+        ) from exc
 
     return WebScrapeResponse(
         url=result["url"],

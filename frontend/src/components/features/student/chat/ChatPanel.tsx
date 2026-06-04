@@ -28,8 +28,7 @@ import { ChatMessage, getChatTimestampMs, normalizeChatTimestamp } from '../../.
 import { trackingService } from '../../../../services/tracking/TrackingService'
 import { useContextStore } from '../../../../stores/contextStore'
 import { Toast } from '../../../ui/Toast'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import AIResponseRenderer from '../ai/AIResponseRenderer'
 
 interface ChatPanelProps {
   projectId: string
@@ -816,29 +815,9 @@ export default function ChatPanel({ projectId, isActive = true, onUnreadChange, 
                     )}
 
                     {msg.message_type !== 'file' && msg.content && (
-                      <div className={`text-sm ${msg.user_id === 'ai_assistant' ? 'overflow-x-auto prose prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0.5 text-gray-800 break-words' : ''}`}>
+                      <div className={`text-sm ${msg.user_id === 'ai_assistant' ? 'overflow-x-auto' : ''}`}>
                         {msg.user_id === 'ai_assistant' ? (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              code({ className, children, ...props }) {
-                                return (
-                                  <code className={`${className} bg-gray-100 rounded px-1 py-0.5 text-xs text-red-500 font-mono`} {...props}>
-                                    {children}
-                                  </code>
-                                )
-                              },
-                              pre({ children, ...props }) {
-                                return (
-                                  <pre className="bg-gray-100/50 p-2 rounded-lg overflow-x-auto text-xs my-2 border border-gray-100" {...props}>
-                                    {children}
-                                  </pre>
-                                )
-                              }
-                            }}
-                          >
-                            {msg.content}
-                          </ReactMarkdown>
+                          <AIResponseRenderer content={msg.content} />
                         ) : (
                           msg.content.split(/(@[\w\u4e00-\u9fa5]+)/g).map((part: string, index: number) => {
                             if (part.startsWith('@')) {

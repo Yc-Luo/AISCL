@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Bot, ChevronDown, Image as ImageIcon, Loader2, MessageCircle, SendHorizontal, X } from 'lucide-react';
 import { aiService } from '../../../../services/api/ai';
 import { storageService } from '../../../../services/api/storage';
@@ -9,6 +7,7 @@ import { useContextStore } from '../../../../stores/contextStore';
 import { useScaffoldRecommendationStore } from '../../../../stores/scaffoldRecommendationStore';
 import { ExperimentVersion } from '../../../../types';
 import { getTabLabel } from '../../../../lib/stageModel';
+import AIResponseRenderer from './AIResponseRenderer';
 
 const MAX_FLOATING_IMAGE_BYTES = 10 * 1024 * 1024;
 const FLOATING_POSITION_STORAGE_KEY = 'aiscl-floating-ai-position';
@@ -426,7 +425,7 @@ export default function ContextualAIAssistant({
                             }`}
                         >
                             {message.role === 'assistant' ? (
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || '正在生成...'}</ReactMarkdown>
+                                <AIResponseRenderer content={message.content} compact />
                             ) : (
                                 message.content
                             )}

@@ -34,7 +34,7 @@ import {
   type CanonicalStageId,
 } from '../../lib/stageModel'
 import { ConfirmDialog, useToast } from '../../components/ui'
-import { ClipboardList, MessagesSquare, PanelLeftOpen } from 'lucide-react'
+import { ClipboardList, HelpCircle, MessagesSquare, PanelLeftOpen } from 'lucide-react'
 
 const getExperimentVersionSignature = (version: ExperimentVersion | null) => {
   if (!version) return 'null'
@@ -59,20 +59,34 @@ const ALL_NAV_TABS = ['document', 'inquiry', 'resources', 'wiki', 'ai', 'dashboa
 
 const STUDENT_ONBOARDING_STEPS = [
   {
-    title: '先看左侧任务清单',
-    body: '小组任务、截止时间和成果提交入口都在左侧。需要提交作品时，由组长在课程任务卡片中上传文件并确认提交。',
+    title: '任务看板',
+    body: '先确认小组任务、截止时间、当前阶段和提交要求。需要提交作品时，由组长在课程任务卡片中上传文件并确认提交。',
+    tips: ['左侧任务看板可展开/收起', '阶段推进通常由组长操作', '限时任务提交后仍可补充资料'],
   },
   {
-    title: '中间区域完成协作产出',
-    body: '协作文档、论证空间、小组资料和知识沉淀是主要学习区域。阶段切换后，系统会提示当前更适合使用的工具。',
+    title: '共享文档',
+    body: '共享文档用于共同写作、整理证据和形成阶段性成果。进入文档后，左侧文档列表会默认展开，便于切换不同文档。',
+    tips: ['保存前先确认内容已同步显示', '多人同时编辑时尽量分段协作', '文档列表可用于管理不同成果版本'],
   },
   {
-    title: '右侧用于沟通与求助',
-    body: '群组聊天支持同伴讨论和 @AI；教师支持用于低频求助，不会打断小组协作。',
+    title: '探究空间',
+    body: '探究空间用于把问题、证据、观点和反驳组织起来，适合把零散讨论转化为结构化推理。',
+    tips: ['可把 AI 建议或关键资料放入素材池', '用节点关系表达“证据支持什么观点”', '遇到分歧时先保留不同解释'],
   },
   {
-    title: 'AI 是辅助入口，不替代小组判断',
-    body: 'AI 对话和右下角 AI 助手会读取当前任务上下文。请把 AI 回复作为线索，再结合资料和同伴观点形成最终成果。',
+    title: '资料与知识沉淀',
+    body: '小组资料用于上传、预览和引用学习资源；知识沉淀用于记录小组已经确认的概念、证据和结论。',
+    tips: ['资源上传后可进入 AI 检索', '资料名称尽量清楚，便于同伴查找', '重要结论建议沉淀到 Wiki'],
+  },
+  {
+    title: '群聊与教师支持',
+    body: '右侧群聊用于小组内平等讨论和互帮互助；教师支持用于低频求助，适合在小组确实卡住时提交。',
+    tips: ['@同伴后可继续追问或确认', '@AISCL智能助手可请求简短支架', '教师支持不要替代小组内部讨论'],
+  },
+  {
+    title: 'AI 使用方式',
+    body: 'AI 回复是线索和支架，不是最终答案。更适合用来澄清问题、找证据线索、挑战观点和提示下一步协作。',
+    tips: ['先说明小组当前卡点', '要求 AI 给出依据和可执行下一步', '最终判断仍由小组结合资料完成'],
   },
 ]
 
@@ -802,6 +816,17 @@ export default function Main() {
         aggregatedState={connectionStatus === 'connected' ? 'full' : 'offline'}
         onReconnect={() => void syncService.reconnect()}
       />
+      <button
+        type="button"
+        onClick={() => {
+          setOnboardingStep(0)
+          setOnboardingOpen(true)
+        }}
+        className="fixed bottom-4 left-4 z-30 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-white/95 px-3 py-2 text-xs font-bold text-indigo-600 shadow-lg shadow-slate-200/70 backdrop-blur transition hover:bg-indigo-50"
+      >
+        <HelpCircle className="h-4 w-4" />
+        使用指南
+      </button>
 
       {/* Main Content Area */}
       <div className="relative flex-1 flex min-h-0 overflow-hidden">
@@ -1177,9 +1202,22 @@ export default function Main() {
       )}
       {onboardingOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500">
-              第 {onboardingStep + 1} 步 / {STUDENT_ONBOARDING_STEPS.length}
+          <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500">
+                第 {onboardingStep + 1} 步 / {STUDENT_ONBOARDING_STEPS.length}
+              </div>
+              <button
+                type="button"
+                className="rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                onClick={() => {
+                  window.localStorage.setItem('aiscl:student-onboarding-dismissed', 'true')
+                  setOnboardingOpen(false)
+                }}
+                aria-label="关闭使用指南"
+              >
+                ×
+              </button>
             </div>
             <h2 className="mt-3 text-2xl font-black text-slate-900">
               {STUDENT_ONBOARDING_STEPS[onboardingStep].title}
@@ -1187,6 +1225,28 @@ export default function Main() {
             <p className="mt-3 text-sm leading-7 text-slate-600">
               {STUDENT_ONBOARDING_STEPS[onboardingStep].body}
             </p>
+            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+              <div className="text-xs font-black uppercase tracking-wide text-slate-500">使用要点</div>
+              <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
+                {STUDENT_ONBOARDING_STEPS[onboardingStep].tips.map((tip) => (
+                  <li key={tip} className="flex gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" />
+                    <span>{tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="mt-5 flex justify-center gap-1.5">
+              {STUDENT_ONBOARDING_STEPS.map((step, index) => (
+                <button
+                  key={step.title}
+                  type="button"
+                  aria-label={`查看${step.title}`}
+                  onClick={() => setOnboardingStep(index)}
+                  className={`h-1.5 rounded-full transition-all ${index === onboardingStep ? 'w-8 bg-indigo-600' : 'w-2 bg-slate-200 hover:bg-slate-300'}`}
+                />
+              ))}
+            </div>
             <div className="mt-6 flex items-center justify-between">
               <button
                 type="button"

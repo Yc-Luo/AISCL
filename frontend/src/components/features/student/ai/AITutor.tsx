@@ -14,6 +14,7 @@ const MAX_TUTOR_IMAGE_BYTES = 10 * 1024 * 1024
 import { useContextStore } from '../../../../stores/contextStore'
 import { useScaffoldRecommendationStore } from '../../../../stores/scaffoldRecommendationStore'
 import { roleKeyToPreferredSubagent, type ScaffoldRoleKey } from '../../../../lib/experimentScaffold'
+import AIResponseRenderer from './AIResponseRenderer'
 
 interface AITutorProps {
     projectId: string
@@ -817,11 +818,10 @@ export default function AITutor({ projectId, experimentVersion }: AITutorProps) 
                                     </div>
                                 )}
                                 {msg.role === 'assistant' ? (
-                                    <div className="prose prose-sm max-w-none text-sm leading-6 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5 prose-headings:my-2">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                            {msg.content || (isTyping && msg.id === messages[messages.length - 1].id ? '...' : '')}
-                                        </ReactMarkdown>
-                                    </div>
+                                    <AIResponseRenderer
+                                        content={msg.content}
+                                        emptyText={isTyping && msg.id === messages[messages.length - 1].id ? '...' : '正在生成...'}
+                                    />
                                 ) : (
                                     <div className="prose prose-sm prose-invert max-w-none text-sm leading-6 prose-p:my-1 prose-img:my-2 prose-img:max-h-48 prose-img:rounded-xl prose-img:border prose-img:border-white/20 prose-img:object-contain">
                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>

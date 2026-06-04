@@ -196,6 +196,8 @@ def _behavior_codebook_rows() -> List[Dict[str, str]]:
 def _data_dictionary_rows() -> List[Dict[str, str]]:
     return [
         {"file": "metadata/users_anonymized.csv", "field": "anonymous_id", "meaning": "匿名学习者/教师编号", "analysis_note": "用于替代真实 user_id。"},
+        {"file": "metadata/group_conditions.csv", "field": "condition_label", "meaning": "小组实验条件标签", "analysis_note": "用于实验组/对照组、AI 支架模式和过程支架模式比较。"},
+        {"file": "groups/*", "field": "*", "meaning": "按小组拆分后的原始、清洗和分析就绪数据", "analysis_note": "避免研究者从全班混合表手工筛选小组数据。"},
         {"file": "cleaned/heartbeat_sessions.csv", "field": "session_id", "meaning": "由连续心跳合并生成的在线会话", "analysis_note": "默认间隔超过 180 秒切分新会话。"},
         {"file": "cleaned/heartbeat_sessions.csv", "field": "overlap_ready", "meaning": "是否可用于共同在线分析", "analysis_note": "同组成员 session 可进一步计算重叠时长。"},
         {"file": "raw/group_members.csv", "field": "project_role", "meaning": "小组内成员身份", "analysis_note": "用于解释组长/成员责任分工与行为差异。"},
@@ -205,6 +207,8 @@ def _data_dictionary_rows() -> List[Dict[str, str]]:
         {"file": "analysis_ready/event_sequence.csv", "field": "ai_related", "meaning": "是否与 AI 支架相关", "analysis_note": "用于比较 AI 介入前后行为链。"},
         {"file": "analysis_ready/event_sequence.csv", "field": "teacher_related", "meaning": "是否与教师介入相关", "analysis_note": "用于识别低干预支持。"},
         {"file": "analysis_ready/intervention_windows.csv", "field": "following_rank", "meaning": "AI/教师介入后的第几个后续事件", "analysis_note": "默认最多保留 30 分钟内后 5 个事件，便于分析支架后的行为变化。"},
+        {"file": "analysis_ready/intervention_exposure.csv", "field": "intervention_count", "meaning": "按小组、阶段和介入来源聚合的干预剂量", "analysis_note": "用于分析 AI/教师支架暴露量和学生后续响应。"},
+        {"file": "analysis_ready/group_stage_summary.csv", "field": "stage_id", "meaning": "小组在不同阶段的过程行为汇总", "analysis_note": "用于比较问题构建、意义探索、解释整合、应用解决等阶段表现。"},
         {"file": "raw/*.csv", "field": "*", "meaning": "平台原始或近原始记录", "analysis_note": "用于审计、复核和二次清洗，不建议直接作为全部统计指标。"},
     ]
 
@@ -229,6 +233,207 @@ def _classify_event(space: str, action: str, actor_type: str = "", metadata: Opt
         "ai_related": actor_type in {"ai_assistant", "ai_tutor"} or "ai" in text,
         "teacher_related": actor_type == "teacher" or "teacher" in text or "教师" in text,
     }
+
+
+CONDITION_FIELDNAMES = [
+    "project_id",
+    "project_name",
+    "course_id",
+    "condition_label",
+    "group_condition",
+    "ai_scaffold_mode",
+    "process_scaffold_mode",
+    "stage_control_mode",
+    "enabled_scaffold_layers",
+    "enabled_scaffold_roles",
+    "enabled_rule_set",
+    "template_key",
+    "template_label",
+    "graph_version",
+    "current_stage",
+    "export_profile",
+    "created_at",
+    "updated_at",
+]
+
+EVENT_SEQUENCE_FIELDNAMES = [
+    "event_id",
+    "project_id",
+    "project_name",
+    "condition_label",
+    "group_condition",
+    "ai_scaffold_mode",
+    "process_scaffold_mode",
+    "stage_control_mode",
+    "anonymous_id",
+    "actor_type",
+    "space",
+    "action",
+    "object_type",
+    "object_id",
+    "timestamp",
+    "stage_id",
+    "previous_event_id",
+    "previous_action",
+    "time_since_previous_seconds",
+    "content_length",
+    "semantic_tags",
+    "ai_related",
+    "teacher_related",
+]
+
+INTERVENTION_WINDOW_FIELDNAMES = [
+    "intervention_event_id",
+    "intervention_source",
+    "project_id",
+    "project_name",
+    "condition_label",
+    "group_condition",
+    "ai_scaffold_mode",
+    "process_scaffold_mode",
+    "stage_control_mode",
+    "intervention_timestamp",
+    "following_rank",
+    "following_event_id",
+    "following_anonymous_id",
+    "following_actor_type",
+    "following_space",
+    "following_action",
+    "lag_seconds",
+    "following_semantic_tags",
+    "interpretation_guardrail",
+]
+
+GROUP_SUMMARY_FIELDNAMES = [
+    "project_id",
+    "project_name",
+    "condition_label",
+    "group_condition",
+    "ai_scaffold_mode",
+    "process_scaffold_mode",
+    "stage_control_mode",
+    "event_count",
+    "chat_count",
+    "artifact_event_count",
+    "ai_related_count",
+    "teacher_related_count",
+    "online_session_minutes",
+]
+
+STUDENT_SUMMARY_FIELDNAMES = [
+    "project_id",
+    "project_name",
+    "condition_label",
+    "group_condition",
+    "ai_scaffold_mode",
+    "process_scaffold_mode",
+    "stage_control_mode",
+    "anonymous_id",
+    "event_count",
+    "chat_count",
+    "resource_event_count",
+    "artifact_event_count",
+    "online_session_minutes",
+]
+
+GROUP_STAGE_SUMMARY_FIELDNAMES = [
+    "project_id",
+    "project_name",
+    "condition_label",
+    "group_condition",
+    "ai_scaffold_mode",
+    "process_scaffold_mode",
+    "stage_control_mode",
+    "stage_id",
+    "event_count",
+    "chat_count",
+    "student_turn_count",
+    "ai_prompt_count",
+    "teacher_support_count",
+    "evidence_event_count",
+    "challenge_event_count",
+    "artifact_event_count",
+    "resource_event_count",
+    "document_update_count",
+    "wiki_update_count",
+    "online_session_minutes",
+]
+
+INTERVENTION_EXPOSURE_FIELDNAMES = [
+    "project_id",
+    "project_name",
+    "condition_label",
+    "group_condition",
+    "ai_scaffold_mode",
+    "process_scaffold_mode",
+    "stage_control_mode",
+    "intervention_source",
+    "agent_role",
+    "stage_id",
+    "intervention_count",
+    "first_intervention_at",
+    "last_intervention_at",
+    "student_followup_count_5min",
+    "student_followup_count_30min",
+]
+
+
+def _join_list(value: Any) -> str:
+    if isinstance(value, (list, tuple, set)):
+        return ";".join(str(item) for item in value if item is not None)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _project_condition_row(project: Project) -> Dict[str, Any]:
+    experiment = project.experiment_version or {}
+    group_condition = experiment.get("group_condition") or ""
+    ai_mode = experiment.get("ai_scaffold_mode") or ""
+    process_mode = experiment.get("process_scaffold_mode") or ""
+    condition_label = (
+        group_condition
+        or experiment.get("template_label")
+        or experiment.get("template_key")
+        or experiment.get("version_name")
+        or "unspecified"
+    )
+    return {
+        "project_id": str(project.id),
+        "project_name": project.name,
+        "course_id": project.course_id,
+        "condition_label": condition_label,
+        "group_condition": group_condition,
+        "ai_scaffold_mode": ai_mode,
+        "process_scaffold_mode": process_mode,
+        "stage_control_mode": experiment.get("stage_control_mode") or "",
+        "enabled_scaffold_layers": _join_list(experiment.get("enabled_scaffold_layers")),
+        "enabled_scaffold_roles": _join_list(experiment.get("enabled_scaffold_roles")),
+        "enabled_rule_set": experiment.get("enabled_rule_set") or "",
+        "template_key": experiment.get("template_key") or project.inherited_template_key or "",
+        "template_label": experiment.get("template_label") or project.inherited_template_label or "",
+        "graph_version": experiment.get("graph_version") or "",
+        "current_stage": experiment.get("current_stage") or "",
+        "export_profile": experiment.get("export_profile") or "",
+        "created_at": project.created_at,
+        "updated_at": project.updated_at,
+    }
+
+
+def _condition_event_fields(condition: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    condition = condition or {}
+    return {
+        "condition_label": condition.get("condition_label", ""),
+        "group_condition": condition.get("group_condition", ""),
+        "ai_scaffold_mode": condition.get("ai_scaffold_mode", ""),
+        "process_scaffold_mode": condition.get("process_scaffold_mode", ""),
+        "stage_control_mode": condition.get("stage_control_mode", ""),
+    }
+
+
+def _group_dir_name(project_id: str, project_name_map: Dict[str, str]) -> str:
+    name = project_name_map.get(project_id, project_id)
+    return f"{_zip_safe_segment(project_id[:8], 'group')}_{_zip_safe_segment(name, 'group')}"
 
 
 @router.get("/storage/overview")
@@ -466,6 +671,8 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
     projects = await Project.find(Project.course_id == str(course.id)).sort("name").to_list()
     project_ids = [str(project.id) for project in projects]
     project_name_map = {str(project.id): project.name for project in projects}
+    project_condition_rows = [_project_condition_row(project) for project in projects]
+    project_condition_map = {row["project_id"]: row for row in project_condition_rows}
 
     member_user_ids = {
         str(user_id)
@@ -516,6 +723,7 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
         heartbeat_sessions=heartbeat_sessions,
         user_code_map=user_code_map,
         project_name_map=project_name_map,
+        project_condition_map=project_condition_map,
     )
     intervention_windows = _build_intervention_windows(event_sequence)
 
@@ -523,6 +731,8 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
         "projects": projects,
         "project_ids": project_ids,
         "project_name_map": project_name_map,
+        "project_condition_rows": project_condition_rows,
+        "project_condition_map": project_condition_map,
         "users": users,
         "user_code_map": user_code_map,
         "chat_logs": chat_logs,
@@ -614,6 +824,7 @@ def _build_event_sequence(
     heartbeat_sessions: List[Dict[str, Any]],
     user_code_map: Dict[str, str],
     project_name_map: Dict[str, str],
+    project_condition_map: Dict[str, Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     events: List[Dict[str, Any]] = []
     for item in chat_logs:
@@ -750,6 +961,9 @@ def _build_event_sequence(
             "time_since_previous_seconds": "",
         })
 
+    for event in events:
+        event.update(_condition_event_fields(project_condition_map.get(event["project_id"])))
+
     events.sort(key=lambda row: (row["project_id"], row["timestamp"] or ""))
     previous_by_project: Dict[str, Dict[str, Any]] = {}
     for row in events:
@@ -845,6 +1059,11 @@ def _build_intervention_windows(
                     "intervention_source": source,
                     "project_id": event["project_id"],
                     "project_name": event["project_name"],
+                    "condition_label": event.get("condition_label", ""),
+                    "group_condition": event.get("group_condition", ""),
+                    "ai_scaffold_mode": event.get("ai_scaffold_mode", ""),
+                    "process_scaffold_mode": event.get("process_scaffold_mode", ""),
+                    "stage_control_mode": event.get("stage_control_mode", ""),
                     "intervention_timestamp": event["timestamp"],
                     "following_rank": following_rank,
                     "following_event_id": following["event_id"],
@@ -878,13 +1097,16 @@ def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, A
                     "raw_heartbeat_included": bool(data["heartbeat_stream"]),
                     "raw_heartbeat_count": data["raw_heartbeat_count"],
                     "heartbeat_session_gap_seconds": 180,
-                    "structure": ["metadata", "raw", "cleaned", "analysis_ready", "files"],
+                    "structure": ["metadata", "raw", "cleaned", "analysis_ready", "all_groups", "groups", "files"],
                     "analysis_ready_files": [
                         "event_sequence.csv",
                         "intervention_windows.csv",
                         "group_summary.csv",
                         "student_summary.csv",
+                        "group_stage_summary.csv",
+                        "intervention_exposure.csv",
                     ],
+                    "group_split": "Per-group copies are written under groups/{project_id_prefix}_{project_name}/ for analysis without manual filtering.",
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -912,12 +1134,14 @@ def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, A
         ], ["anonymous_id", "role", "class_id", "in_course_students", "created_at"])
         _write_csv(archive, "metadata/behavior_codebook.csv", _behavior_codebook_rows(), ["space", "action", "analysis_use", "interpretation_note"])
         _write_csv(archive, "metadata/data_dictionary.csv", _data_dictionary_rows(), ["file", "field", "meaning", "analysis_note"])
+        _write_csv(archive, "metadata/group_conditions.csv", data["project_condition_rows"], CONDITION_FIELDNAMES)
 
         _write_csv(archive, "raw/groups.csv", [
             {
                 "project_id": str(project.id),
                 "project_name": project.name,
                 "course_id": project.course_id,
+                **_condition_event_fields(data["project_condition_map"].get(str(project.id))),
                 "leader_anonymous_id": _anonymize_user_id(project.leader_id, user_code_map),
                 "member_count": len(project.members or []),
                 "is_archived": project.is_archived,
@@ -925,7 +1149,7 @@ def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, A
                 "updated_at": project.updated_at,
             }
             for project in data["projects"]
-        ], ["project_id", "project_name", "course_id", "leader_anonymous_id", "member_count", "is_archived", "created_at", "updated_at"])
+        ], ["project_id", "project_name", "course_id", "condition_label", "group_condition", "ai_scaffold_mode", "process_scaffold_mode", "stage_control_mode", "leader_anonymous_id", "member_count", "is_archived", "created_at", "updated_at"])
         _write_csv(archive, "raw/group_members.csv", [
             {
                 "project_id": str(project.id),
@@ -1011,12 +1235,13 @@ def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, A
             "session_id", "project_id", "anonymous_id", "start_time", "end_time", "duration_seconds", "heartbeat_count", "active_modules", "resource_ids", "overlap_ready"
         ])
         _write_csv(archive, "analysis_ready/event_sequence.csv", data["event_sequence"], [
-            "event_id", "project_id", "project_name", "anonymous_id", "actor_type", "space", "action", "object_type", "object_id", "timestamp", "stage_id", "previous_event_id", "previous_action", "time_since_previous_seconds", "content_length", "semantic_tags", "ai_related", "teacher_related"
+            *EVENT_SEQUENCE_FIELDNAMES
         ])
         _write_csv(archive, "analysis_ready/intervention_windows.csv", data["intervention_windows"], [
-            "intervention_event_id", "intervention_source", "project_id", "project_name", "intervention_timestamp", "following_rank", "following_event_id", "following_anonymous_id", "following_actor_type", "following_space", "following_action", "lag_seconds", "following_semantic_tags", "interpretation_guardrail"
+            *INTERVENTION_WINDOW_FIELDNAMES
         ])
         _write_summary_csvs(archive, data)
+        _write_group_split_package(archive, data, user_code_map)
 
         if include_files:
             _write_package_files(archive, data, project_name_map, file_errors)
@@ -1131,19 +1356,13 @@ def _write_domain_csvs(archive: zipfile.ZipFile, data: Dict[str, Any], user_code
         }
         for item in data["ai_conversations"]
     ], ["id", "project_id", "anonymous_id", "persona_id", "title", "category", "created_at", "updated_at"])
-    _write_csv(archive, "raw/ai_messages.csv", [
-        {
-            "id": str(item.id),
-            "conversation_id": item.conversation_id,
-            "role": item.role,
-            "content": item.content,
-            "content_length": len(item.content or ""),
-            "citations": item.citations,
-            "metadata": item.metadata,
-            "created_at": item.created_at,
-        }
-        for item in data["ai_messages"]
-    ], ["id", "conversation_id", "role", "content", "content_length", "citations", "metadata", "created_at"])
+    conversation_project_map = {str(item.id): item.project_id for item in data["ai_conversations"]}
+    _write_csv(
+        archive,
+        "raw/ai_messages.csv",
+        _ai_message_rows(data["ai_messages"], conversation_project_map),
+        ["id", "project_id", "conversation_id", "role", "content", "content_length", "citations", "metadata", "created_at"],
+    )
     _write_csv(archive, "raw/course_task_releases.csv", [
         {
             "id": str(item.id),
@@ -1166,10 +1385,28 @@ def _write_summary_csvs(archive: zipfile.ZipFile, data: Dict[str, Any]) -> None:
     project_ids = data["project_ids"]
     sequence = data["event_sequence"]
     sessions = data["heartbeat_sessions"]
-    _write_csv(archive, "analysis_ready/group_summary.csv", [
+    group_rows = _group_summary_rows(project_ids, sequence, sessions, data)
+    student_rows = _student_summary_rows(sequence, sessions, data)
+    group_stage_rows = _group_stage_summary_rows(project_ids, sequence, sessions, data)
+    intervention_exposure_rows = _intervention_exposure_rows(project_ids, sequence, data)
+    _write_csv(archive, "analysis_ready/group_summary.csv", group_rows, GROUP_SUMMARY_FIELDNAMES)
+    _write_csv(archive, "analysis_ready/student_summary.csv", student_rows, STUDENT_SUMMARY_FIELDNAMES)
+    _write_csv(archive, "analysis_ready/group_stage_summary.csv", group_stage_rows, GROUP_STAGE_SUMMARY_FIELDNAMES)
+    _write_csv(archive, "analysis_ready/intervention_exposure.csv", intervention_exposure_rows, INTERVENTION_EXPOSURE_FIELDNAMES)
+
+
+def _project_summary_context(project_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "project_id": project_id,
+        "project_name": data["project_name_map"].get(project_id, ""),
+        **_condition_event_fields(data["project_condition_map"].get(project_id)),
+    }
+
+
+def _group_summary_rows(project_ids: List[str], sequence: List[Dict[str, Any]], sessions: List[Dict[str, Any]], data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
         {
-            "project_id": project_id,
-            "project_name": data["project_name_map"].get(project_id, ""),
+            **_project_summary_context(project_id, data),
             "event_count": sum(1 for row in sequence if row["project_id"] == project_id),
             "chat_count": sum(1 for row in sequence if row["project_id"] == project_id and row["space"] == "chat"),
             "artifact_event_count": sum(1 for row in sequence if row["project_id"] == project_id and "artifact_construction" in row["semantic_tags"]),
@@ -1178,19 +1415,343 @@ def _write_summary_csvs(archive: zipfile.ZipFile, data: Dict[str, Any]) -> None:
             "online_session_minutes": round(sum(int(row["duration_seconds"]) for row in sessions if row["project_id"] == project_id) / 60, 2),
         }
         for project_id in project_ids
-    ], ["project_id", "project_name", "event_count", "chat_count", "artifact_event_count", "ai_related_count", "teacher_related_count", "online_session_minutes"])
-    anonymous_ids = sorted({row["anonymous_id"] for row in sequence if row.get("anonymous_id")})
-    _write_csv(archive, "analysis_ready/student_summary.csv", [
+    ]
+
+
+def _student_summary_rows(sequence: List[Dict[str, Any]], sessions: List[Dict[str, Any]], data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    pairs = sorted({(row["project_id"], row["anonymous_id"]) for row in sequence if row.get("anonymous_id")})
+    return [
         {
+            **_project_summary_context(project_id, data),
             "anonymous_id": anonymous_id,
-            "event_count": sum(1 for row in sequence if row["anonymous_id"] == anonymous_id),
-            "chat_count": sum(1 for row in sequence if row["anonymous_id"] == anonymous_id and row["space"] == "chat"),
-            "resource_event_count": sum(1 for row in sequence if row["anonymous_id"] == anonymous_id and row["space"] == "resource"),
-            "artifact_event_count": sum(1 for row in sequence if row["anonymous_id"] == anonymous_id and "artifact_construction" in row["semantic_tags"]),
-            "online_session_minutes": round(sum(int(row["duration_seconds"]) for row in sessions if row["anonymous_id"] == anonymous_id) / 60, 2),
+            "event_count": sum(1 for row in sequence if row["project_id"] == project_id and row["anonymous_id"] == anonymous_id),
+            "chat_count": sum(1 for row in sequence if row["project_id"] == project_id and row["anonymous_id"] == anonymous_id and row["space"] == "chat"),
+            "resource_event_count": sum(1 for row in sequence if row["project_id"] == project_id and row["anonymous_id"] == anonymous_id and row["space"] == "resource"),
+            "artifact_event_count": sum(1 for row in sequence if row["project_id"] == project_id and row["anonymous_id"] == anonymous_id and "artifact_construction" in row["semantic_tags"]),
+            "online_session_minutes": round(sum(int(row["duration_seconds"]) for row in sessions if row["project_id"] == project_id and row["anonymous_id"] == anonymous_id) / 60, 2),
         }
-        for anonymous_id in anonymous_ids
-    ], ["anonymous_id", "event_count", "chat_count", "resource_event_count", "artifact_event_count", "online_session_minutes"])
+        for project_id, anonymous_id in pairs
+    ]
+
+
+def _group_stage_summary_rows(project_ids: List[str], sequence: List[Dict[str, Any]], sessions: List[Dict[str, Any]], data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for project_id in project_ids:
+        stages = sorted({row.get("stage_id") or "unspecified" for row in sequence if row["project_id"] == project_id})
+        if not stages:
+            stages = ["unspecified"]
+        for stage_id in stages:
+            scoped = [row for row in sequence if row["project_id"] == project_id and (row.get("stage_id") or "unspecified") == stage_id]
+            rows.append({
+                **_project_summary_context(project_id, data),
+                "stage_id": stage_id,
+                "event_count": len(scoped),
+                "chat_count": sum(1 for row in scoped if row["space"] == "chat"),
+                "student_turn_count": sum(1 for row in scoped if row["space"] == "chat" and row["actor_type"] == "student"),
+                "ai_prompt_count": sum(1 for row in scoped if row["ai_related"]),
+                "teacher_support_count": sum(1 for row in scoped if row["teacher_related"]),
+                "evidence_event_count": sum(1 for row in scoped if "evidence_use" in row["semantic_tags"]),
+                "challenge_event_count": sum(1 for row in scoped if "critical_challenge" in row["semantic_tags"]),
+                "artifact_event_count": sum(1 for row in scoped if "artifact_construction" in row["semantic_tags"]),
+                "resource_event_count": sum(1 for row in scoped if row["space"] == "resource"),
+                "document_update_count": sum(1 for row in scoped if row["space"] == "document"),
+                "wiki_update_count": sum(1 for row in scoped if row["space"] == "wiki"),
+                "online_session_minutes": round(sum(int(row["duration_seconds"]) for row in sessions if row["project_id"] == project_id) / 60, 2),
+            })
+    return rows
+
+
+def _intervention_exposure_rows(project_ids: List[str], sequence: List[Dict[str, Any]], data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for project_id in project_ids:
+        scoped = [row for row in sequence if row["project_id"] == project_id]
+        interventions = [row for row in scoped if row.get("ai_related") or row.get("teacher_related")]
+        buckets = sorted({(
+            "ai" if row.get("ai_related") else "teacher",
+            row.get("actor_type") or "",
+            row.get("stage_id") or "unspecified",
+        ) for row in interventions})
+        for source, agent_role, stage_id in buckets:
+            selected = [
+                row for row in interventions
+                if ("ai" if row.get("ai_related") else "teacher") == source
+                and (row.get("actor_type") or "") == agent_role
+                and (row.get("stage_id") or "unspecified") == stage_id
+            ]
+            first_time = min((row["timestamp"] for row in selected if row.get("timestamp")), default="")
+            last_time = max((row["timestamp"] for row in selected if row.get("timestamp")), default="")
+            rows.append({
+                **_project_summary_context(project_id, data),
+                "intervention_source": source,
+                "agent_role": agent_role,
+                "stage_id": stage_id,
+                "intervention_count": len(selected),
+                "first_intervention_at": first_time,
+                "last_intervention_at": last_time,
+                "student_followup_count_5min": _count_followups_after_interventions(selected, scoped, 5 * 60),
+                "student_followup_count_30min": _count_followups_after_interventions(selected, scoped, 30 * 60),
+            })
+    return rows
+
+
+def _count_followups_after_interventions(interventions: List[Dict[str, Any]], events: List[Dict[str, Any]], max_seconds: int) -> int:
+    count = 0
+    for intervention in interventions:
+        for event in events:
+            if event["event_id"] == intervention["event_id"] or event.get("actor_type") != "student":
+                continue
+            lag_seconds = _seconds_between_iso(intervention.get("timestamp") or "", event.get("timestamp") or "")
+            if lag_seconds and 0 < int(lag_seconds) <= max_seconds:
+                count += 1
+    return count
+
+
+def _write_group_split_package(archive: zipfile.ZipFile, data: Dict[str, Any], user_code_map: Dict[str, str]) -> None:
+    """Write analysis-friendly all-group copies and per-group split tables."""
+    _write_csv(archive, "all_groups/metadata/group_conditions.csv", data["project_condition_rows"], CONDITION_FIELDNAMES)
+    _write_csv(archive, "all_groups/analysis_ready/event_sequence.csv", data["event_sequence"], EVENT_SEQUENCE_FIELDNAMES)
+    _write_csv(archive, "all_groups/analysis_ready/intervention_windows.csv", data["intervention_windows"], INTERVENTION_WINDOW_FIELDNAMES)
+    _write_csv(archive, "all_groups/analysis_ready/group_summary.csv", _group_summary_rows(data["project_ids"], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_SUMMARY_FIELDNAMES)
+    _write_csv(archive, "all_groups/analysis_ready/student_summary.csv", _student_summary_rows(data["event_sequence"], data["heartbeat_sessions"], data), STUDENT_SUMMARY_FIELDNAMES)
+    _write_csv(archive, "all_groups/analysis_ready/group_stage_summary.csv", _group_stage_summary_rows(data["project_ids"], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_STAGE_SUMMARY_FIELDNAMES)
+    _write_csv(archive, "all_groups/analysis_ready/intervention_exposure.csv", _intervention_exposure_rows(data["project_ids"], data["event_sequence"], data), INTERVENTION_EXPOSURE_FIELDNAMES)
+
+    conversation_project_map = {str(item.id): item.project_id for item in data["ai_conversations"]}
+    for project_id in data["project_ids"]:
+        group_dir = f"groups/{_group_dir_name(project_id, data['project_name_map'])}"
+        _write_csv(archive, f"{group_dir}/metadata/group_condition.csv", [data["project_condition_map"].get(project_id, {})], CONDITION_FIELDNAMES)
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/chat_logs.csv",
+            _chat_log_rows([item for item in data["chat_logs"] if item.project_id == project_id], user_code_map),
+            ["id", "project_id", "anonymous_id", "message_type", "content", "content_length", "mentions", "metadata", "created_at"],
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/research_events.csv",
+            _research_event_rows([item for item in data["research_events"] if item.project_id == project_id], user_code_map),
+            ["id", "project_id", "group_id", "anonymous_id", "actor_type", "event_domain", "event_type", "stage_id", "sequence_index", "payload", "event_time", "created_at"],
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/activity_logs.csv",
+            _activity_log_rows([item for item in data["activity_logs"] if item.project_id == project_id], user_code_map),
+            ["id", "project_id", "anonymous_id", "module", "action", "target_id", "duration", "metadata", "timestamp"],
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/resources.csv",
+            _resource_rows([item for item in data["resources"] if item.project_id == project_id], user_code_map),
+            ["id", "project_id", "course_id", "scope", "filename", "file_key", "size", "mime_type", "source_type", "uploaded_by", "uploaded_at", "parse_status"],
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/documents.csv",
+            _document_rows([item for item in data["documents"] if item.project_id == project_id], user_code_map),
+            ["id", "project_id", "title", "content_text_length", "last_modified_by", "is_archived", "source_type", "course_task_release_id", "created_at", "updated_at"],
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/wiki_items.csv",
+            _wiki_item_rows([item for item in data["wiki_items"] if item.project_id == project_id], user_code_map),
+            ["id", "project_id", "stage_id", "item_type", "title", "content", "summary", "source_type", "created_by", "updated_by", "confidence_level", "created_at", "updated_at"],
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/tasks.csv",
+            _task_rows([item for item in data["tasks"] if item.project_id == project_id], user_code_map),
+            ["id", "project_id", "title", "column", "source_type", "course_task_release_id", "submission_status", "submitted_by", "submitted_at", "review_status", "created_at", "updated_at"],
+        )
+        group_conversation_ids = {str(item.id) for item in data["ai_conversations"] if item.project_id == project_id}
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/ai_conversations.csv",
+            _ai_conversation_rows([item for item in data["ai_conversations"] if item.project_id == project_id], user_code_map),
+            ["id", "project_id", "anonymous_id", "persona_id", "title", "category", "created_at", "updated_at"],
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/ai_messages.csv",
+            _ai_message_rows([item for item in data["ai_messages"] if item.conversation_id in group_conversation_ids], conversation_project_map),
+            ["id", "project_id", "conversation_id", "role", "content", "content_length", "citations", "metadata", "created_at"],
+        )
+        group_sequence = [row for row in data["event_sequence"] if row["project_id"] == project_id]
+        group_sessions = [row for row in data["heartbeat_sessions"] if row["project_id"] == project_id]
+        _write_csv(archive, f"{group_dir}/cleaned/heartbeat_sessions.csv", group_sessions, [
+            "session_id", "project_id", "anonymous_id", "start_time", "end_time", "duration_seconds", "heartbeat_count", "active_modules", "resource_ids", "overlap_ready"
+        ])
+        _write_csv(archive, f"{group_dir}/analysis_ready/event_sequence.csv", group_sequence, EVENT_SEQUENCE_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/analysis_ready/intervention_windows.csv", [row for row in data["intervention_windows"] if row["project_id"] == project_id], INTERVENTION_WINDOW_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/analysis_ready/group_summary.csv", _group_summary_rows([project_id], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_SUMMARY_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/analysis_ready/student_summary.csv", _student_summary_rows(group_sequence, group_sessions, data), STUDENT_SUMMARY_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/analysis_ready/group_stage_summary.csv", _group_stage_summary_rows([project_id], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_STAGE_SUMMARY_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/analysis_ready/intervention_exposure.csv", _intervention_exposure_rows([project_id], data["event_sequence"], data), INTERVENTION_EXPOSURE_FIELDNAMES)
+
+
+def _chat_log_rows(items: List[ChatLog], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "anonymous_id": _anonymize_user_id(item.user_id, user_code_map),
+            "message_type": item.message_type,
+            "content": item.content,
+            "content_length": len(item.content or ""),
+            "mentions": [_anonymize_user_id(user_id, user_code_map) for user_id in item.mentions or []],
+            "metadata": item.metadata,
+            "created_at": item.created_at,
+        }
+        for item in items
+    ]
+
+
+def _research_event_rows(items: List[ResearchEvent], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "group_id": item.group_id,
+            "anonymous_id": _anonymize_user_id(item.user_id, user_code_map),
+            "actor_type": item.actor_type,
+            "event_domain": item.event_domain,
+            "event_type": item.event_type,
+            "stage_id": item.stage_id,
+            "sequence_index": item.sequence_index,
+            "payload": item.payload,
+            "event_time": item.event_time,
+            "created_at": item.created_at,
+        }
+        for item in items
+    ]
+
+
+def _activity_log_rows(items: List[ActivityLog], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "anonymous_id": _anonymize_user_id(item.user_id, user_code_map),
+            "module": item.module,
+            "action": item.action,
+            "target_id": item.target_id,
+            "duration": item.duration,
+            "metadata": item.metadata,
+            "timestamp": item.timestamp,
+        }
+        for item in items
+    ]
+
+
+def _resource_rows(items: List[Resource], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "course_id": item.course_id,
+            "scope": item.scope,
+            "filename": item.filename,
+            "file_key": item.file_key,
+            "size": item.size,
+            "mime_type": item.mime_type,
+            "source_type": item.source_type,
+            "uploaded_by": _anonymize_user_id(item.uploaded_by, user_code_map),
+            "uploaded_at": item.uploaded_at,
+            "parse_status": item.parse_status,
+        }
+        for item in items
+    ]
+
+
+def _document_rows(items: List[Document], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "title": item.title,
+            "content_text_length": len(item.content or ""),
+            "last_modified_by": _anonymize_user_id(item.last_modified_by, user_code_map),
+            "is_archived": item.is_archived,
+            "source_type": item.source_type,
+            "course_task_release_id": item.course_task_release_id,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in items
+    ]
+
+
+def _wiki_item_rows(items: List[WikiItem], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "stage_id": item.stage_id,
+            "item_type": item.item_type,
+            "title": item.title,
+            "content": item.content,
+            "summary": item.summary,
+            "source_type": item.source_type,
+            "created_by": _anonymize_user_id(item.created_by, user_code_map),
+            "updated_by": _anonymize_user_id(item.updated_by, user_code_map),
+            "confidence_level": item.confidence_level,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in items
+    ]
+
+
+def _task_rows(items: List[Task], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "title": item.title,
+            "column": item.column,
+            "source_type": item.source_type,
+            "course_task_release_id": item.course_task_release_id,
+            "submission_status": item.submission_status,
+            "submitted_by": _anonymize_user_id(item.submitted_by, user_code_map),
+            "submitted_at": item.submitted_at,
+            "review_status": item.review_status,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in items
+    ]
+
+
+def _ai_conversation_rows(items: List[AIConversation], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "anonymous_id": _anonymize_user_id(item.user_id, user_code_map),
+            "persona_id": item.persona_id,
+            "title": item.title,
+            "category": item.category,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in items
+    ]
+
+
+def _ai_message_rows(items: List[AIMessage], conversation_project_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": conversation_project_map.get(item.conversation_id, ""),
+            "conversation_id": item.conversation_id,
+            "role": item.role,
+            "content": item.content,
+            "content_length": len(item.content or ""),
+            "citations": item.citations,
+            "metadata": item.metadata,
+            "created_at": item.created_at,
+        }
+        for item in items
+    ]
 
 
 def _write_package_files(archive: zipfile.ZipFile, data: Dict[str, Any], project_name_map: Dict[str, str], errors: List[Dict[str, Any]]) -> None:

@@ -20,6 +20,21 @@ class ResearchConfigService:
     ORCHESTRATION_CONFIG_KEY = "research_orchestration_profile"
     RELEASE_HISTORY_KEY = "research_release_history"
 
+    CURRENT_STAGE_SEQUENCE = [
+        "problem_construction",
+        "meaning_exploration",
+        "explanation_integration",
+        "application_solution",
+    ]
+
+    LEGACY_STAGE_ID_MAP = {
+        "orientation": "problem_construction",
+        "planning": "problem_construction",
+        "inquiry": "meaning_exploration",
+        "argumentation": "explanation_integration",
+        "revision": "application_solution",
+    }
+
     ALL_SCAFFOLD_ROLES = [
         "cognitive_support",
         "viewpoint_challenge",
@@ -114,7 +129,7 @@ class ResearchConfigService:
                     "ai_mode": ai_mode,
                     "process_mode": process_mode,
                     "rule_set": rule_set,
-                    "stage_sequence": list(stage_sequence),
+                    "stage_sequence": cls.normalize_stage_sequence(stage_sequence),
                     "teacher_summary": template.get("teacherSummary") or template.get("teacher_summary"),
                 }
             )
@@ -292,8 +307,12 @@ class ResearchConfigService:
         process_mode = str(template.get("processMode") or template.get("process_scaffold_mode") or "on").strip() or "on"
         group_condition = template.get("groupCondition") or template.get("group_condition")
         rule_set = template.get("ruleSet") or template.get("enabled_rule_set")
-        stage_sequence = list(template.get("stageSequence") or template.get("stage_sequence") or [])
-        current_stage = template.get("currentStage") or template.get("current_stage") or (stage_sequence[0] if stage_sequence else None)
+        stage_sequence = cls.normalize_stage_sequence(template.get("stageSequence") or template.get("stage_sequence") or [])
+        current_stage = cls.normalize_stage_id(
+            template.get("currentStage") or template.get("current_stage") or (stage_sequence[0] if stage_sequence else None)
+        )
+        if current_stage not in stage_sequence:
+            current_stage = stage_sequence[0] if stage_sequence else None
         enabled_layers = cls._normalize_scaffold_layers(
             template.get("enabled_scaffold_layers"),
             ai_mode=ai_mode,
@@ -389,9 +408,10 @@ class ResearchConfigService:
             payload.get("enabled_scaffold_roles"),
             ai_mode=ai_mode,
         )
-        payload["stage_sequence"] = list(payload.get("stage_sequence") or [])
+        payload["stage_sequence"] = cls.normalize_stage_sequence(payload.get("stage_sequence") or [])
+        payload["current_stage"] = cls.normalize_stage_id(payload.get("current_stage"))
 
-        if payload.get("current_stage") is None and payload["stage_sequence"]:
+        if payload.get("current_stage") not in payload["stage_sequence"] and payload["stage_sequence"]:
             payload["current_stage"] = payload["stage_sequence"][0]
 
         if template_key is not None:
@@ -455,6 +475,23 @@ class ResearchConfigService:
             "source_course_id": None,
             "template_bound_at": None,
         }
+
+    @classmethod
+    def normalize_stage_id(cls, stage_id: Any) -> Optional[str]:
+        if stage_id is None:
+            return None
+        normalized = cls.LEGACY_STAGE_ID_MAP.get(str(stage_id), str(stage_id))
+        return normalized if normalized in cls.CURRENT_STAGE_SEQUENCE else None
+
+    @classmethod
+    def normalize_stage_sequence(cls, stage_sequence: Any) -> list[str]:
+        normalized: list[str] = []
+        source_sequence = stage_sequence if isinstance(stage_sequence, list) else []
+        for stage_id in source_sequence:
+            mapped_stage_id = cls.normalize_stage_id(stage_id)
+            if mapped_stage_id and mapped_stage_id not in normalized:
+                normalized.append(mapped_stage_id)
+        return normalized or list(cls.CURRENT_STAGE_SEQUENCE)
 
     @classmethod
     def _derive_enabled_scaffold_layers(cls, ai_mode: str, process_mode: str) -> list[str]:

@@ -171,6 +171,21 @@ const DEFAULT_TEMPLATES: ExperimentTemplateConfig[] = [
     },
 ]
 
+const CURRENT_STAGE_SEQUENCE = [
+    'problem_construction',
+    'meaning_exploration',
+    'explanation_integration',
+    'application_solution',
+]
+
+const LEGACY_STAGE_ID_MAP: Record<string, string | null> = {
+    orientation: 'problem_construction',
+    planning: 'problem_construction',
+    inquiry: 'meaning_exploration',
+    argumentation: 'explanation_integration',
+    revision: 'application_solution',
+}
+
 const DEFAULT_ROLES: AgentRoleConfig[] = [
     {
         id: 'evidence_researcher',
@@ -305,14 +320,18 @@ export default function ResearchConfig() {
             const stageConfig = configs.find((item) => item.key === 'research_stage_definitions')
             const releaseHistoryConfig = configs.find((item) => item.key === 'research_release_history')
 
+            const parsedStageDefinitions = parseConfigValue(stageConfig?.value, DEFAULT_STAGE_DEFINITIONS)
+            const parsedTemplates = parseConfigValue(templateConfig?.value, DEFAULT_TEMPLATES)
+            const parsedReleaseHistory = parseConfigValue(releaseHistoryConfig?.value, [] as ResearchReleaseRecord[])
+
             setConfigMeta(extractConfigMeta(configs))
-            setTemplates(parseConfigValue(templateConfig?.value, DEFAULT_TEMPLATES))
+            setTemplates(normalizeTemplatesForStages(parsedTemplates, parsedStageDefinitions))
             setRoles(parseConfigValue(roleConfig?.value, DEFAULT_ROLES))
             setRuleProfiles(parseConfigValue(ruleConfig?.value, DEFAULT_RULE_PROFILES))
             setOrchestration(parseConfigValue(orchestrationConfig?.value, DEFAULT_ORCHESTRATION))
             setModelPool(parseConfigValue(modelPoolConfig?.value, DEFAULT_MODEL_POOL))
-            setStageDefinitions(parseConfigValue(stageConfig?.value, DEFAULT_STAGE_DEFINITIONS))
-            setReleaseHistory(parseConfigValue(releaseHistoryConfig?.value, [] as ResearchReleaseRecord[]))
+            setStageDefinitions(parsedStageDefinitions)
+            setReleaseHistory(normalizeReleaseHistoryForStages(parsedReleaseHistory, parsedStageDefinitions))
         } catch (error) {
             console.error('Failed to fetch research configs:', error)
             setNotice({ type: 'error', message: '读取研究配置失败，已回退到默认模板。' })
@@ -452,6 +471,37 @@ export default function ResearchConfig() {
 
     const handleReset = () => {
         void fetchConfigs()
+    }
+
+    const handleCleanupLegacyStages = async () => {
+        try {
+            setIsSaving(true)
+            setNotice(null)
+            const nextTemplates = normalizeTemplatesForStages(templates, stageDefinitions)
+            const nextReleaseHistory = normalizeReleaseHistoryForStages(releaseHistory, stageDefinitions)
+            const savedConfigs = await Promise.all([
+                adminService.updateConfig(
+                    'research_experiment_templates',
+                    JSON.stringify(nextTemplates, null, 2),
+                    'Published research experiment templates for AISCL'
+                ),
+                adminService.updateConfig(
+                    'research_release_history',
+                    JSON.stringify(nextReleaseHistory, null, 2),
+                    'Versioned release history for research configuration snapshots'
+                ),
+            ])
+
+            setTemplates(nextTemplates)
+            setReleaseHistory(nextReleaseHistory)
+            setConfigMeta((previous) => ({ ...previous, ...extractConfigMeta(savedConfigs) }))
+            setNotice({ type: 'success', message: '已将旧 5 阶段引用迁移为当前 4 个协作环节，并保存到配置库。' })
+        } catch (error) {
+            console.error('Failed to cleanup legacy research stages:', error)
+            setNotice({ type: 'error', message: '旧阶段引用清理失败，请检查网络或管理员权限。' })
+        } finally {
+            setIsSaving(false)
+        }
     }
 
     const updateTemplate = <K extends keyof ExperimentTemplateConfig>(
@@ -773,10 +823,16 @@ export default function ResearchConfig() {
                             <p className="mt-1 text-sm text-slate-500">维护班级级实验模板，供管理员发布和后续班级应用。</p>
                             <SectionMeta meta={configMeta.research_experiment_templates} configKey="research_experiment_templates" />
                         </div>
-                        <Button variant="outline" className="gap-2" onClick={addTemplate}>
-                            <Plus className="h-4 w-4" />
-                            新增模板
-                        </Button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                            <Button variant="outline" className="gap-2" onClick={handleCleanupLegacyStages} disabled={isSaving}>
+                                <RotateCcw className="h-4 w-4" />
+                                清理旧阶段引用
+                            </Button>
+                            <Button variant="outline" className="gap-2" onClick={addTemplate}>
+                                <Plus className="h-4 w-4" />
+                                新增模板
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="space-y-4">
@@ -859,9 +915,10 @@ export default function ResearchConfig() {
                                                         type="checkbox"
                                                         checked={template.stageSequence.includes(stage.id)}
                                                         onChange={(event) => {
-                                                            const nextStages = event.target.checked
+                                                            const selectedStages = event.target.checked
                                                                 ? [...template.stageSequence, stage.id]
                                                                 : template.stageSequence.filter((item) => item !== stage.id)
+                                                            const nextStages = normalizeStageSequenceForDefinitions(selectedStages, stageDefinitions)
                                                             updateTemplate(index, 'stageSequence', nextStages)
                                                         }}
                                                         className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
@@ -1234,6 +1291,75 @@ function parseConfigValue<T>(value: string | undefined, fallback: T): T {
         return JSON.parse(value) as T
     } catch (_error) {
         return fallback
+    }
+}
+
+function normalizeStageSequenceForDefinitions(sequence: string[], stageDefinitions: StageDefinition[]) {
+    const definedStageIds = stageDefinitions
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((stage) => stage.id)
+    const orderedStageIds = definedStageIds.length > 0 ? definedStageIds : CURRENT_STAGE_SEQUENCE
+    const validStageIds = new Set(orderedStageIds)
+    const selected = new Set<string>()
+
+    ;(sequence || []).forEach((stageId) => {
+        const normalizedStageId = LEGACY_STAGE_ID_MAP[stageId] ?? stageId
+        if (normalizedStageId && validStageIds.has(normalizedStageId)) {
+            selected.add(normalizedStageId)
+        }
+    })
+
+    const normalized = orderedStageIds.filter((stageId) => selected.has(stageId))
+    return normalized.length > 0 ? normalized : orderedStageIds
+}
+
+function normalizeTemplatesForStages(templates: ExperimentTemplateConfig[], stageDefinitions: StageDefinition[]) {
+    return (templates || []).map((template) => ({
+        ...template,
+        stageSequence: normalizeStageSequenceForDefinitions(template.stageSequence, stageDefinitions),
+    }))
+}
+
+function normalizeReleaseHistoryForStages(releaseHistory: ResearchReleaseRecord[], stageDefinitions: StageDefinition[]) {
+    return (releaseHistory || []).map((release) => ({
+        ...release,
+        stageDefinitions:
+            release.stageDefinitions && release.stageDefinitions.length > 0
+                ? release.stageDefinitions
+                : stageDefinitions.map((stage) => ({ ...stage })),
+        templates: (release.templates || []).map((template) => {
+            const stageSequence = normalizeStageSequenceForDefinitions(template.stageSequence, stageDefinitions)
+            const resolvedExperimentVersion = template.resolvedExperimentVersion
+                ? normalizeResolvedExperimentVersionStages(template.resolvedExperimentVersion, stageDefinitions, stageSequence)
+                : template.resolvedExperimentVersion
+
+            return {
+                ...template,
+                stageSequence,
+                resolvedExperimentVersion,
+            }
+        }),
+    }))
+}
+
+function normalizeResolvedExperimentVersionStages(
+    snapshot: ResolvedExperimentVersionSnapshot,
+    stageDefinitions: StageDefinition[],
+    fallbackStageSequence: string[]
+): ResolvedExperimentVersionSnapshot {
+    const stageSequence = normalizeStageSequenceForDefinitions(
+        snapshot.stage_sequence && snapshot.stage_sequence.length > 0 ? snapshot.stage_sequence : fallbackStageSequence,
+        stageDefinitions
+    )
+    const currentStage = snapshot.current_stage
+        ? (LEGACY_STAGE_ID_MAP[snapshot.current_stage] ?? snapshot.current_stage)
+        : stageSequence[0]
+
+    return {
+        ...snapshot,
+        stage_sequence: stageSequence,
+        current_stage: currentStage && stageSequence.includes(currentStage) ? currentStage : stageSequence[0],
     }
 }
 

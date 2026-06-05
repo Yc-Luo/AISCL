@@ -1159,7 +1159,7 @@ export default function SystemConfig() {
                                 placeholder="如：1024、1536；不确定可先留空"
                             />
                             <p className="text-xs text-slate-400 leading-relaxed">
-                                OpenAI 兼容接口会把该值作为 `dimensions` 参数发送；Qdrant 新建集合时也会优先使用该维度。已有集合维度不会自动改变，换模型后如维度不同需重建集合。
+                                仅 Qwen/Qwen3-Embedding 系列会把该值作为 `dimensions` 参数发送；BAAI/bge-m3 等固定维度模型可留空。已有 Qdrant 集合维度不会自动改变，换模型后如维度不同需重建集合。
                             </p>
                         </div>
 
@@ -1179,6 +1179,7 @@ export default function SystemConfig() {
                             <p className="font-bold">填写示例</p>
                             <p>MiniMax：provider=minimax，Base URL=https://api.minimax.chat/v1/embeddings，model=embo-01，type=db，Group ID=你的 MiniMax Group ID。</p>
                             <p>OpenAI 兼容：provider=openai_compatible，Base URL=https://api.openai.com/v1，model=text-embedding-3-small，type 可留空，Group ID 留空。</p>
+                            <p>SiliconFlow BGE 示例：provider=openai_compatible，Base URL=https://api.siliconflow.cn/v1，model=BAAI/bge-m3，dimensions 留空。</p>
                             <p>SiliconFlow Qwen3 示例：provider=openai_compatible，Base URL=https://api.siliconflow.cn/v1，model=Qwen/Qwen3-Embedding-4B，dimensions=1024 或 1536。</p>
                             <p className="text-emerald-800/80">注意：更换向量模型时，向量维度必须与 Qdrant collection 的维度一致；如维度不同，需要重建向量集合。</p>
                         </div>

@@ -206,7 +206,7 @@ class EmbeddingService:
             "model": config.model,
             "input": texts,
         }
-        if config.dimensions:
+        if config.dimensions and EmbeddingService._supports_dimensions(config.model):
             payload["dimensions"] = config.dimensions
 
         headers = {
@@ -220,13 +220,36 @@ class EmbeddingService:
                 json=payload,
                 headers=headers,
             )
-            response.raise_for_status()
+            EmbeddingService._raise_for_status(response, "OpenAI-compatible embedding")
             data = response.json()
 
         vectors = EmbeddingService._extract_vectors(data)
         if not vectors:
             logger.warning("OpenAI-compatible embedding response contained no vectors: %s", data)
         return vectors
+
+    @staticmethod
+    def _supports_dimensions(model: str) -> bool:
+        """Return whether the provider accepts an explicit dimensions field."""
+        normalized = (model or "").strip().lower()
+        return normalized.startswith("qwen/qwen3-embedding-")
+
+    @staticmethod
+    def _raise_for_status(response: httpx.Response, service_name: str) -> None:
+        """Preserve provider error details for admin-side diagnostics."""
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = response.text.strip()
+            if len(detail) > 500:
+                detail = detail[:500].rstrip() + "..."
+            if detail:
+                raise httpx.HTTPStatusError(
+                    f"{service_name} failed: {exc.response.status_code} {exc.response.reason_phrase}; provider response: {detail}",
+                    request=exc.request,
+                    response=exc.response,
+                ) from exc
+            raise
 
     @staticmethod
     def _extract_vectors(data: dict) -> List[List[float]]:

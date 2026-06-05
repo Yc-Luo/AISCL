@@ -36,7 +36,7 @@ export default function AIResponseRenderer({
         <div
             className={[
                 'ai-response-renderer max-w-none break-words text-slate-900',
-                compact ? 'text-[13px] leading-6' : 'text-[14px] leading-7',
+                compact ? 'text-[13px] leading-5' : 'text-[14px] leading-6',
             ].join(' ')}
         >
             <ReactMarkdown
@@ -44,52 +44,52 @@ export default function AIResponseRenderer({
                 components={{
                     h1({ children }) {
                         return (
-                            <h1 className="mb-1.5 mt-2.5 text-[15px] font-black leading-6 text-slate-900">
+                            <h1 className="mb-1 mt-2 text-[15px] font-black leading-5 text-slate-900">
                                 {children}
                             </h1>
                         )
                     },
                     h2({ children }) {
                         return (
-                            <h2 className="mb-1.5 mt-2.5 text-[15px] font-black leading-6 text-slate-900">
+                            <h2 className="mb-1 mt-2 text-[15px] font-black leading-5 text-slate-900">
                                 {children}
                             </h2>
                         )
                     },
                     h3({ children }) {
                         return (
-                            <h3 className="mb-1 mt-2 text-sm font-black leading-6 text-slate-900">
+                            <h3 className="mb-0.5 mt-1.5 text-sm font-black leading-5 text-slate-900">
                                 {children}
                             </h3>
                         )
                     },
                     h4({ children }) {
-                        return <h4 className="mb-1 mt-2 text-sm font-black leading-6 text-indigo-800">{children}</h4>
+                        return <h4 className="mb-0.5 mt-1.5 text-sm font-black leading-5 text-indigo-800">{children}</h4>
                     },
                     p({ children }) {
-                        return <p className="my-2 whitespace-pre-wrap text-slate-800">{children}</p>
+                        return <p className="my-1.5 whitespace-pre-wrap text-slate-800">{children}</p>
                     },
                     strong({ children }) {
                         return <strong className="font-black text-slate-950">{children}</strong>
                     },
                     ul({ children }) {
-                        return <ul className="my-2.5 list-disc space-y-1.5 pl-6">{children}</ul>
+                        return <ul className="my-1.5 list-disc space-y-1 pl-5">{children}</ul>
                     },
                     ol({ children }) {
-                        return <ol className="my-2.5 list-decimal space-y-2 pl-6">{children}</ol>
+                        return <ol className="my-1.5 list-decimal space-y-1 pl-5">{children}</ol>
                     },
                     li({ children }) {
-                        return <li className="pl-1 text-slate-800 marker:font-semibold marker:text-slate-500">{children}</li>
+                        return <li className="pl-0.5 text-slate-800 marker:font-semibold marker:text-slate-500">{children}</li>
                     },
                     blockquote({ children }) {
                         return (
-                            <blockquote className="my-2 rounded-lg border-l-4 border-amber-300 bg-amber-50 px-3 py-2 text-slate-700">
+                            <blockquote className="my-1.5 rounded-lg border-l-4 border-amber-300 bg-amber-50 px-3 py-1.5 text-slate-700">
                                 {children}
                             </blockquote>
                         )
                     },
                     hr() {
-                        return <hr className="my-3 border-slate-200" />
+                        return <hr className="my-2 border-slate-200" />
                     },
                     code({ className, children }) {
                         return (
@@ -100,7 +100,7 @@ export default function AIResponseRenderer({
                     },
                     pre({ children }) {
                         return (
-                            <pre className="my-3 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800 [&>code]:bg-transparent [&>code]:p-0">
+                            <pre className="my-2 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs leading-5 text-slate-800 [&>code]:bg-transparent [&>code]:p-0">
                                 {children}
                             </pre>
                         )

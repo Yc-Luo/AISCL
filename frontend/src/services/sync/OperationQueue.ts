@@ -242,6 +242,16 @@ export class OperationQueue {
             return;
         }
 
+        if (isConnectionIssue) {
+            // A temporary disconnect should not consume business retry budget.
+            // Keep the operation pending so it can be sent after Socket.IO reconnects.
+            queued.entry.status = 'pending';
+            queued.lastAttempt = Date.now();
+            console.debug(`[OperationQueue] Operation waiting for reconnection: ${operationId}`);
+            await storageManager.saveOperation(queued.entry);
+            return;
+        }
+
         queued.retries++;
         queued.entry.retries = queued.retries;
 
@@ -252,11 +262,7 @@ export class OperationQueue {
         } else {
             // 重新标记为待处理，等待重试
             queued.entry.status = 'pending';
-            if (isConnectionIssue) {
-                console.debug(`[OperationQueue] Operation queued for retry (waiting for connection): ${operationId}`);
-            } else {
-                console.warn(`[OperationQueue] Operation retry ${queued.retries}/${this.config.maxRetries}: ${operationId}`);
-            }
+            console.warn(`[OperationQueue] Operation retry ${queued.retries}/${this.config.maxRetries}: ${operationId}`);
         }
 
         await storageManager.saveOperation(queued.entry);

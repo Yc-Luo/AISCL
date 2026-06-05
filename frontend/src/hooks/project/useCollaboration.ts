@@ -53,8 +53,8 @@ export function useCollaboration({
   const socketRef = useRef<Socket | null>(null)
   const reconnectAttemptsRef = useRef({ yjs: 0, socketio: 0 })
   const { user, tokens } = useAuthStore()
-  const MAX_RECONNECT_ATTEMPTS = 5
-  const RECONNECT_DELAY = 3000
+  const MAX_RECONNECT_ATTEMPTS = 100
+  const RECONNECT_DELAY = 1000
 
   // Get room mapping
   const getRoomMapping = useCallback(() => {
@@ -213,6 +213,8 @@ export function useCollaboration({
         transports: ['websocket'],
         reconnection: true,
         reconnectionDelay: RECONNECT_DELAY,
+        reconnectionDelayMax: 10000,
+        randomizationFactor: 0.5,
         reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
       })
 
@@ -358,5 +360,4 @@ export function useCollaboration({
     reconnect,
   }
 }
-
 

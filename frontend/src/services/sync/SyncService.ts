@@ -138,7 +138,14 @@ export class SyncService extends EventEmitter {
                     this.connectionManager.setToken(token);
                 }
 
-                await this.connectionManager.init();
+                try {
+                    await this.connectionManager.init();
+                } catch (connectionError) {
+                    console.warn(
+                        '[SyncService] Initial socket connection unavailable; subscriptions will recover after reconnect:',
+                        connectionError
+                    );
+                }
 
                 this.initialized = true;
                 console.log('[SyncService] Initialized successfully');

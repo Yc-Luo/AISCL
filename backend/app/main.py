@@ -53,18 +53,24 @@ async def lifespan(app: FastAPI):
     await get_redis_client()  # Initialize Redis connection
     
     # Start background tasks
-    update_task = asyncio.create_task(run_periodic_updates())
+    update_task = None
+    if settings.BACKGROUND_DASHBOARD_SNAPSHOTS_ENABLED:
+        update_task = asyncio.create_task(run_periodic_updates())
+    else:
+        logger.info("Background dashboard snapshot updates are disabled.")
     parse_task = asyncio.create_task(run_resource_parse_updates())
     
     yield
     
     # Shutdown
-    update_task.cancel()
+    if update_task:
+        update_task.cancel()
     parse_task.cancel()
-    try:
-        await update_task
-    except asyncio.CancelledError:
-        pass
+    if update_task:
+        try:
+            await update_task
+        except asyncio.CancelledError:
+            pass
     try:
         await parse_task
     except asyncio.CancelledError:

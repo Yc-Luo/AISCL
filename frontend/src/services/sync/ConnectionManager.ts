@@ -30,10 +30,10 @@ const DEFAULT_CONFIG: Required<ConnectionManagerConfig> = {
     serverUrl: config.socketIOUrl,
     token: '',
     autoConnect: true,
-    reconnectDelay: 2000,
-    maxReconnectAttempts: 20,
+    reconnectDelay: 1000,
+    maxReconnectAttempts: 100,
     heartbeatInterval: 30000,
-    heartbeatTimeout: 20000,
+    heartbeatTimeout: 60000,
 };
 
 /** 连接事件类型 */
@@ -56,8 +56,6 @@ export class ConnectionManager {
     private socket: Socket | null = null;
     private status: ConnectionStatus = 'disconnected';
     private reconnectAttempts: number = 0;
-    private heartbeatTimer: NodeJS.Timeout | null = null;
-    private heartbeatTimeoutTimer: NodeJS.Timeout | null = null;
     private lastPongTime: number = 0;
     private eventHandlers: Map<ConnectionEventType, Set<ConnectionEventHandler>> = new Map();
 
@@ -113,6 +111,8 @@ export class ConnectionManager {
                     transports: ['websocket'],
                     reconnection: true,
                     reconnectionDelay: this.config.reconnectDelay,
+                    reconnectionDelayMax: 10000,
+                    randomizationFactor: 0.5,
                     reconnectionAttempts: this.config.maxReconnectAttempts,
                 });
 
@@ -121,7 +121,6 @@ export class ConnectionManager {
                     console.log('[ConnectionManager] Connected');
                     this.reconnectAttempts = 0;
                     this.setStatus('connected');
-                    this.startHeartbeat();
                     this.emit('connected', { socketId: this.socket?.id });
                     resolve();
                 });
@@ -130,7 +129,6 @@ export class ConnectionManager {
                 this.socket.on('disconnect', (reason) => {
                     console.log('[ConnectionManager] Disconnected:', reason);
                     this.setStatus('disconnected');
-                    this.stopHeartbeat();
                     this.emit('disconnected', { reason });
                 });
 
@@ -165,12 +163,6 @@ export class ConnectionManager {
                     console.error('[ConnectionManager] Reconnection failed');
                     this.setStatus('error');
                     this.emit('error', { error: 'Reconnection failed' });
-                });
-
-                // Pong响应（心跳）
-                this.socket.on('pong', () => {
-                    this.lastPongTime = Date.now();
-                    this.resetHeartbeatTimeout();
                 });
 
                 // 监听所有消息
@@ -267,61 +259,6 @@ export class ConnectionManager {
     }
 
     /**
-     * 启动心跳
-     */
-    private startHeartbeat(): void {
-        this.stopHeartbeat();
-
-        this.heartbeatTimer = setInterval(() => {
-            if (this.socket?.connected) {
-                this.socket.emit('ping');
-                this.startHeartbeatTimeout();
-            }
-        }, this.config.heartbeatInterval);
-
-        // 立即发送一次心跳
-        if (this.socket?.connected) {
-            this.socket.emit('ping');
-            this.startHeartbeatTimeout();
-        }
-    }
-
-    /**
-     * 启动心跳超时检测
-     */
-    private startHeartbeatTimeout(): void {
-        this.resetHeartbeatTimeout();
-
-        this.heartbeatTimeoutTimer = setTimeout(() => {
-            console.warn('[ConnectionManager] Heartbeat timeout');
-            // 心跳超时，可能连接已断开
-            this.disconnect();
-        }, this.config.heartbeatTimeout);
-    }
-
-    /**
-     * 重置心跳超时
-     */
-    private resetHeartbeatTimeout(): void {
-        if (this.heartbeatTimeoutTimer) {
-            clearTimeout(this.heartbeatTimeoutTimer);
-            this.heartbeatTimeoutTimer = null;
-        }
-    }
-
-    /**
-     * 停止心跳
-     */
-    private stopHeartbeat(): void {
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
-        }
-
-        this.resetHeartbeatTimeout();
-    }
-
-    /**
      * 设置连接状态
      */
     private setStatus(status: ConnectionStatus): void {
@@ -350,7 +287,6 @@ export class ConnectionManager {
     }
 
     private cleanupSocket(): void {
-        this.stopHeartbeat();
         if (!this.socket) return;
         this.socket.removeAllListeners();
         this.socket.disconnect();
@@ -425,7 +361,6 @@ export class ConnectionManager {
      * 销毁连接管理器
      */
     destroy(): void {
-        this.stopHeartbeat();
         this.disconnect();
         this.eventHandlers.clear();
         console.log('[ConnectionManager] Destroyed');

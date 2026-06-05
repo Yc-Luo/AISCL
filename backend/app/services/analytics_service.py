@@ -146,6 +146,52 @@ class AnalyticsService:
         },
     }
 
+    @staticmethod
+    def _extract_keywords_deterministic(text: str, limit: int = 8) -> List[str]:
+        """Extract simple keywords without calling an LLM."""
+        stop_words = {
+            "我们", "你们", "他们", "这个", "那个", "可以", "需要", "应该", "因为", "所以",
+            "进行", "一个", "一些", "当前", "项目", "小组", "学习", "协作", "问题", "内容",
+            "the", "and", "for", "with", "from", "that", "this", "into", "about",
+        }
+        words = re.findall(r"[\u4e00-\u9fa5A-Za-z0-9]{2,}", text or "")
+        counter: Counter[str] = Counter()
+        for word in words:
+            normalized = word.strip().lower()
+            if not normalized or normalized in stop_words:
+                continue
+            counter[normalized[:24]] += 1
+        return [word for word, _ in counter.most_common(limit)]
+
+    @classmethod
+    def _build_deterministic_knowledge_graph(cls, project_meta: Dict[str, str], context: str) -> Dict:
+        """Build a lightweight graph for dashboards when analytics LLM is disabled."""
+        seed_text = "\n".join(str(project_meta.get(key) or "") for key in ("name", "description", "subtitle"))
+        seed_keywords = cls._extract_keywords_deterministic(seed_text, limit=3)
+        discovered_keywords = [
+            keyword
+            for keyword in cls._extract_keywords_deterministic(context, limit=12)
+            if keyword not in seed_keywords
+        ]
+
+        nodes = []
+        for index, keyword in enumerate(seed_keywords):
+            nodes.append({"id": f"seed_{index}", "label": keyword, "is_seed": True, "group_value": 1, "personal_value": 0})
+        for index, keyword in enumerate(discovered_keywords[:10]):
+            nodes.append({"id": f"concept_{index}", "label": keyword, "is_seed": False, "group_value": 1, "personal_value": 0})
+
+        if not nodes:
+            return {"nodes": [{"id": "init", "label": "开始探索", "group": 1}], "links": []}
+
+        seed_ids = [node["id"] for node in nodes if node.get("is_seed")]
+        target_seed = seed_ids[0] if seed_ids else nodes[0]["id"]
+        links = [
+            {"source": target_seed, "target": node["id"], "value": 1.0}
+            for node in nodes
+            if node["id"] != target_seed
+        ]
+        return {"nodes": nodes, "links": links}
+
     @classmethod
     async def aggregate_daily_stats(
         cls,
@@ -882,6 +928,8 @@ class AnalyticsService:
         """Use LLM to extract key concepts from document content."""
         if not content and not title:
             return []
+        if not settings.ANALYTICS_LLM_ENABLED:
+            return cls._extract_keywords_deterministic(f"{title}\n{content}", limit=5)
         
         try:
             llm = await get_llm(temperature=0)
@@ -964,6 +1012,9 @@ Keywords:"""
                 "nodes": [{"id": "init", "label": "开始探索", "group": 1}],
                 "links": []
             }
+
+        if not settings.ANALYTICS_LLM_ENABLED:
+            return cls._build_deterministic_knowledge_graph(project_meta, full_context)
 
         try:
             llm = await get_llm(temperature=0.2)
@@ -1149,6 +1200,8 @@ JSON Output Format:
     @classmethod
     async def _generate_ai_suggestions(cls, scores: Dict[str, float], activity_summary: Dict[str, Any]) -> List[Dict]:
         """Generate personalized learning suggestions using LLM."""
+        if not settings.ANALYTICS_LLM_ENABLED:
+            return []
         try:
             llm = await get_llm(temperature=0.7)
             

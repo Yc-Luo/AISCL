@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from app.core.config import settings
 from app.services.analytics_service import analytics_service
 from app.services.document_parse_service import document_parse_service
 
@@ -29,7 +30,7 @@ async def run_resource_parse_updates():
 async def run_periodic_updates():
     """Run periodic background updates for analytics snapshots."""
     # Wait for DB to be initialized
-    await asyncio.sleep(10)
+    await asyncio.sleep(max(10, settings.BACKGROUND_DASHBOARD_INITIAL_DELAY_SECONDS))
     
     while True:
         try:
@@ -39,5 +40,4 @@ async def run_periodic_updates():
         except Exception as e:
             logger.error(f"Error in periodic update task: {e}")
         
-        # Sleep for 30 minutes
-        await asyncio.sleep(1800)
+        await asyncio.sleep(max(300, settings.BACKGROUND_DASHBOARD_INTERVAL_SECONDS))

@@ -31,9 +31,11 @@ from app.repositories.course import Course
 from app.repositories.course_task_release import CourseTaskRelease
 from app.repositories.document import Document
 from app.repositories.inquiry_snapshot import InquirySnapshot
+from app.repositories.learning_object_memory import LearningObjectMemory
 from app.repositories.project import Project
 from app.repositories.research_event import ResearchEvent
 from app.repositories.resource import Resource
+from app.repositories.scaffold_round_memory import ScaffoldRoundMemory
 from app.repositories.system_config import SystemConfig
 from app.repositories.task import Task
 from app.repositories.task_submission_artifact import TaskSubmissionArtifact
@@ -377,6 +379,66 @@ INTERVENTION_EXPOSURE_FIELDNAMES = [
     "student_followup_count_30min",
 ]
 
+LEARNING_OBJECT_MEMORY_FIELDNAMES = [
+    "id",
+    "project_id",
+    "group_id",
+    "stage_id",
+    "condition_type",
+    "experiment_version_id",
+    "optimization_version_id",
+    "object_type",
+    "title",
+    "content",
+    "keywords",
+    "source_types",
+    "source_refs",
+    "created_by_type",
+    "created_by_anonymous_id",
+    "status",
+    "verification_state",
+    "confidence_score",
+    "recency_score",
+    "source_quality_score",
+    "collaboration_score",
+    "last_confirmed_at",
+    "last_used_at",
+    "superseded_by",
+    "version",
+    "created_at",
+    "updated_at",
+]
+
+SCAFFOLD_ROUND_MEMORY_FIELDNAMES = [
+    "id",
+    "project_id",
+    "group_id",
+    "stage_id",
+    "condition_type",
+    "experiment_version_id",
+    "optimization_version_id",
+    "trigger_type",
+    "trigger_reason",
+    "input_message_id",
+    "output_message_id",
+    "read_memory_ids",
+    "routing_mode",
+    "selected_roles",
+    "primary_role",
+    "retrieval_sources",
+    "response_text",
+    "response_length",
+    "response_style",
+    "student_visible",
+    "followup_window_start",
+    "followup_window_end",
+    "followup_events",
+    "student_response_type",
+    "outcome_label",
+    "created_at",
+    "updated_at",
+]
+
 
 def _join_list(value: Any) -> str:
     if isinstance(value, (list, tuple, set)):
@@ -689,6 +751,8 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
 
     chat_logs = await ChatLog.find({"project_id": {"$in": project_ids}}).sort("created_at").to_list() if project_ids else []
     research_events = await ResearchEvent.find({"project_id": {"$in": project_ids}}).sort("event_time").to_list() if project_ids else []
+    learning_object_memories = await LearningObjectMemory.find({"project_id": {"$in": project_ids}}).sort("updated_at").to_list() if project_ids else []
+    scaffold_round_memories = await ScaffoldRoundMemory.find({"project_id": {"$in": project_ids}}).sort("created_at").to_list() if project_ids else []
     activity_logs = await ActivityLog.find({"project_id": {"$in": project_ids}}).sort("timestamp").to_list() if project_ids else []
     resources = await Resource.find({"$or": [{"project_id": {"$in": project_ids}}, {"course_id": str(course.id)}]}).sort("uploaded_at").to_list()
     documents = await Document.find({"project_id": {"$in": project_ids}}).sort("updated_at").to_list() if project_ids else []
@@ -737,6 +801,8 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
         "user_code_map": user_code_map,
         "chat_logs": chat_logs,
         "research_events": research_events,
+        "learning_object_memories": learning_object_memories,
+        "scaffold_round_memories": scaffold_round_memories,
         "activity_logs": activity_logs,
         "behavior_stream": behavior_stream,
         "heartbeat_stream": heartbeat_stream if include_raw_heartbeat else [],
@@ -1193,6 +1259,8 @@ def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, A
             }
             for item in data["research_events"]
         ], ["id", "project_id", "group_id", "anonymous_id", "actor_type", "event_domain", "event_type", "stage_id", "sequence_index", "payload", "event_time", "created_at"])
+        _write_csv(archive, "raw/learning_object_memories.csv", _learning_object_memory_rows(data["learning_object_memories"], user_code_map), LEARNING_OBJECT_MEMORY_FIELDNAMES)
+        _write_csv(archive, "raw/scaffold_round_memories.csv", _scaffold_round_memory_rows(data["scaffold_round_memories"]), SCAFFOLD_ROUND_MEMORY_FIELDNAMES)
         _write_csv(archive, "raw/activity_logs.csv", [
             {
                 "id": str(item.id),
@@ -1514,6 +1582,8 @@ def _write_group_split_package(archive: zipfile.ZipFile, data: Dict[str, Any], u
     _write_csv(archive, "all_groups/raw/group_members.csv", _group_member_rows(data, user_code_map), ["project_id", "project_name", "anonymous_id", "project_role", "is_leader", "joined_at"])
     _write_csv(archive, "all_groups/raw/chat_logs.csv", _chat_log_rows(data["chat_logs"], user_code_map), ["id", "project_id", "anonymous_id", "message_type", "content", "content_length", "mentions", "metadata", "created_at"])
     _write_csv(archive, "all_groups/raw/research_events.csv", _research_event_rows(data["research_events"], user_code_map), ["id", "project_id", "group_id", "anonymous_id", "actor_type", "event_domain", "event_type", "stage_id", "sequence_index", "payload", "event_time", "created_at"])
+    _write_csv(archive, "all_groups/raw/learning_object_memories.csv", _learning_object_memory_rows(data["learning_object_memories"], user_code_map), LEARNING_OBJECT_MEMORY_FIELDNAMES)
+    _write_csv(archive, "all_groups/raw/scaffold_round_memories.csv", _scaffold_round_memory_rows(data["scaffold_round_memories"]), SCAFFOLD_ROUND_MEMORY_FIELDNAMES)
     _write_csv(archive, "all_groups/raw/activity_logs.csv", _activity_log_rows(data["activity_logs"], user_code_map), ["id", "project_id", "anonymous_id", "module", "action", "target_id", "duration", "metadata", "timestamp"])
     _write_csv(archive, "all_groups/raw/behavior_stream.csv", _behavior_stream_rows(data["behavior_stream"], user_code_map), ["timestamp", "project_id", "anonymous_id", "module", "action"])
     if data["heartbeat_stream"]:
@@ -1549,6 +1619,18 @@ def _write_group_split_package(archive: zipfile.ZipFile, data: Dict[str, Any], u
             f"{group_dir}/raw/research_events.csv",
             _research_event_rows([item for item in data["research_events"] if item.project_id == project_id], user_code_map),
             ["id", "project_id", "group_id", "anonymous_id", "actor_type", "event_domain", "event_type", "stage_id", "sequence_index", "payload", "event_time", "created_at"],
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/learning_object_memories.csv",
+            _learning_object_memory_rows([item for item in data["learning_object_memories"] if item.project_id == project_id], user_code_map),
+            LEARNING_OBJECT_MEMORY_FIELDNAMES,
+        )
+        _write_csv(
+            archive,
+            f"{group_dir}/raw/scaffold_round_memories.csv",
+            _scaffold_round_memory_rows([item for item in data["scaffold_round_memories"] if item.project_id == project_id]),
+            SCAFFOLD_ROUND_MEMORY_FIELDNAMES,
         )
         _write_csv(
             archive,
@@ -1696,6 +1778,76 @@ def _research_event_rows(items: List[ResearchEvent], user_code_map: Dict[str, st
             "payload": item.payload,
             "event_time": item.event_time,
             "created_at": item.created_at,
+        }
+        for item in items
+    ]
+
+
+def _learning_object_memory_rows(items: List[LearningObjectMemory], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "group_id": item.group_id,
+            "stage_id": item.stage_id,
+            "condition_type": item.condition_type,
+            "experiment_version_id": item.experiment_version_id,
+            "optimization_version_id": item.optimization_version_id,
+            "object_type": item.object_type,
+            "title": item.title,
+            "content": item.content,
+            "keywords": _join_list(item.keywords),
+            "source_types": _join_list(item.source_types),
+            "source_refs": item.source_refs,
+            "created_by_type": item.created_by_type,
+            "created_by_anonymous_id": _anonymize_user_id(item.created_by_user_id, user_code_map),
+            "status": item.status,
+            "verification_state": item.verification_state,
+            "confidence_score": item.confidence_score,
+            "recency_score": item.recency_score,
+            "source_quality_score": item.source_quality_score,
+            "collaboration_score": item.collaboration_score,
+            "last_confirmed_at": item.last_confirmed_at,
+            "last_used_at": item.last_used_at,
+            "superseded_by": item.superseded_by,
+            "version": item.version,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in items
+    ]
+
+
+def _scaffold_round_memory_rows(items: List[ScaffoldRoundMemory]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": str(item.id),
+            "project_id": item.project_id,
+            "group_id": item.group_id,
+            "stage_id": item.stage_id,
+            "condition_type": item.condition_type,
+            "experiment_version_id": item.experiment_version_id,
+            "optimization_version_id": item.optimization_version_id,
+            "trigger_type": item.trigger_type,
+            "trigger_reason": item.trigger_reason,
+            "input_message_id": item.input_message_id,
+            "output_message_id": item.output_message_id,
+            "read_memory_ids": _join_list(item.read_memory_ids),
+            "routing_mode": item.routing_mode,
+            "selected_roles": _join_list(item.selected_roles),
+            "primary_role": item.primary_role,
+            "retrieval_sources": item.retrieval_sources,
+            "response_text": item.response_text,
+            "response_length": item.response_length,
+            "response_style": item.response_style,
+            "student_visible": item.student_visible,
+            "followup_window_start": item.followup_window_start,
+            "followup_window_end": item.followup_window_end,
+            "followup_events": item.followup_events,
+            "student_response_type": item.student_response_type,
+            "outcome_label": item.outcome_label,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
         }
         for item in items
     ]

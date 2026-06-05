@@ -850,6 +850,15 @@ class AgentService:
 阶段记忆：
 {self._clip_context(context.get("stage_memory_context"), 900)}
 
+共同学习对象记忆：
+{self._clip_context(context.get("learning_object_context"), 900)}
+
+支架回合记忆：
+{self._clip_context(context.get("scaffold_round_context"), 700)}
+
+协作学习优化提示：
+{self._clip_context(context.get("collaboration_optimization_context"), 600)}
+
 候选回应：
 {self._clip_context(raw_joined, 4200)}
 
@@ -1077,6 +1086,9 @@ class AgentService:
 项目任务说明：{self._clip_context(context.get("project_task_context"), 1800)}
 小组当前状态记忆：{self._clip_context(context.get("group_state_context"), 1800)}
 阶段滚动记忆：{self._clip_context(context.get("stage_memory_context"), 1600)}
+共同学习对象记忆：{self._clip_context(context.get("learning_object_context"), 1600)}
+支架回合记忆：{self._clip_context(context.get("scaffold_round_context"), 900)}
+协作学习优化提示：{self._clip_context(context.get("collaboration_optimization_context"), 700)}
 小组同伴讨论记忆：{self._clip_context(context.get("group_peer_context") or context.get("group_chat_context"), 1800)}
 小组 AI 互动记忆：{self._clip_context(context.get("group_ai_context"), 1400)}
 资料/Wiki可用性：{source_availability_note}

@@ -31,6 +31,8 @@ from .activity_log import ActivityLog
 from .analytics_daily_stats import AnalyticsDailyStats
 from .research_event import ResearchEvent
 from .group_memory_summary import GroupMemorySummary
+from .learning_object_memory import LearningObjectMemory
+from .scaffold_round_memory import ScaffoldRoundMemory
 
 # Course management models
 from .course import Course
@@ -52,7 +54,7 @@ __all__ = [
     # AI
     "AIConversation", "AIMessage", "AIRole", "AIInterventionRule",
     # Analytics
-    "ActivityLog", "AnalyticsDailyStats", "ResearchEvent", "GroupMemorySummary",
+    "ActivityLog", "AnalyticsDailyStats", "ResearchEvent", "GroupMemorySummary", "LearningObjectMemory", "ScaffoldRoundMemory",
     # Course management
     "Course",
     # System

@@ -49,6 +49,8 @@ class MongoDB:
         from app.repositories.inquiry_snapshot import InquirySnapshot
         from app.repositories.wiki_item import WikiItem
         from app.repositories.group_memory_summary import GroupMemorySummary
+        from app.repositories.learning_object_memory import LearningObjectMemory
+        from app.repositories.scaffold_round_memory import ScaffoldRoundMemory
 
         await init_beanie(
             database=database,
@@ -82,6 +84,8 @@ class MongoDB:
                 InquirySnapshot,
                 WikiItem,
                 GroupMemorySummary,
+                LearningObjectMemory,
+                ScaffoldRoundMemory,
             ],
             recreate_views=False,  # Prevent index recreation conflicts
         )

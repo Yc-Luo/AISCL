@@ -126,6 +126,11 @@ const DEFAULT_CONFIG_VALUES = {
     memberLimit: 5,
     dataRetention: 365,
     modelPricing: '{}',
+    collaborationOptimizationMode: 'active',
+    collaborationOptimizationVersion: 'opt-v1',
+    memoryStaleAfterDays: '14',
+    memoryPromptObjectLimit: '8',
+    scaffoldFollowupWindowMinutes: '30',
 }
 
 type ConfigValues = typeof DEFAULT_CONFIG_VALUES
@@ -142,6 +147,7 @@ export default function SystemConfig() {
     const [isSavingEmbedding, setIsSavingEmbedding] = useState(false)
     const [isSavingWebSearch, setIsSavingWebSearch] = useState(false)
     const [isSavingDocumentParse, setIsSavingDocumentParse] = useState(false)
+    const [isSavingCollaborationOptimization, setIsSavingCollaborationOptimization] = useState(false)
     const [isTestingLLM, setIsTestingLLM] = useState(false)
     const [isTestingEmbedding, setIsTestingEmbedding] = useState(false)
     const [isTestingWebSearch, setIsTestingWebSearch] = useState(false)
@@ -224,6 +230,11 @@ export default function SystemConfig() {
                 if (c.key === 'member_limit') newValues.memberLimit = Number(c.value)
                 if (c.key === 'data_retention') newValues.dataRetention = Number(c.value)
                 if (c.key === 'model_pricing') newValues.modelPricing = c.value
+                if (c.key === 'collaboration_optimization_mode') newValues.collaborationOptimizationMode = c.value
+                if (c.key === 'collaboration_optimization_version') newValues.collaborationOptimizationVersion = c.value
+                if (c.key === 'memory_stale_after_days') newValues.memoryStaleAfterDays = c.value
+                if (c.key === 'memory_prompt_object_limit') newValues.memoryPromptObjectLimit = c.value
+                if (c.key === 'scaffold_followup_window_minutes') newValues.scaffoldFollowupWindowMinutes = c.value
                 if (c.key === 'user_custom_models') {
                     try {
                         setCustomModels(JSON.parse(c.value))
@@ -291,6 +302,37 @@ export default function SystemConfig() {
         }
         return null
     }
+
+    const validateCollaborationOptimizationConfig = () => {
+        const allowedModes = new Set(['off', 'shadow', 'active', 'review'])
+        if (!allowedModes.has(configValues.collaborationOptimizationMode)) {
+            return '协作优化模式只能选择关闭、影子观察、启用或人工评审。'
+        }
+        if (!configValues.collaborationOptimizationVersion.trim()) {
+            return '策略版本号不能为空。'
+        }
+        const staleDays = Number(configValues.memoryStaleAfterDays)
+        const objectLimit = Number(configValues.memoryPromptObjectLimit)
+        const followupWindow = Number(configValues.scaffoldFollowupWindowMinutes)
+        if (!Number.isInteger(staleDays) || staleDays < 1 || staleDays > 90) {
+            return '记忆过期天数需要是 1-90 之间的整数。'
+        }
+        if (!Number.isInteger(objectLimit) || objectLimit < 1 || objectLimit > 20) {
+            return '每次读取对象数需要是 1-20 之间的整数。'
+        }
+        if (!Number.isInteger(followupWindow) || followupWindow < 5 || followupWindow > 120) {
+            return '支架跟进窗口需要是 5-120 分钟之间的整数。'
+        }
+        return null
+    }
+
+    const buildCollaborationOptimizationUpdates = () => [
+        adminService.updateConfig('collaboration_optimization_mode', configValues.collaborationOptimizationMode, 'Experimental collaboration optimization mode'),
+        adminService.updateConfig('collaboration_optimization_version', configValues.collaborationOptimizationVersion.trim(), 'Collaboration optimization policy version'),
+        adminService.updateConfig('memory_stale_after_days', configValues.memoryStaleAfterDays, 'Days before proposed or active learning objects become stale'),
+        adminService.updateConfig('memory_prompt_object_limit', configValues.memoryPromptObjectLimit, 'Maximum learning objects inserted into one AI prompt'),
+        adminService.updateConfig('scaffold_followup_window_minutes', configValues.scaffoldFollowupWindowMinutes, 'Minutes to observe student follow-up after an AI scaffold'),
+    ]
 
     const buildLLMConfigUpdates = () => {
         const roleMap = getEffectiveRoleModelMap()
@@ -476,6 +518,16 @@ export default function SystemConfig() {
             })
             return
         }
+        const collaborationValidationError = validateCollaborationOptimizationConfig()
+        if (collaborationValidationError) {
+            setNotice({
+                isOpen: true,
+                title: '协作优化配置校验未通过',
+                message: collaborationValidationError,
+                type: 'error'
+            })
+            return
+        }
         try {
             setIsSaving(true)
             await Promise.all([
@@ -505,6 +557,7 @@ export default function SystemConfig() {
                 adminService.updateConfig('member_limit', String(configValues.memberLimit), 'Max members per project'),
                 adminService.updateConfig('data_retention', String(configValues.dataRetention), 'Data retention period in days'),
                 adminService.updateConfig('model_pricing', configValues.modelPricing, 'Model input/output token pricing map'),
+                ...buildCollaborationOptimizationUpdates(),
             ])
             setNotice({
                 isOpen: true,
@@ -647,6 +700,39 @@ export default function SystemConfig() {
             })
         } finally {
             setIsSavingDocumentParse(false)
+        }
+    }
+
+    const handleSaveCollaborationOptimization = async () => {
+        const validationError = validateCollaborationOptimizationConfig()
+        if (validationError) {
+            setNotice({
+                isOpen: true,
+                title: '协作优化配置校验未通过',
+                message: validationError,
+                type: 'error'
+            })
+            return
+        }
+        try {
+            setIsSavingCollaborationOptimization(true)
+            await Promise.all(buildCollaborationOptimizationUpdates())
+            setNotice({
+                isOpen: true,
+                title: '协作优化策略已同步',
+                message: '实验组记忆读取、策略版本、过期规则和支架跟进窗口已保存。对照组仍保持隔离。',
+                type: 'success'
+            })
+        } catch (error) {
+            console.error('Failed to save collaboration optimization configs:', error)
+            setNotice({
+                isOpen: true,
+                title: '同步失败',
+                message: '无法更新协作优化配置，请确认管理员权限或稍后重试。',
+                type: 'error'
+            })
+        } finally {
+            setIsSavingCollaborationOptimization(false)
         }
     }
 
@@ -1327,6 +1413,112 @@ export default function SystemConfig() {
                             <p>资源卡片上的小图标会显示解析状态：等待、解析中、已入库、失败或不支持。</p>
                         </div>
                         {renderTestResult(documentParseTestResult)}
+                    </div>
+                </div>
+
+                {/* Collaboration Optimization Config Group */}
+                <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                    <div className="flex justify-between items-center border-b border-gray-50 pb-4">
+                        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <ShieldCheck className="w-5 h-5 text-fuchsia-600" />
+                            协作优化与记忆策略
+                        </h3>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-fuchsia-600 hover:text-fuchsia-700 hover:bg-fuchsia-50 gap-1.5 font-bold"
+                            onClick={handleSaveCollaborationOptimization}
+                            disabled={isSavingCollaborationOptimization}
+                        >
+                            {isSavingCollaborationOptimization ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            同步配置
+                        </Button>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 p-4 text-xs text-fuchsia-900 space-y-2">
+                            <p className="font-bold">作用范围</p>
+                            <p>仅作用于实验组的多智能体支架。对照组仍保持直接 LLM 回复，不读取共同学习对象记忆、支架回合记忆或协作优化提示。</p>
+                            <p>策略版本会写入支架回合和学习对象记忆，便于后续比较不同优化版本的效果。</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <ShieldCheck className="w-4 h-4 text-slate-400" />
+                                    优化模式
+                                </label>
+                                <select
+                                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                                    value={configValues.collaborationOptimizationMode}
+                                    onChange={(event) => handleChange('collaborationOptimizationMode', event.target.value)}
+                                >
+                                    <option value="active">启用：提示进入 AI 上下文</option>
+                                    <option value="shadow">影子观察：只记录不影响回复</option>
+                                    <option value="review">人工评审：保留策略版本但暂不注入</option>
+                                    <option value="off">关闭：不生成优化提示</option>
+                                </select>
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    首次上线新策略可先用影子观察，确认触发合理后再切到启用。
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <History className="w-4 h-4 text-slate-400" />
+                                    策略版本号
+                                </label>
+                                <Input
+                                    value={configValues.collaborationOptimizationVersion}
+                                    onChange={(e) => handleChange('collaborationOptimizationVersion', e.target.value)}
+                                    placeholder="如：opt-v1、opt-v2"
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    建议每次明显改动触发规则或记忆读取方式时更新版本号。
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">记忆过期天数</label>
+                                <Input
+                                    type="number"
+                                    min="1"
+                                    max="90"
+                                    value={configValues.memoryStaleAfterDays}
+                                    onChange={(e) => handleChange('memoryStaleAfterDays', e.target.value)}
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    超期的待确认/讨论中记忆会标记为过期，不删除原始证据。
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">每次读取对象数</label>
+                                <Input
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    value={configValues.memoryPromptObjectLimit}
+                                    onChange={(e) => handleChange('memoryPromptObjectLimit', e.target.value)}
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    控制进入一次 AI 回复的共同学习对象数量，避免上下文膨胀。
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">跟进窗口（分钟）</label>
+                                <Input
+                                    type="number"
+                                    min="5"
+                                    max="120"
+                                    value={configValues.scaffoldFollowupWindowMinutes}
+                                    onChange={(e) => handleChange('scaffoldFollowupWindowMinutes', e.target.value)}
+                                />
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    AI 支架后在该时间内记录学生讨论、修订、上传等回应。
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

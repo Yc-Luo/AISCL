@@ -268,6 +268,19 @@ def _validate_system_config_value(key: str, value: str) -> None:
         _validate_positive_int_config(key, value, minimum=1, maximum=64)
     elif key == "llm_key_cooldown_seconds":
         _validate_positive_int_config(key, value, minimum=1, maximum=3600)
+    elif key == "collaboration_optimization_mode":
+        allowed_modes = {"off", "shadow", "active", "review"}
+        if value not in allowed_modes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"collaboration_optimization_mode must be one of: {', '.join(sorted(allowed_modes))}",
+            )
+    elif key == "memory_stale_after_days":
+        _validate_positive_int_config(key, value, minimum=1, maximum=90)
+    elif key == "memory_prompt_object_limit":
+        _validate_positive_int_config(key, value, minimum=1, maximum=20)
+    elif key == "scaffold_followup_window_minutes":
+        _validate_positive_int_config(key, value, minimum=5, maximum=120)
 
 
 async def _get_config_map(keys: List[str]) -> Dict[str, Optional[str]]:

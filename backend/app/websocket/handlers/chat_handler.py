@@ -608,6 +608,8 @@ async def _process_ai_reply(
         from app.repositories.chat_log import ChatLog
         from app.services.activity_service import activity_service
         from app.services.group_memory_service import group_memory_service
+        from app.services.memory_retrieval_service import memory_retrieval_service
+        from app.services.scaffold_round_memory_service import scaffold_round_memory_service
         
         # Emit typing event
         await sio.emit('typing', {
@@ -632,19 +634,19 @@ async def _process_ai_reply(
         )
         stage_memory: Dict[str, Any] = {}
         group_state: Dict[str, Any] = {}
+        experimental_memory: Dict[str, Any] = {}
         project_task_context = await group_memory_service.get_project_task_context(project)
         if ai_scaffold_mode == "multi_agent":
-            stage_memory = await group_memory_service.get_stage_memory_context(
-                project_id=project_id,
-                group_id=room_id,
-                stage_id=current_stage,
-            )
-            group_state = await group_memory_service.refresh_and_get_group_state_context(
-                project_id=project_id,
-                group_id=room_id,
-                stage_id=current_stage,
+            experimental_memory = await memory_retrieval_service.build_experimental_memory_context(
                 project=project,
+                project_id=project_id,
+                group_id=room_id,
+                stage_id=current_stage,
+                user_message=user_content,
+                experiment_version=experiment_version,
             )
+            stage_memory = experimental_memory.get("stage_memory") or {}
+            group_state = experimental_memory.get("group_state") or {}
         # Using project_id as session_id for continuity within the project
         graph_context = {
             **(routing_context or {}),
@@ -663,6 +665,11 @@ async def _process_ai_reply(
             "group_state_memory_id": group_state.get("memory_id"),
             "group_state_memory_version": group_state.get("version"),
             "group_state_source_counts": group_state.get("source_counts"),
+            "learning_object_context": experimental_memory.get("learning_object_context"),
+            "scaffold_round_context": experimental_memory.get("scaffold_round_context"),
+            "collaboration_optimization_context": experimental_memory.get("collaboration_optimization_context"),
+            "collaboration_optimization": experimental_memory.get("collaboration_optimization", {}),
+            "read_memory_ids": experimental_memory.get("read_memory_ids", []),
             "group_chat_context": group_memory.get("content"),
             "group_peer_context": group_memory.get("peer_context"),
             "group_ai_context": group_memory.get("ai_context"),
@@ -688,6 +695,9 @@ async def _process_ai_reply(
                     "已读取项目任务说明" if project_task_context else "暂无项目任务说明",
                     f"阶段滚动记忆：{'已读取' if stage_memory.get('content') else '暂无'}",
                     f"小组状态记忆：{'已读取' if group_state.get('content') else '暂无'}",
+                    f"学习对象记忆：{len(experimental_memory.get('learning_objects') or [])}条",
+                    f"支架回合记忆：{len(experimental_memory.get('scaffold_rounds') or [])}条",
+                    f"协作优化：{(experimental_memory.get('collaboration_optimization') or {}).get('mode') or 'off'}",
                     f"小组讨论记忆：最近{group_memory.get('peer_message_count', 0)}条",
                     f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",
                 ],
@@ -766,6 +776,9 @@ async def _process_ai_reply(
                 "已读取项目任务说明" if project_task_context else "暂无项目任务说明",
                 f"阶段滚动记忆：{'已读取' if stage_memory.get('content') else '暂无'}",
                 f"小组状态记忆：{'已读取' if group_state.get('content') else '暂无'}",
+                f"学习对象记忆：{len(experimental_memory.get('learning_objects') or [])}条",
+                f"支架回合记忆：{len(experimental_memory.get('scaffold_rounds') or [])}条",
+                f"协作优化：{(experimental_memory.get('collaboration_optimization') or {}).get('mode') or 'off'}",
                 f"小组讨论记忆：最近{group_memory.get('peer_message_count', 0)}条",
                 f"小组AI互动记忆：最近{group_memory.get('ai_interaction_count', 0)}条",
             ])
@@ -881,11 +894,45 @@ async def _process_ai_reply(
                 "stage_memory_version": stage_memory.get("version"),
                 "group_state_memory_id": group_state.get("memory_id"),
                 "group_state_memory_version": group_state.get("version"),
+                "read_memory_ids": experimental_memory.get("read_memory_ids", []),
+                "collaboration_optimization": experimental_memory.get("collaboration_optimization", {}),
                 "group_memory_message_count": group_memory.get("message_count", 0),
                 "group_peer_message_count": group_memory.get("peer_message_count", 0),
                 "group_ai_interaction_count": group_memory.get("ai_interaction_count", 0),
             }
         )
+
+        if ai_scaffold_mode == "multi_agent":
+            scaffold_round_id = await scaffold_round_memory_service.record_ai_round(
+                project=project,
+                project_id=project_id,
+                group_id=room_id,
+                stage_id=current_stage,
+                experiment_version=experiment_version,
+                input_message_id=current_message_id,
+                output_message_id=str(chat_log.id),
+                response_text=final_response,
+                ai_meta=ai_meta,
+                read_memory_ids=experimental_memory.get("read_memory_ids", []),
+                retrieval_sources=[
+                    {
+                        "stage_memory_id": stage_memory.get("memory_id"),
+                        "group_state_memory_id": group_state.get("memory_id"),
+                        "learning_object_count": len(experimental_memory.get("learning_objects") or []),
+                        "scaffold_round_count": len(experimental_memory.get("scaffold_rounds") or []),
+                        "collaboration_optimization": experimental_memory.get("collaboration_optimization", {}),
+                    }
+                ],
+                trigger_type="manual_mention",
+                trigger_reason=(routing_context or {}).get("rule_type") or "group_ai_mention",
+                response_style="fallback" if "空回复兜底提示" in (ai_meta or {}).get("routing_summary", []) else "student_scaffold",
+            )
+            if scaffold_round_id:
+                chat_log.metadata = {
+                    **(chat_log.metadata or {}),
+                    "scaffold_round_memory_id": scaffold_round_id,
+                }
+                await chat_log.save()
 
         if final_response != displayed_response:
             await emit_partial(final_response)
@@ -1086,7 +1133,12 @@ async def handle_chat_op(sio, sid, data, user_id):
             from app.repositories.chat_log import ChatLog
             from app.repositories.resource import Resource
             from app.repositories.user import User
+            from app.services.learning_object_memory_service import (
+                is_experimental_memory_enabled,
+                learning_object_memory_service,
+            )
             from app.services.research_event_service import research_event_service
+            from app.services.scaffold_round_memory_service import scaffold_round_memory_service
 
             experiment_version = (getattr(project, "experiment_version", None) or {}) if project else {}
             current_stage = experiment_version.get("current_stage")
@@ -1220,6 +1272,31 @@ async def handle_chat_op(sio, sid, data, user_id):
                 )
             except Exception as research_error:  # noqa: BLE001
                 logger.warning("Chat research event logging failed for %s: %s", room_id, research_error)
+
+            if is_experimental_memory_enabled(experiment_version):
+                try:
+                    await scaffold_round_memory_service.record_followup_event(
+                        project_id=project_id,
+                        group_id=room_id,
+                        stage_id=current_stage,
+                        user_id=user_id,
+                        event_type="peer_image_send" if file_info else "peer_message_send",
+                        event_domain="dialogue",
+                        source_id=str(chat_log.id),
+                    )
+                    if not file_info:
+                        await learning_object_memory_service.record_from_student_chat(
+                            project=project,
+                            project_id=project_id,
+                            group_id=room_id,
+                            stage_id=current_stage,
+                            user_id=user_id,
+                            chat_log_id=str(chat_log.id),
+                            content=content,
+                            experiment_version=experiment_version,
+                        )
+                except Exception as memory_error:  # noqa: BLE001
+                    logger.warning("Learning memory update failed for %s: %s", room_id, memory_error)
 
             if not is_ai_mentioned:
                 try:

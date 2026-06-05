@@ -225,6 +225,32 @@ async def health():
     return {"status": "healthy"}
 
 
+@app.get("/ready")
+async def ready():
+    """Dependency readiness check for operational diagnostics."""
+    checks = {}
+
+    try:
+        if mongodb.client is None:
+            raise RuntimeError("MongoDB client is not initialized")
+        await mongodb.client.admin.command("ping")
+        checks["mongodb"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        checks["mongodb"] = f"error: {exc}"
+
+    try:
+        redis_client = await get_redis_client()
+        await redis_client.ping()
+        checks["redis"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        checks["redis"] = f"error: {exc}"
+
+    if any(value != "ok" for value in checks.values()):
+        raise HTTPException(status_code=503, detail={"status": "not_ready", "checks": checks})
+
+    return {"status": "ready", "checks": checks}
+
+
 @app.get("/metrics")
 async def get_metrics():
     """Prometheus metrics endpoint."""

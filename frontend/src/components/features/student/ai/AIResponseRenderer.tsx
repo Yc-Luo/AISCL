@@ -10,11 +10,17 @@ interface AIResponseRendererProps {
 function normalizeAIResponseMarkdown(content: string) {
     return (content || '')
         .replace(/\r\n/g, '\n')
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .replace(/-{3,}\s*(#{1,6})/g, '\n\n---\n\n$1')
         .replace(/([^\n])\s*(#{1,6})(?=[^\s#])/g, '$1\n\n$2 ')
         .replace(/^(#{1,6})(?=\S)/gm, '$1 ')
         .replace(/([。！？；;])\s*(#{1,6})\s*/g, '$1\n\n$2 ')
+        .replace(/([：:])\s*((?:[-*+]|\d+[.)、])\s+)/g, '$1\n\n$2')
+        .replace(/([：:])\s*([•●○]\s*)/g, '$1\n\n$2')
         .replace(/([^\n])\s*((?:[-*]|\d+[.)、])\s+)/g, '$1\n$2')
+        .replace(/([^\n])\s*([一二三四五六七八九十]+[、.．]\s*)/g, '$1\n$2')
+        .replace(/([^\n])\s*(```)/g, '$1\n\n$2')
+        .replace(/(```[\s\S]*?```)\s*([^\n])/g, '$1\n\n$2')
         .replace(/\n{3,}/g, '\n\n')
         .trim()
 }
@@ -29,8 +35,8 @@ export default function AIResponseRenderer({
     return (
         <div
             className={[
-                'ai-response-renderer max-w-none break-words text-slate-800',
-                compact ? 'text-[13px] leading-6' : 'text-sm leading-7',
+                'ai-response-renderer max-w-none break-words text-slate-900',
+                compact ? 'text-[13px] leading-6' : 'text-[14px] leading-7',
             ].join(' ')}
         >
             <ReactMarkdown
@@ -61,19 +67,19 @@ export default function AIResponseRenderer({
                         return <h4 className="mb-1 mt-2 text-sm font-black leading-6 text-indigo-800">{children}</h4>
                     },
                     p({ children }) {
-                        return <p className="my-1.5 whitespace-pre-wrap text-slate-700">{children}</p>
+                        return <p className="my-2 whitespace-pre-wrap text-slate-800">{children}</p>
                     },
                     strong({ children }) {
                         return <strong className="font-black text-slate-950">{children}</strong>
                     },
                     ul({ children }) {
-                        return <ul className="my-1.5 list-disc space-y-1 pl-5">{children}</ul>
+                        return <ul className="my-2.5 list-disc space-y-1.5 pl-6">{children}</ul>
                     },
                     ol({ children }) {
-                        return <ol className="my-1.5 list-decimal space-y-1 pl-5">{children}</ol>
+                        return <ol className="my-2.5 list-decimal space-y-2 pl-6">{children}</ol>
                     },
                     li({ children }) {
-                        return <li className="pl-0.5 text-slate-700 marker:text-indigo-400">{children}</li>
+                        return <li className="pl-1 text-slate-800 marker:font-semibold marker:text-slate-500">{children}</li>
                     },
                     blockquote({ children }) {
                         return (
@@ -87,14 +93,14 @@ export default function AIResponseRenderer({
                     },
                     code({ className, children }) {
                         return (
-                            <code className={`${className || ''} rounded bg-slate-100 px-1 py-0.5 font-mono text-xs text-rose-600`}>
+                            <code className={`${className || ''} rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800`}>
                                 {children}
                             </code>
                         )
                     },
                     pre({ children }) {
                         return (
-                            <pre className="my-2 overflow-x-auto rounded-xl border border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-50">
+                            <pre className="my-3 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800 [&>code]:bg-transparent [&>code]:p-0">
                                 {children}
                             </pre>
                         )

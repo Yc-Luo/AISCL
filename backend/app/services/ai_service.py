@@ -35,8 +35,14 @@ PEDAGOGICAL_RESPONSE_CONTRACT = (
 )
 
 EMPTY_DIRECT_REPLY_FALLBACK = (
-    "本轮没有生成有效回应。你可以把当前问题、已有依据和希望我支持的方向再发一次，"
-    "我会继续帮你们澄清问题、补充证据、挑战观点或推进修订。"
+    "本轮没有生成有效回应。你可以把当前问题和希望我回答的方向再发一次，我会继续回复。"
+)
+
+DIRECT_LLM_FORMATTING_INSTRUCTION = (
+    "你是直接对话模型。请直接回答用户问题，不要扮演 AISCL 多智能体角色，也不要套用"
+    "“你们当前最需要做的是/下一步行动建议/一个可以继续讨论的问题”等固定三段式支架结构。"
+    "为了便于阅读，请把回答自然分成若干短段；必要时可以使用少量项目符号或编号。"
+    "不要把大量内容挤在一个段落里，不要输出内部推理、调试信息、JSON 或表格，除非用户明确要求。"
 )
 
 
@@ -253,6 +259,11 @@ class AIService:
                 truncated.insert(0, msg)
                 break
         return truncated
+
+    @staticmethod
+    def _with_direct_formatting_instruction(messages: List) -> List:
+        """Add neutral readability guidance for the direct-LLM condition."""
+        return [SystemMessage(content=DIRECT_LLM_FORMATTING_INSTRUCTION), *messages]
 
     @staticmethod
     async def generate_followup_suggestions(message: str) -> List[str]:
@@ -588,6 +599,7 @@ class AIService:
         """Direct LLM stream for control/default AI with optional neutral chat context."""
         messages = AIService._coerce_raw_context_messages(context_messages)
         messages.append(HumanMessage(content=message))
+        messages = AIService._with_direct_formatting_instruction(messages)
         messages = AIService.truncate_raw_messages(messages, AIService.MAX_CONTEXT_TOKENS)
 
         llm = await get_llm(temperature=temperature, model_id=model_id)
@@ -608,7 +620,7 @@ class AIService:
         model_id: Optional[str] = None,
         context_messages: Optional[List[dict]] = None,
     ) -> dict:
-        """Direct non-streaming chat: preserve conversation history but add no system prompt."""
+        """Direct non-streaming chat: preserve history with only neutral readability guidance."""
         if conversation_id:
             conversation = await AIConversation.get(conversation_id)
             if not conversation:
@@ -634,6 +646,7 @@ class AIService:
         for msg in history:
             messages.append(HumanMessage(content=msg.content) if msg.role == "user" else AIMessage(content=msg.content))
         messages.append(HumanMessage(content=message))
+        messages = AIService._with_direct_formatting_instruction(messages)
         messages = AIService.truncate_raw_messages(messages, AIService.MAX_CONTEXT_TOKENS)
 
         llm = await get_llm(temperature=0.7, model_id=model_id)
@@ -674,7 +687,7 @@ class AIService:
         model_id: Optional[str] = None,
         context_messages: Optional[List[dict]] = None,
     ) -> AsyncIterator[str]:
-        """Direct streaming chat: preserve history but add no role prompt, RAG, or process summary."""
+        """Direct streaming chat: preserve history with only neutral readability guidance."""
         if conversation_id:
             conversation = await AIConversation.get(conversation_id)
             if not conversation:
@@ -700,6 +713,7 @@ class AIService:
         for msg in history:
             messages.append(HumanMessage(content=msg.content) if msg.role == "user" else AIMessage(content=msg.content))
         messages.append(HumanMessage(content=message))
+        messages = AIService._with_direct_formatting_instruction(messages)
         messages = AIService.truncate_raw_messages(messages, AIService.MAX_CONTEXT_TOKENS)
 
         await AIMessageModel(

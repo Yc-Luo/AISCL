@@ -317,6 +317,7 @@ class GroupMemoryService:
                     "source_type": "course_task_release",
                     "course_task_release_id": release_id,
                     "is_archived": False,
+                    "scope": {"$ne": "personal"},
                 }
             )
 
@@ -951,7 +952,11 @@ class GroupMemoryService:
             .to_list()
         )
         documents = (
-            await Document.find(Document.project_id == project_id, Document.is_archived == False)  # noqa: E712
+            await Document.find({
+                "project_id": project_id,
+                "is_archived": False,
+                "scope": {"$ne": "personal"},
+            })
             .sort("-updated_at")
             .limit(12)
             .to_list()

@@ -164,8 +164,13 @@ async def validate_room_access(room_id: str, user_id: str) -> bool:
                 logger.warning(f"Project not found for document: {document.project_id}")
                 return False
 
-            from app.core.permissions import check_project_member_permission
-            has_access = await check_project_member_permission(user, project)
+            from app.core.permissions import can_manage_project_scope, check_project_member_permission
+            document_scope = getattr(document, "scope", None) or "shared"
+            if document_scope == "personal":
+                owner_id = getattr(document, "owner_id", None) or document.last_modified_by
+                has_access = str(user.id) == owner_id or await can_manage_project_scope(user, project)
+            else:
+                has_access = await check_project_member_permission(user, project)
             if has_access:
                 logger.debug(f"Access granted for user {user_id} to document {document_id} (project {document.project_id})")
             else:

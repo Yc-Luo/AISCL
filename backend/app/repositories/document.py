@@ -16,6 +16,8 @@ class Document(BeanieDocument):
     content: Optional[str] = Field(None)  # HTML content
     content_state: bytes = Field(default=b"")  # Y.js ProseMirror state (binary)
     preview_text: Optional[str] = Field(None, max_length=200)  # First 50 chars for preview
+    scope: str = Field(default="shared", pattern="^(shared|personal)$", index=True)
+    owner_id: Optional[str] = Field(default=None, index=True)
     last_modified_by: str = Field(..., index=True)
     is_archived: bool = Field(default=False)
     source_type: Optional[str] = Field(default=None, index=True)
@@ -30,6 +32,8 @@ class Document(BeanieDocument):
         name = "documents"
         indexes = [
             [("project_id", 1)],
+            [("project_id", 1), ("scope", 1)],
+            [("project_id", 1), ("owner_id", 1)],
             [("project_id", 1), ("sort_order", 1), ("created_at", 1)],
             [("title", 1)],
             [("course_task_release_id", 1)],

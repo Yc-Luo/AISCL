@@ -31,7 +31,7 @@ export function useDocumentSync({
     initialData,
     onMount,
     documentUpdatedAt,
-    disableLocalFallback = false,
+    disableLocalFallback = true,
     enabled = true,
 }: UseDocumentSyncProps) {
     const { user } = useAuthStore();

@@ -544,10 +544,11 @@ export class SyncService extends EventEmitter {
      * 加载本地数据
      */
     private async loadLocalData(roomId: string, module: ModuleType): Promise<void> {
-        // For inquiry module, SKIP local data and wait for server state
-        // This prevents stale local cache from conflicting with authoritative server state
-        if (module === 'inquiry') {
-            console.log(`[SyncService] Skipping local data for ${roomId} (inquiry uses server state only)`);
+        // For document and inquiry modules, SKIP local data and wait for server state.
+        // This prevents stale per-browser IndexedDB snapshots from making shared
+        // documents look like each learner has a private copy.
+        if (module === 'inquiry' || module === 'document') {
+            console.log(`[SyncService] Skipping local data for ${roomId} (${module} uses server state only)`);
             return;
         }
 

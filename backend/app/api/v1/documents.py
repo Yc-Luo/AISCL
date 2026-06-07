@@ -24,6 +24,76 @@ from app.core.schemas.document import (
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
+def document_scope(document: Document) -> str:
+    """Return a backward-compatible document scope."""
+    return getattr(document, "scope", None) or "shared"
+
+
+def document_owner_id(document: Document) -> Optional[str]:
+    """Return the explicit owner, falling back to the creator-like modifier for old records."""
+    return getattr(document, "owner_id", None) or getattr(document, "last_modified_by", None)
+
+
+def is_document_owner(current_user: User, document: Document) -> bool:
+    return str(current_user.id) == document_owner_id(document)
+
+
+async def can_access_document(current_user: User, project: Project, document: Document) -> bool:
+    """Check document visibility within a project."""
+    if document_scope(document) != "personal":
+        return await check_project_member_permission(current_user, project)
+    if is_document_owner(current_user, document):
+        return True
+    return await can_manage_project_scope(current_user, project)
+
+
+async def can_update_document(current_user: User, project: Project, document: Document) -> bool:
+    """Check whether the user can update this document."""
+    if document_scope(document) == "personal":
+        return is_document_owner(current_user, document) or await can_manage_project_scope(current_user, project)
+    return await check_project_member_permission(current_user, project)
+
+
+async def can_delete_document(current_user: User, project: Project, document: Document) -> bool:
+    """Check whether the user can delete this document."""
+    if document_scope(document) == "personal":
+        return is_document_owner(current_user, document) or await can_manage_project_scope(current_user, project)
+    return await can_manage_project_scope(current_user, project)
+
+
+async def document_visibility_query(project_id: str, current_user: User, project: Project) -> dict:
+    """Build a query that returns shared documents plus the user's personal documents."""
+    if await can_manage_project_scope(current_user, project):
+        return {"project_id": project_id}
+    return {
+        "project_id": project_id,
+        "$or": [
+            {"scope": {"$ne": "personal"}},
+            {"owner_id": str(current_user.id)},
+        ],
+    }
+
+
+def to_document_response(document: Document) -> DocumentResponse:
+    """Convert a document model to the public response schema."""
+    return DocumentResponse(
+        id=str(document.id),
+        project_id=document.project_id,
+        title=document.title,
+        content=document.content,
+        preview_text=document.preview_text,
+        scope=document_scope(document),
+        owner_id=document_owner_id(document),
+        last_modified_by=document.last_modified_by,
+        is_archived=document.is_archived,
+        source_type=document.source_type,
+        course_task_release_id=document.course_task_release_id,
+        sort_order=getattr(document, "sort_order", 0),
+        created_at=document.created_at,
+        updated_at=document.updated_at,
+    )
+
+
 async def ensure_project_access(current_user: User, project: Project, detail: str) -> None:
     """Ensure current user can access a project-scoped document resource."""
     if not await check_project_member_permission(current_user, project):
@@ -57,7 +127,7 @@ async def get_documents(
     )
 
     # Build query
-    query = {"project_id": project_id}
+    query = await document_visibility_query(project_id, current_user, project)
     if archived is not None:
         query["is_archived"] = archived
 
@@ -70,23 +140,7 @@ async def get_documents(
     total = await Document.find(query).count()
 
     return DocumentListResponse(
-        documents=[
-            DocumentResponse(
-                id=str(doc.id),
-                project_id=doc.project_id,
-                title=doc.title,
-                content=doc.content,
-                preview_text=doc.preview_text,
-                last_modified_by=doc.last_modified_by,
-                is_archived=doc.is_archived,
-                source_type=doc.source_type,
-                course_task_release_id=doc.course_task_release_id,
-                sort_order=getattr(doc, "sort_order", 0),
-                created_at=doc.created_at,
-                updated_at=doc.updated_at,
-            )
-            for doc in documents_list
-        ],
+        documents=[to_document_response(doc) for doc in documents_list],
         total=total,
     )
 
@@ -125,6 +179,8 @@ async def create_document(
         content=document_data.content,
         content_state=b"",  # Empty initial state
         preview_text=None,
+        scope=document_data.scope,
+        owner_id=str(current_user.id),
         last_modified_by=str(current_user.id),
         sort_order=await Document.find({"project_id": project_id}).count(),
     )
@@ -140,20 +196,7 @@ async def create_document(
         target_id=str(new_document.id)
     )
 
-    return DocumentResponse(
-        id=str(new_document.id),
-        project_id=new_document.project_id,
-        title=new_document.title,
-        content=new_document.content,
-        preview_text=new_document.preview_text,
-        last_modified_by=new_document.last_modified_by,
-        is_archived=new_document.is_archived,
-        source_type=new_document.source_type,
-        course_task_release_id=new_document.course_task_release_id,
-        sort_order=new_document.sort_order,
-        created_at=new_document.created_at,
-        updated_at=new_document.updated_at,
-    )
+    return to_document_response(new_document)
 
 
 @router.put("/projects/{project_id}/order", response_model=DocumentListResponse)
@@ -176,7 +219,8 @@ async def reorder_documents(
             detail="Only editor and owner can reorder documents",
         )
 
-    documents = await Document.find({"project_id": project_id}).to_list()
+    visible_query = await document_visibility_query(project_id, current_user, project)
+    documents = await Document.find(visible_query).to_list()
     documents_by_id = {str(document.id): document for document in documents}
     requested_ids = reorder_data.document_ids
     if len(set(requested_ids)) != len(requested_ids):
@@ -201,23 +245,7 @@ async def reorder_documents(
     ordered_documents = [documents_by_id[document_id] for document_id in ordered_ids]
 
     return DocumentListResponse(
-        documents=[
-            DocumentResponse(
-                id=str(doc.id),
-                project_id=doc.project_id,
-                title=doc.title,
-                content=doc.content,
-                preview_text=doc.preview_text,
-                last_modified_by=doc.last_modified_by,
-                is_archived=doc.is_archived,
-                source_type=doc.source_type,
-                course_task_release_id=doc.course_task_release_id,
-                sort_order=getattr(doc, "sort_order", 0),
-                created_at=doc.created_at,
-                updated_at=doc.updated_at,
-            )
-            for doc in ordered_documents
-        ],
+        documents=[to_document_response(doc) for doc in ordered_documents],
         total=len(ordered_documents),
     )
 
@@ -243,11 +271,11 @@ async def get_document(
             detail="Project not found",
         )
 
-    await ensure_project_access(
-        current_user,
-        project,
-        "You don't have permission to access this document",
-    )
+    if not await can_access_document(current_user, project, document):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this document",
+        )
 
     return DocumentDetailResponse(
         id=str(document.id),
@@ -256,6 +284,8 @@ async def get_document(
         content=document.content,
         content_state=base64.b64encode(document.content_state).decode('utf-8'),
         preview_text=document.preview_text,
+        scope=document_scope(document),
+        owner_id=document_owner_id(document),
         last_modified_by=document.last_modified_by,
         is_archived=document.is_archived,
         source_type=document.source_type,
@@ -288,11 +318,11 @@ async def update_document(
             detail="Project not found",
         )
 
-    # Check permission (Editor/Owner/Admin/scoped teacher can update)
-    if not await can_edit_project_content(current_user, project):
+    # Check permission
+    if not await can_update_document(current_user, project, document):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only editor and owner can update document",
+            detail="You don't have permission to update this document",
         )
 
     # Update document
@@ -305,8 +335,23 @@ async def update_document(
         # Update preview text from content (stripped tags usually, but simple slice for now)
         # In real app, strip HTML tags
         document.preview_text = document_data.content[:200] if document_data.content else None
+    if document_data.scope:
+        if document_data.scope == "personal" and document_scope(document) == "shared":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Shared documents cannot be converted back to personal documents",
+            )
+        if document_data.scope == "shared" and document_scope(document) == "personal":
+            if not (is_document_owner(current_user, document) or await can_manage_project_scope(current_user, project)):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the document owner can share a personal document",
+                )
+            document.scope = "shared"
         
     document.last_modified_by = str(current_user.id)
+    if not getattr(document, "owner_id", None):
+        document.owner_id = str(current_user.id)
     document.updated_at = datetime.utcnow()
 
     await document.save()
@@ -321,19 +366,7 @@ async def update_document(
         target_id=str(document.id)
     )
 
-    return DocumentResponse(
-        id=str(document.id),
-        project_id=document.project_id,
-        title=document.title,
-        content=document.content,
-        preview_text=document.preview_text,
-        last_modified_by=document.last_modified_by,
-        is_archived=document.is_archived,
-        source_type=document.source_type,
-        course_task_release_id=document.course_task_release_id,
-        created_at=document.created_at,
-        updated_at=document.updated_at,
-    )
+    return to_document_response(document)
 
 
 @router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -357,11 +390,11 @@ async def delete_document(
             detail="Project not found",
         )
 
-    # Only project owner/admin/scoped teacher can delete
-    if not await can_manage_project_scope(current_user, project):
+    # Shared documents are managed at project scope; personal documents can also be deleted by their owner.
+    if not await can_delete_document(current_user, project, document):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only project owner can delete document",
+            detail="You don't have permission to delete this document",
         )
 
     await document.delete()
@@ -400,11 +433,11 @@ async def get_document_versions(
             detail="Project not found",
         )
 
-    await ensure_project_access(
-        current_user,
-        project,
-        "You don't have permission to access this document",
-    )
+    if not await can_access_document(current_user, project, document):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this document",
+        )
 
     # Get versions
     versions_cursor = (

@@ -1340,6 +1340,8 @@ def _write_domain_csvs(archive: zipfile.ZipFile, data: Dict[str, Any], user_code
             "project_id": item.project_id,
             "title": item.title,
             "content_text_length": len(item.content or ""),
+            "scope": getattr(item, "scope", None) or "shared",
+            "owner_id": _anonymize_user_id(getattr(item, "owner_id", None) or item.last_modified_by, user_code_map),
             "last_modified_by": _anonymize_user_id(item.last_modified_by, user_code_map),
             "is_archived": item.is_archived,
             "source_type": item.source_type,
@@ -1348,7 +1350,7 @@ def _write_domain_csvs(archive: zipfile.ZipFile, data: Dict[str, Any], user_code
             "updated_at": item.updated_at,
         }
         for item in data["documents"]
-    ], ["id", "project_id", "title", "content_text_length", "last_modified_by", "is_archived", "source_type", "course_task_release_id", "created_at", "updated_at"])
+    ], ["id", "project_id", "title", "content_text_length", "scope", "owner_id", "last_modified_by", "is_archived", "source_type", "course_task_release_id", "created_at", "updated_at"])
     _write_csv(archive, "raw/wiki_items.csv", [
         {
             "id": str(item.id),
@@ -1589,7 +1591,7 @@ def _write_group_split_package(archive: zipfile.ZipFile, data: Dict[str, Any], u
     if data["heartbeat_stream"]:
         _write_csv(archive, "all_groups/raw/heartbeat_stream.csv", _heartbeat_stream_rows(data["heartbeat_stream"], user_code_map), ["timestamp", "project_id", "anonymous_id", "module", "resource_id"])
     _write_csv(archive, "all_groups/raw/resources.csv", _resource_rows(data["resources"], user_code_map), ["id", "project_id", "course_id", "scope", "filename", "file_key", "size", "mime_type", "source_type", "uploaded_by", "uploaded_at", "parse_status"])
-    _write_csv(archive, "all_groups/raw/documents.csv", _document_rows(data["documents"], user_code_map), ["id", "project_id", "title", "content_text_length", "last_modified_by", "is_archived", "source_type", "course_task_release_id", "created_at", "updated_at"])
+    _write_csv(archive, "all_groups/raw/documents.csv", _document_rows(data["documents"], user_code_map), ["id", "project_id", "title", "content_text_length", "scope", "owner_id", "last_modified_by", "is_archived", "source_type", "course_task_release_id", "created_at", "updated_at"])
     _write_csv(archive, "all_groups/raw/wiki_items.csv", _wiki_item_rows(data["wiki_items"], user_code_map), ["id", "project_id", "stage_id", "item_type", "title", "content", "summary", "source_type", "created_by", "updated_by", "confidence_level", "created_at", "updated_at"])
     _write_csv(archive, "all_groups/raw/tasks.csv", _task_rows(data["tasks"], user_code_map), ["id", "project_id", "title", "column", "source_type", "course_task_release_id", "submission_status", "submitted_by", "submitted_at", "review_status", "created_at", "updated_at"])
     _write_csv(archive, "all_groups/raw/ai_conversations.csv", _ai_conversation_rows(data["ai_conversations"], user_code_map), ["id", "project_id", "anonymous_id", "persona_id", "title", "category", "created_at", "updated_at"])
@@ -1648,7 +1650,7 @@ def _write_group_split_package(archive: zipfile.ZipFile, data: Dict[str, Any], u
             archive,
             f"{group_dir}/raw/documents.csv",
             _document_rows([item for item in data["documents"] if item.project_id == project_id], user_code_map),
-            ["id", "project_id", "title", "content_text_length", "last_modified_by", "is_archived", "source_type", "course_task_release_id", "created_at", "updated_at"],
+            ["id", "project_id", "title", "content_text_length", "scope", "owner_id", "last_modified_by", "is_archived", "source_type", "course_task_release_id", "created_at", "updated_at"],
         )
         _write_csv(
             archive,
@@ -1897,6 +1899,8 @@ def _document_rows(items: List[Document], user_code_map: Dict[str, str]) -> List
             "project_id": item.project_id,
             "title": item.title,
             "content_text_length": len(item.content or ""),
+            "scope": getattr(item, "scope", None) or "shared",
+            "owner_id": _anonymize_user_id(getattr(item, "owner_id", None) or item.last_modified_by, user_code_map),
             "last_modified_by": _anonymize_user_id(item.last_modified_by, user_code_map),
             "is_archived": item.is_archived,
             "source_type": item.source_type,

@@ -632,7 +632,8 @@ export default function Main() {
           const defaultDoc = await documentService.createDocument(
             currentProjectId,
             '小组文档',
-            ''
+            '',
+            'shared'
           )
           setCurrentDocumentId(defaultDoc.id)
         }
@@ -652,7 +653,7 @@ export default function Main() {
     try {
       setDocumentResolving(true)
       setDocumentResolveError(null)
-      const doc = await documentService.createDocument(currentProjectId, '新建小组文档', '')
+      const doc = await documentService.createDocument(currentProjectId, '新建小组文档', '', 'shared')
       setCurrentDocumentId(doc.id)
     } catch (error) {
       console.error('Failed to manually create document:', error)

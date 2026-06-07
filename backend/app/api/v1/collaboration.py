@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from typing import Dict, Any
 
 from app.api.v1.auth import get_current_user
-from app.core.permissions import can_edit_project_content, check_project_member_permission
+from app.core.permissions import can_edit_project_content, can_manage_project_scope, check_project_member_permission
 from app.repositories.document import Document
 from app.repositories.project import Project
 from app.repositories.user import User
@@ -34,7 +34,13 @@ async def get_accessible_snapshot_project(resource_id: str, snapshot_type: str, 
         document = await Document.get(resource_id)
         if not document:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-        return await get_accessible_project(document.project_id, current_user)
+        project = await get_accessible_project(document.project_id, current_user)
+        document_scope = getattr(document, "scope", None) or "shared"
+        if document_scope == "personal":
+            owner_id = getattr(document, "owner_id", None) or document.last_modified_by
+            if str(current_user.id) != owner_id and not await can_manage_project_scope(current_user, project):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission")
+        return project
 
     return await get_accessible_project(resource_id, current_user)
 
@@ -69,7 +75,7 @@ async def save_snapshot(
     """Save a snapshot."""
     effective_type = snapshot_data.get("type") or type
     project = await get_accessible_snapshot_project(project_id, effective_type, current_user)
-    if not await can_edit_project_content(current_user, project):
+    if effective_type != "document" and not await can_edit_project_content(current_user, project):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission")
     snapshot = CollaborationSnapshot(
         project_id=project_id,

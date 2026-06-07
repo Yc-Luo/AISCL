@@ -11,6 +11,7 @@ class DocumentCreateRequest(BaseModel):
 
     title: str = Field(..., min_length=1, max_length=200)
     content: Optional[str] = None
+    scope: str = Field(default="shared", pattern="^(shared|personal)$")
 
 
 class DocumentUpdateRequest(BaseModel):
@@ -18,6 +19,7 @@ class DocumentUpdateRequest(BaseModel):
 
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     content: Optional[str] = None
+    scope: Optional[str] = Field(None, pattern="^(shared|personal)$")
 
 
 class DocumentReorderRequest(BaseModel):
@@ -34,6 +36,8 @@ class DocumentResponse(BaseModel):
     title: str
     content: Optional[str] = None
     preview_text: Optional[str] = None
+    scope: str = "shared"
+    owner_id: Optional[str] = None
     last_modified_by: str
     is_archived: bool
     source_type: Optional[str] = None
@@ -57,6 +61,8 @@ class DocumentDetailResponse(BaseModel):
     content: Optional[str] = None  # HTML content
     content_state: str  # Y.js ProseMirror state (base64 encoded)
     preview_text: Optional[str] = None
+    scope: str = "shared"
+    owner_id: Optional[str] = None
     last_modified_by: str
     is_archived: bool
     source_type: Optional[str] = None

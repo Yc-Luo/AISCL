@@ -161,6 +161,8 @@ class ProjectService:
             content=task_content,
             content_state=b"",
             preview_text=task_content[:200] or None,
+            scope="shared",
+            owner_id=owner_id,
             last_modified_by=owner_id,
         )
         await seeded_document.insert()
@@ -241,6 +243,9 @@ class ProjectService:
 
             if changed:
                 existing_document.last_modified_by = owner_id
+                if not getattr(existing_document, "owner_id", None):
+                    existing_document.owner_id = owner_id
+                existing_document.scope = "shared"
                 existing_document.updated_at = datetime.utcnow()
                 await existing_document.save()
                 await CollaborationSnapshot.find(

@@ -6,6 +6,8 @@ export interface Document {
   project_id: string
   title: string
   content?: string
+  scope?: 'shared' | 'personal'
+  owner_id?: string
   source_type?: string
   course_task_release_id?: string
   sort_order?: number
@@ -110,11 +112,13 @@ export const documentService = {
   async createDocument(
     projectId: string,
     title: string,
-    content?: string
+    content?: string,
+    scope: 'shared' | 'personal' = 'shared'
   ): Promise<Document> {
     const response = await api.post(API_ENDPOINTS.DOCUMENTS.BY_PROJECT(projectId), {
       title,
       content,
+      scope,
     })
     return response.data
   },
@@ -123,13 +127,19 @@ export const documentService = {
   async updateDocument(
     documentId: string,
     title?: string,
-    content?: string
+    content?: string,
+    scope?: 'shared' | 'personal'
   ): Promise<Document> {
     const response = await api.put(`${API_ENDPOINTS.DOCUMENTS.BASE}/${documentId}`, {
       title,
       content,
+      scope,
     })
     return response.data
+  },
+
+  async shareDocument(documentId: string): Promise<Document> {
+    return this.updateDocument(documentId, undefined, undefined, 'shared')
   },
 
   // Persist project document order

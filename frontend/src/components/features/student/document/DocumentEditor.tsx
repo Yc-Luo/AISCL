@@ -29,7 +29,7 @@ import { useContextStore } from '../../../../stores/contextStore'
 import { useScrapbookActions } from '../../../../modules/inquiry/hooks/useScrapbookActions'
 import { Toast } from '../../../ui/Toast'
 import * as Y from 'yjs'
-import { Plus, FileText, Loader2, X, Trash2, AlertTriangle, GripVertical } from 'lucide-react'
+import { Plus, FileText, Loader2, X, Trash2, AlertTriangle, GripVertical, Share2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -89,6 +89,10 @@ function moveDocumentInList(items: Document[], draggedId: string, targetId: stri
   return next
 }
 
+function getDocumentScope(document?: Document | null): 'shared' | 'personal' {
+  return document?.scope === 'personal' ? 'personal' : 'shared'
+}
+
 export default function DocumentEditor({
   documentId,
   projectId,
@@ -116,6 +120,8 @@ export default function DocumentEditor({
   const [showDocumentList, setShowDocumentList] = useState(initialDocumentListOpen)
   const [documents, setDocuments] = useState<Document[]>([])
   const [isCreating, setIsCreating] = useState(false)
+  const [showCreateOptions, setShowCreateOptions] = useState(false)
+  const [sharingDocumentId, setSharingDocumentId] = useState<string | null>(null)
   const [isListLoading, setIsListLoading] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -307,7 +313,7 @@ export default function DocumentEditor({
   const { provider, ydoc, isSynced, syncError, snapshotUpdatedAt } = useDocumentSync({
     documentId: documentId || document?.id || '',
     documentUpdatedAt: document?.updated_at,
-    disableLocalFallback: Boolean(document?.content),
+    disableLocalFallback: true,
     enabled: Boolean(documentId && document),
   })
 
@@ -634,11 +640,16 @@ export default function DocumentEditor({
     }
   }, [currentStage, document?.content, documentId, editor, experimentVersionId, projectId])
 
-  const handleCreateNewDocument = async () => {
+  const handleCreateNewDocument = async (scope: 'shared' | 'personal' = 'shared') => {
     if (!projectId || !onDocumentChange) return
     setIsCreating(true)
     try {
-      const newDoc = await documentService.createDocument(projectId, '新文档', '')
+      const newDoc = await documentService.createDocument(
+        projectId,
+        scope === 'personal' ? '新建个人文档' : '新建共享文档',
+        '',
+        scope
+      )
       trackingService.trackResearchEvent({
         project_id: projectId,
         experiment_version_id: experimentVersionId,
@@ -648,11 +659,14 @@ export default function DocumentEditor({
         payload: {
           document_id: newDoc.id,
           title: newDoc.title,
+          scope,
         }
       })
+      setDocuments(prev => [newDoc, ...prev])
+      setShowCreateOptions(false)
       setDocumentListOpen(false)
       onDocumentChange(newDoc.id)
-      setToastMessage('新文档已创建')
+      setToastMessage(scope === 'personal' ? '个人文档已创建' : '共享文档已创建')
       setShowToast(true)
     } catch (error) {
       console.error('Failed to create document:', error)
@@ -660,6 +674,37 @@ export default function DocumentEditor({
       setShowToast(true)
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  const handleShareDocument = async (id: string) => {
+    setSharingDocumentId(id)
+    try {
+      const updated = await documentService.shareDocument(id)
+      setDocuments(prev => prev.map(doc => doc.id === id ? { ...doc, ...updated } : doc))
+      setDocument(current => current?.id === id ? { ...current, ...updated } : current)
+      setToastMessage('已转为共享文档')
+      setShowToast(true)
+      if (projectId) {
+        trackingService.trackResearchEvent({
+          project_id: projectId,
+          experiment_version_id: experimentVersionId,
+          actor_type: 'student',
+          event_domain: 'shared_record',
+          event_type: 'shared_record_scope_update',
+          stage_id: currentStage || undefined,
+          payload: {
+            document_id: id,
+            scope: 'shared',
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Failed to share document:', error)
+      setToastMessage('转为共享失败')
+      setShowToast(true)
+    } finally {
+      setSharingDocumentId(null)
     }
   }
 
@@ -960,7 +1005,7 @@ export default function DocumentEditor({
             <h3 className="font-semibold text-sm text-gray-700">小组文档</h3>
             <div className="flex items-center gap-1">
               <button
-                onClick={handleCreateNewDocument}
+                onClick={() => setShowCreateOptions((open) => !open)}
                 disabled={isCreating}
                 className="p-1 hover:bg-gray-100 rounded text-indigo-600 transition-colors disabled:opacity-50"
                 title="新建文档"
@@ -976,6 +1021,31 @@ export default function DocumentEditor({
               </button>
             </div>
           </div>
+
+          {showCreateOptions && (
+            <div className="border-b bg-white px-3 py-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={isCreating}
+                  onClick={() => void handleCreateNewDocument('shared')}
+                  className="rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-2 text-left text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
+                >
+                  共享文档
+                  <span className="mt-0.5 block text-[10px] font-normal text-indigo-500">小组共同编辑</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isCreating}
+                  onClick={() => void handleCreateNewDocument('personal')}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                >
+                  个人文档
+                  <span className="mt-0.5 block text-[10px] font-normal text-slate-500">仅自己可见</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {isListLoading ? (
@@ -994,6 +1064,8 @@ export default function DocumentEditor({
                 </div>
                 {orderedDocuments.map((doc) => {
                 const isProjectDescription = doc.id === initialTaskDocumentId
+                const scope = getDocumentScope(doc)
+                const canSharePersonalDocument = scope === 'personal' && doc.owner_id === user?.id
                 return (
                 <div
                   key={doc.id}
@@ -1035,8 +1107,29 @@ export default function DocumentEditor({
                           项目说明
                         </span>
                       ) : null}
+                      {!isProjectDescription ? (
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                          scope === 'personal'
+                            ? 'bg-slate-100 text-slate-500'
+                            : 'bg-emerald-50 text-emerald-600'
+                        }`}>
+                          {scope === 'personal' ? '个人' : '共享'}
+                        </span>
+                      ) : null}
                     </div>
-                    {isProjectDescription ? null : (
+                    {canSharePersonalDocument ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void handleShareDocument(doc.id)
+                        }}
+                        disabled={sharingDocumentId === doc.id}
+                        className="p-1 opacity-0 group-hover:opacity-100 hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 rounded transition-all disabled:opacity-50"
+                        title="转为共享文档"
+                      >
+                        {sharingDocumentId === doc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Share2 className="w-3 h-3" />}
+                      </button>
+                    ) : isProjectDescription ? null : (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -1097,6 +1190,26 @@ export default function DocumentEditor({
                   <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600 border border-indigo-100">
                     项目说明
                   </span>
+                ) : null}
+                {document?.id !== initialTaskDocumentId ? (
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                    getDocumentScope(document) === 'personal'
+                      ? 'bg-slate-100 text-slate-500'
+                      : 'bg-emerald-50 text-emerald-600'
+                  }`}>
+                    {getDocumentScope(document) === 'personal' ? '个人' : '共享'}
+                  </span>
+                ) : null}
+                {getDocumentScope(document) === 'personal' && document?.owner_id === user?.id ? (
+                  <button
+                    type="button"
+                    onClick={() => document?.id && void handleShareDocument(document.id)}
+                    disabled={sharingDocumentId === document?.id}
+                    className="shrink-0 rounded-full border border-emerald-100 bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
+                    title="转为共享文档后，小组成员都能看到并共同编辑"
+                  >
+                    {sharingDocumentId === document?.id ? '转换中' : '转共享'}
+                  </button>
                 ) : null}
                 <button
                   type="button"

@@ -548,7 +548,7 @@ class AnalyticsService:
                 node_type_counts[str(node_type)] += 1
 
         project_docs = await db["documents"].find(
-            {"project_id": project_id},
+            {"project_id": project_id, "scope": {"$ne": "personal"}},
             {"_id": 1},
         ).to_list(length=None)
         doc_ids = [str(doc["_id"]) for doc in project_docs]
@@ -586,10 +586,12 @@ class AnalyticsService:
 
         document_create_query: Dict[str, Any] = {
             "project_id": project_id,
+            "scope": {"$ne": "personal"},
             "created_at": time_range,
         }
         document_update_query: Dict[str, Any] = {
             "project_id": project_id,
+            "scope": {"$ne": "personal"},
             "updated_at": time_range,
         }
         if user_id:
@@ -965,7 +967,7 @@ Keywords:"""
         
         # 1. Gather all collaborative text context
         # Documents
-        docs = await Document.find({"project_id": project_id}).to_list()
+        docs = await Document.find({"project_id": project_id, "scope": {"$ne": "personal"}}).to_list()
         doc_texts = [f"Doc: {d.title} - {d.preview_text or ''}" for d in docs]
         
         # User specific content (for personal weights)
@@ -1970,7 +1972,7 @@ JSON Output Format:
         ).sort("created_at", 1).to_list(length=500)
 
         docs = await db["documents"].find(
-            {"project_id": project_id, "is_archived": {"$ne": True}},
+            {"project_id": project_id, "is_archived": {"$ne": True}, "scope": {"$ne": "personal"}},
             {"title": 1, "content": 1, "preview_text": 1, "updated_at": 1},
         ).sort("updated_at", -1).to_list(length=20)
 
@@ -2102,6 +2104,10 @@ JSON Output Format:
                 # Documents
                 user_docs = await Document.find({
                     "project_id": project_id,
+                    "$or": [
+                        {"scope": {"$ne": "personal"}},
+                        {"owner_id": user_id},
+                    ],
                     "last_modified_by": user_id
                 }).to_list()
                 p_context = "\n".join([f"{d.title} {d.preview_text or ''}" for d in user_docs]).lower()

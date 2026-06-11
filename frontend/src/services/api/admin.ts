@@ -165,6 +165,32 @@ export interface DataProject {
     updated_at: string
 }
 
+function triggerBlobDownload(blob: Blob, filename: string) {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
+}
+
+function filenameFromContentDisposition(header?: string): string | null {
+    if (!header) return null
+    const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i)
+    if (utf8Match?.[1]) {
+        try {
+            return decodeURIComponent(utf8Match[1])
+        } catch {
+            return utf8Match[1]
+        }
+    }
+    const fallbackMatch = header.match(/filename="?([^";]+)"?/i)
+    return fallbackMatch?.[1] || null
+}
+
 export const adminService = {
     getUsers: async (page = 1, limit = 10, role?: string, search?: string, teacher_tag?: string): Promise<{ items: User[], total: number }> => {
         const response = await api.get(API_ENDPOINTS.ADMIN.USERS, {
@@ -380,14 +406,9 @@ export const adminService = {
             params,
             responseType: 'blob'
         })
-        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }))
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', `aiscl_course_research_${courseId}_${new Date().toISOString().slice(0, 10)}.zip`)
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        window.URL.revokeObjectURL(url)
+        const filename = filenameFromContentDisposition(response.headers?.['content-disposition'])
+            || `aiscl_course_research_${courseId}_${new Date().toISOString().slice(0, 10)}.zip`
+        triggerBlobDownload(new Blob([response.data], { type: 'application/zip' }), filename)
     },
 
     createCourseResearchPackageJob: async (courseId: string, params: { include_files?: boolean, include_raw_heartbeat?: boolean }): Promise<ExportJob> => {
@@ -404,14 +425,10 @@ export const adminService = {
         const response = await api.get(API_ENDPOINTS.ADMIN.DATA_EXPORT_JOB_DOWNLOAD(job.id), {
             responseType: 'blob'
         })
-        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }))
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', job.filename || `aiscl_export_${job.id}.zip`)
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        window.URL.revokeObjectURL(url)
+        const filename = filenameFromContentDisposition(response.headers?.['content-disposition'])
+            || job.filename
+            || `aiscl_export_${job.id}.zip`
+        triggerBlobDownload(new Blob([response.data], { type: 'application/zip' }), filename)
     },
 
     backupConfigs: async () => {

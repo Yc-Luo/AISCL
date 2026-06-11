@@ -20,6 +20,7 @@ export default function DataManager() {
     const [isLoading, setIsLoading] = useState(true)
     const [isBusy, setIsBusy] = useState(false)
     const [isExportingCourse, setIsExportingCourse] = useState(false)
+    const [isDownloadingExport, setIsDownloadingExport] = useState(false)
 
     const fetchAll = useCallback(async () => {
         try {
@@ -160,12 +161,17 @@ export default function DataManager() {
     }, [exportJob?.id, exportJob?.status])
 
     const downloadCompletedExportJob = async () => {
-        if (!exportJob || exportJob.status !== 'completed') return
+        if (!exportJob || exportJob.status !== 'completed' || isDownloadingExport) return
         try {
+            setIsDownloadingExport(true)
+            setNotice('正在下载班级研究数据包，请稍候。文件较大时浏览器可能需要等待几秒。')
             await adminService.downloadExportJob(exportJob)
+            setNotice('已触发下载。如果浏览器没有弹出下载，请检查是否拦截了下载，或稍后重试。')
         } catch (error) {
             console.error('Failed to download export job:', error)
             setNotice(await getDownloadErrorDetail(error, '下载导出文件失败，请稍后重试。'))
+        } finally {
+            setIsDownloadingExport(false)
         }
     }
 
@@ -295,12 +301,12 @@ export default function DataManager() {
                             </div>
                             <Button
                                 variant={exportJob.status === 'completed' ? 'default' : 'outline'}
-                                disabled={exportJob.status !== 'completed'}
+                                disabled={exportJob.status !== 'completed' || isDownloadingExport}
                                 onClick={downloadCompletedExportJob}
                                 className={exportJob.status === 'completed' ? 'gap-2 bg-indigo-600 text-white hover:bg-indigo-700' : 'gap-2'}
                             >
-                                {exportJob.status === 'running' || exportJob.status === 'queued' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                                {exportJob.status === 'completed' ? '下载数据包' : `${exportJob.progress || 0}%`}
+                                {exportJob.status === 'running' || exportJob.status === 'queued' || isDownloadingExport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                                {isDownloadingExport ? '下载中...' : exportJob.status === 'completed' ? '下载数据包' : `${exportJob.progress || 0}%`}
                             </Button>
                         </div>
                         <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">

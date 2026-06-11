@@ -56,6 +56,46 @@ logger = logging.getLogger(__name__)
 EXPORT_DIR = os.path.join(tempfile.gettempdir(), "aiscl_exports")
 EXPORT_DOWNLOAD_LINK_TTL_SECONDS = 10 * 60
 
+CURRENT_EXPORT_STAGE_SEQUENCE = [
+    "problem_construction",
+    "meaning_exploration",
+    "explanation_integration",
+    "application_solution",
+]
+
+EXPORT_STAGE_ALIASES = {
+    "orientation": "problem_construction",
+    "task_import": "problem_construction",
+    "planning": "problem_construction",
+    "problem_planning": "problem_construction",
+    "problem_construction": "problem_construction",
+    "问题构建": "problem_construction",
+    "问题建构": "problem_construction",
+    "inquiry": "meaning_exploration",
+    "evidence_exploration": "meaning_exploration",
+    "meaning_exploration": "meaning_exploration",
+    "证据探究": "meaning_exploration",
+    "意义探索": "meaning_exploration",
+    "argumentation": "explanation_integration",
+    "explanation_integration": "explanation_integration",
+    "论证协商": "explanation_integration",
+    "解释整合": "explanation_integration",
+    "revision": "application_solution",
+    "reflection_revision": "application_solution",
+    "summary": "application_solution",
+    "reflection": "application_solution",
+    "application_solution": "application_solution",
+    "反思修订": "application_solution",
+    "应用解决": "application_solution",
+}
+
+EXPORT_STAGE_LABELS = {
+    "problem_construction": "问题构建",
+    "meaning_exploration": "意义探索",
+    "explanation_integration": "解释整合",
+    "application_solution": "应用解决",
+}
+
 
 class RetentionCleanupRequest(BaseModel):
     """Retention cleanup request."""
@@ -128,7 +168,10 @@ def _export_file_response(job: ExportJob) -> StreamingResponse:
     return StreamingResponse(
         _stream_file(job.file_path),
         media_type="application/zip",
-        headers={"Content-Disposition": content_disposition_header(job.filename or f"aiscl-export-{job.id}.zip")},
+        headers={
+            "Content-Disposition": content_disposition_header(job.filename or f"aiscl-export-{job.id}.zip"),
+            "Content-Length": str(os.path.getsize(job.file_path)),
+        },
     )
 
 
@@ -183,6 +226,24 @@ def _safe_isoformat(value: Any) -> str:
     if normalized:
         return utc_isoformat(normalized) or ""
     return str(value or "")
+
+
+def _normalize_export_stage_id(stage_id: Any, fallback: Optional[str] = None) -> str:
+    raw = str(stage_id or "").strip()
+    normalized = EXPORT_STAGE_ALIASES.get(raw)
+    if normalized:
+        return normalized
+    fallback_raw = str(fallback or "").strip()
+    fallback_normalized = EXPORT_STAGE_ALIASES.get(fallback_raw)
+    if fallback_normalized:
+        return fallback_normalized
+    if raw in CURRENT_EXPORT_STAGE_SEQUENCE:
+        return raw
+    return "problem_construction"
+
+
+def _export_stage_label(stage_id: Any) -> str:
+    return EXPORT_STAGE_LABELS.get(_normalize_export_stage_id(stage_id), "问题构建")
 
 
 def _anonymize_user_id(user_id: Optional[str], user_code_map: Dict[str, str]) -> str:
@@ -248,7 +309,7 @@ def _data_dictionary_rows() -> List[Dict[str, str]]:
         {"file": "02_groups/*/content/ai_transcript.csv", "field": "message_text", "meaning": "个人 AI/助手对话内容", "analysis_note": "用于分析 AI 支架暴露和学生后续响应，需结合 process/intervention_windows。"},
         {"file": "02_groups/*/content/document_snapshots.csv", "field": "plain_text/html", "meaning": "共享/个人文档保存时的文本和 HTML", "analysis_note": "用于分析撰写成果和修订方向。"},
         {"file": "02_groups/*/content/document_comments.csv", "field": "comment_text", "meaning": "文档批注、回复和解决状态", "analysis_note": "用于分析同伴反馈、修订协商和观点澄清。"},
-        {"file": "02_groups/*/content/document_update_operations.csv", "field": "timestamp/actor_id/document_id/payload_size", "meaning": "共享文档协同编辑原始更新的过程索引", "analysis_note": "用于分析写作密度、共同编辑时序和保存前编辑活动；标准导出不包含二进制 Yjs 更新正文。"},
+        {"file": "02_groups/*/content/document_update_operations.csv", "field": "source_granularity", "meaning": "文档写作事件粒度，包含 yjs_realtime_update 与 save_or_commit_event", "analysis_note": "新数据可分析实时协同编辑密度；旧数据会回填保存/提交级写作轨迹，不能解释为逐字编辑。"},
         {"file": "metadata/users_anonymized.csv", "field": "anonymous_id", "meaning": "匿名学习者/教师编号", "analysis_note": "用于替代真实 user_id。"},
         {"file": "metadata/group_conditions.csv", "field": "condition_label", "meaning": "小组实验条件标签", "analysis_note": "用于实验组/对照组、AI 支架模式和过程支架模式比较。"},
         {"file": "groups/*", "field": "*", "meaning": "按小组拆分后的原始、清洗和分析就绪数据", "analysis_note": "避免研究者从全班混合表手工筛选小组数据。"},
@@ -327,6 +388,7 @@ EVENT_SEQUENCE_FIELDNAMES = [
     "object_id",
     "timestamp",
     "stage_id",
+    "stage_label_zh",
     "previous_event_id",
     "previous_action",
     "time_since_previous_seconds",
@@ -348,6 +410,7 @@ PROCESS_EVENT_LOG_FIELDNAMES = [
     "role_in_group",
     "space",
     "stage_id",
+    "stage_label_zh",
     "object_type",
     "object_id",
     "content_ref",
@@ -448,11 +511,14 @@ DOCUMENT_UPDATE_OPERATION_FIELDNAMES = [
     "content_ref",
     "document_id",
     "actor_id",
+    "source_granularity",
     "operation_type",
     "operation_id",
     "client_id",
     "payload_size",
+    "content_length",
     "timestamp",
+    "analysis_note",
 ]
 
 RESOURCE_MANIFEST_FIELDNAMES = [
@@ -548,6 +614,7 @@ GROUP_STAGE_SUMMARY_FIELDNAMES = [
     "process_scaffold_mode",
     "stage_control_mode",
     "stage_id",
+    "stage_label_zh",
     "event_count",
     "chat_count",
     "student_turn_count",
@@ -573,6 +640,7 @@ INTERVENTION_EXPOSURE_FIELDNAMES = [
     "intervention_source",
     "agent_role",
     "stage_id",
+    "stage_label_zh",
     "intervention_count",
     "first_intervention_at",
     "last_intervention_at",
@@ -676,7 +744,7 @@ def _project_condition_row(project: Project) -> Dict[str, Any]:
         "template_key": experiment.get("template_key") or project.inherited_template_key or "",
         "template_label": experiment.get("template_label") or project.inherited_template_label or "",
         "graph_version": experiment.get("graph_version") or "",
-        "current_stage": experiment.get("current_stage") or "",
+        "current_stage": _normalize_export_stage_id(experiment.get("current_stage")),
         "export_profile": experiment.get("export_profile") or "",
         "created_at": project.created_at,
         "updated_at": project.updated_at,
@@ -924,7 +992,10 @@ async def export_course_research_package(
     return StreamingResponse(
         _stream_file(temp_path),
         media_type="application/zip",
-        headers={"Content-Disposition": content_disposition_header(filename)},
+        headers={
+            "Content-Disposition": content_disposition_header(filename),
+            "Content-Length": str(os.path.getsize(temp_path)),
+        },
         background=BackgroundTask(_remove_temp_file, temp_path),
     )
 
@@ -1468,6 +1539,7 @@ def _build_event_sequence(
             "object_id": session["session_id"],
             "timestamp": session["start_time"],
             "stage_id": "",
+            "stage_label_zh": "",
             "content_length": 0,
             "semantic_tags": "presence",
             "ai_related": False,
@@ -1481,6 +1553,18 @@ def _build_event_sequence(
         event.update(_condition_event_fields(project_condition_map.get(event["project_id"])))
 
     events.sort(key=lambda row: (row["project_id"], row["timestamp"] or ""))
+    active_stage_by_project: Dict[str, str] = {}
+    for row in events:
+        project_id = row["project_id"]
+        condition = project_condition_map.get(project_id) or {}
+        normalized_stage = _normalize_export_stage_id(
+            row.get("stage_id"),
+            active_stage_by_project.get(project_id) or condition.get("current_stage"),
+        )
+        row["stage_id"] = normalized_stage
+        row["stage_label_zh"] = _export_stage_label(normalized_stage)
+        active_stage_by_project[project_id] = normalized_stage
+
     previous_by_project: Dict[str, Dict[str, Any]] = {}
     for row in events:
         previous = previous_by_project.get(row["project_id"])
@@ -1521,7 +1605,8 @@ def _sequence_row(
         "object_type": object_type,
         "object_id": object_id,
         "timestamp": _safe_isoformat(timestamp),
-        "stage_id": stage_id or "",
+        "stage_id": _normalize_export_stage_id(stage_id) if stage_id else "",
+        "stage_label_zh": _export_stage_label(stage_id) if stage_id else "",
         "content_length": content_length,
         "semantic_tags": classification["semantic_tags"],
         "ai_related": classification["ai_related"],
@@ -1683,7 +1768,7 @@ def _process_event_rows(data: Dict[str, Any], user_code_map: Dict[str, str]) -> 
     rows: List[Dict[str, Any]] = []
     for event in data["event_sequence"]:
         source_table, source_id = _source_info(event["event_id"])
-        stage_id = event.get("stage_id") or "unspecified"
+        stage_id = _normalize_export_stage_id(event.get("stage_id"))
         actor_id = event.get("anonymous_id") or ("AI" if event.get("actor_type", "").startswith("ai") else "")
         rows.append({
             "case_id": event["project_id"],
@@ -1697,6 +1782,7 @@ def _process_event_rows(data: Dict[str, Any], user_code_map: Dict[str, str]) -> 
             "role_in_group": "ai" if actor_id == "AI" else roles.get((event["project_id"], actor_id), ""),
             "space": event["space"],
             "stage_id": stage_id,
+            "stage_label_zh": _export_stage_label(stage_id),
             "object_type": event["object_type"],
             "object_id": event["object_id"],
             "content_ref": _content_ref_for_event(event),
@@ -1725,7 +1811,7 @@ def _balanced_process_event_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, A
             kept.append(row)
             continue
         timestamp = _datetime_or_none(row["timestamp"])
-        key = (row["case_id"], row["actor_id"], row["space"], row["activity"], row["object_id"])
+        key = (row["case_id"], row["actor_id"], row["space"], row["activity"])
         previous = last_low_level.get(key)
         if timestamp and previous and (timestamp - previous).total_seconds() < 60:
             continue
@@ -1848,6 +1934,7 @@ def _document_update_operation_rows(
     items: List[Dict[str, Any]],
     document_project_map: Dict[str, str],
     user_code_map: Dict[str, str],
+    fallback_events: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for item in items:
@@ -1862,12 +1949,48 @@ def _document_update_operation_rows(
             "content_ref": f"doc_update_{source_id}",
             "document_id": document_id,
             "actor_id": _anonymize_user_id(item.get("user_id"), user_code_map),
+            "source_granularity": "yjs_realtime_update",
             "operation_type": item.get("operation_type"),
             "operation_id": item.get("operation_id"),
             "client_id": item.get("client_id"),
             "payload_size": item.get("payload_size"),
+            "content_length": "",
             "timestamp": item.get("timestamp"),
+            "analysis_note": "实时协同编辑 Yjs 更新索引，可用于写作密度和共同编辑时序分析；不直接暴露二进制更新正文。",
         })
+    seen_event_ids = {row["event_id"] for row in rows}
+    for event in fallback_events or []:
+        if event.get("space") not in {"document", "shared_record"}:
+            continue
+        if event.get("action") not in {
+            "document_update",
+            "document_comment_update",
+            "shared_record_save",
+            "shared_record_content_commit",
+            "shared_record_annotation_create",
+            "shared_record_annotation_reply",
+            "shared_record_annotation_resolve",
+        }:
+            continue
+        event_id = f"document_save_event:{event.get('event_id')}"
+        if event_id in seen_event_ids:
+            continue
+        rows.append({
+            "case_id": event.get("project_id", ""),
+            "event_id": event_id,
+            "content_ref": _content_ref_for_event(event),
+            "document_id": event.get("object_id", "") if event.get("object_type") == "document" else "",
+            "actor_id": event.get("anonymous_id", ""),
+            "source_granularity": "save_or_commit_event",
+            "operation_type": event.get("action", ""),
+            "operation_id": event.get("event_id", ""),
+            "client_id": "",
+            "payload_size": "",
+            "content_length": event.get("content_length", 0),
+            "timestamp": event.get("timestamp", ""),
+            "analysis_note": "旧数据回填的保存/提交级写作事件，只能分析文档保存、提交和批注时序，不能解释为逐字实时编辑。",
+        })
+        seen_event_ids.add(event_id)
     return rows
 
 
@@ -1943,7 +2066,12 @@ def _write_researcher_oriented_package(archive: zipfile.ZipFile, course: Course,
     ai_rows = _ai_transcript_rows(data["ai_messages"], data["ai_conversations"], user_code_map)
     document_rows = _document_snapshot_rows(data["documents"], user_code_map)
     comment_rows = _document_comment_rows(data["doc_comments"], document_project_map, user_code_map)
-    document_update_rows = _document_update_operation_rows(data["document_update_stream"], document_project_map, user_code_map)
+    document_update_rows = _document_update_operation_rows(
+        data["document_update_stream"],
+        document_project_map,
+        user_code_map,
+        data["event_sequence"],
+    )
     resource_rows = _resource_manifest_rows(data["resources"], user_code_map)
     inquiry_rows = _inquiry_object_rows(data["inquiry_snapshots"], user_code_map)
 
@@ -2126,7 +2254,7 @@ def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, A
                 "actor_type": item.actor_type,
                 "event_domain": item.event_domain,
                 "event_type": item.event_type,
-                "stage_id": item.stage_id,
+                "stage_id": _normalize_export_stage_id(item.stage_id),
                 "sequence_index": item.sequence_index,
                 "payload": item.payload,
                 "event_time": item.event_time,
@@ -2230,7 +2358,7 @@ def _write_domain_csvs(archive: zipfile.ZipFile, data: Dict[str, Any], user_code
         {
             "id": str(item.id),
             "project_id": item.project_id,
-            "stage_id": item.stage_id,
+            "stage_id": _normalize_export_stage_id(item.stage_id),
             "item_type": item.item_type,
             "title": item.title,
             "content": item.content,
@@ -2382,14 +2510,18 @@ def _student_summary_rows(sequence: List[Dict[str, Any]], sessions: List[Dict[st
 def _group_stage_summary_rows(project_ids: List[str], sequence: List[Dict[str, Any]], sessions: List[Dict[str, Any]], data: Dict[str, Any]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for project_id in project_ids:
-        stages = sorted({row.get("stage_id") or "unspecified" for row in sequence if row["project_id"] == project_id})
+        stages = sorted(
+            {_normalize_export_stage_id(row.get("stage_id")) for row in sequence if row["project_id"] == project_id},
+            key=lambda stage: CURRENT_EXPORT_STAGE_SEQUENCE.index(stage),
+        )
         if not stages:
-            stages = ["unspecified"]
+            stages = ["problem_construction"]
         for stage_id in stages:
-            scoped = [row for row in sequence if row["project_id"] == project_id and (row.get("stage_id") or "unspecified") == stage_id]
+            scoped = [row for row in sequence if row["project_id"] == project_id and _normalize_export_stage_id(row.get("stage_id")) == stage_id]
             rows.append({
                 **_project_summary_context(project_id, data),
                 "stage_id": stage_id,
+                "stage_label_zh": _export_stage_label(stage_id),
                 "event_count": len(scoped),
                 "chat_count": sum(1 for row in scoped if row["space"] == "chat"),
                 "student_turn_count": sum(1 for row in scoped if row["space"] == "chat" and row["actor_type"] == "student"),
@@ -2414,14 +2546,14 @@ def _intervention_exposure_rows(project_ids: List[str], sequence: List[Dict[str,
         buckets = sorted({(
             "ai" if row.get("ai_related") else "teacher",
             row.get("actor_type") or "",
-            row.get("stage_id") or "unspecified",
+            _normalize_export_stage_id(row.get("stage_id")),
         ) for row in interventions})
         for source, agent_role, stage_id in buckets:
             selected = [
                 row for row in interventions
                 if ("ai" if row.get("ai_related") else "teacher") == source
                 and (row.get("actor_type") or "") == agent_role
-                and (row.get("stage_id") or "unspecified") == stage_id
+                and _normalize_export_stage_id(row.get("stage_id")) == stage_id
             ]
             first_time = min((row["timestamp"] for row in selected if row.get("timestamp")), default="")
             last_time = max((row["timestamp"] for row in selected if row.get("timestamp")), default="")
@@ -2430,6 +2562,7 @@ def _intervention_exposure_rows(project_ids: List[str], sequence: List[Dict[str,
                 "intervention_source": source,
                 "agent_role": agent_role,
                 "stage_id": stage_id,
+                "stage_label_zh": _export_stage_label(stage_id),
                 "intervention_count": len(selected),
                 "first_intervention_at": first_time,
                 "last_intervention_at": last_time,
@@ -2650,7 +2783,7 @@ def _research_event_rows(items: List[ResearchEvent], user_code_map: Dict[str, st
             "actor_type": item.actor_type,
             "event_domain": item.event_domain,
             "event_type": item.event_type,
-            "stage_id": item.stage_id,
+            "stage_id": _normalize_export_stage_id(item.stage_id),
             "sequence_index": item.sequence_index,
             "payload": item.payload,
             "event_time": item.event_time,
@@ -2666,7 +2799,7 @@ def _learning_object_memory_rows(items: List[LearningObjectMemory], user_code_ma
             "id": str(item.id),
             "project_id": item.project_id,
             "group_id": item.group_id,
-            "stage_id": item.stage_id,
+            "stage_id": _normalize_export_stage_id(item.stage_id),
             "condition_type": item.condition_type,
             "experiment_version_id": item.experiment_version_id,
             "optimization_version_id": item.optimization_version_id,
@@ -2701,7 +2834,7 @@ def _scaffold_round_memory_rows(items: List[ScaffoldRoundMemory]) -> List[Dict[s
             "id": str(item.id),
             "project_id": item.project_id,
             "group_id": item.group_id,
-            "stage_id": item.stage_id,
+            "stage_id": _normalize_export_stage_id(item.stage_id),
             "condition_type": item.condition_type,
             "experiment_version_id": item.experiment_version_id,
             "optimization_version_id": item.optimization_version_id,
@@ -2792,7 +2925,7 @@ def _wiki_item_rows(items: List[WikiItem], user_code_map: Dict[str, str]) -> Lis
         {
             "id": str(item.id),
             "project_id": item.project_id,
-            "stage_id": item.stage_id,
+            "stage_id": _normalize_export_stage_id(item.stage_id),
             "item_type": item.item_type,
             "title": item.title,
             "content": item.content,

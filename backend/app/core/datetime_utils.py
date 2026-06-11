@@ -18,7 +18,7 @@ def utc_isoformat(value: datetime | None) -> str | None:
     """Serialize datetimes with an explicit UTC marker so browsers parse them correctly."""
     if value is None:
         return None
-    return ensure_aware_utc(value).isoformat().replace("+00:00", "Z")
+    return ensure_aware_utc(value).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def china_datetime_label(value: datetime | None) -> str:

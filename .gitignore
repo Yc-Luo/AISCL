@@ -73,3 +73,8 @@ backend/.env
 frontend/.env.local
 Docs/ui-smoke-artifacts/
 Docs/progress/
+
+# Local analysis artifacts
+.understand-anything/
+backend/scripts/seed_g1_thesis_proposal_simulation.py
+backend/scripts/seed_g2_thesis_proposal_simulation.py

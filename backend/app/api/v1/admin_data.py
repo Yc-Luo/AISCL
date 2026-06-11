@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
+import hmac
 import io
 import json
 import logging
 import os
 import re
 import tempfile
+import time
 import zipfile
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -22,6 +25,7 @@ from bson import ObjectId
 from starlette.background import BackgroundTask
 
 from app.api.v1.auth import get_current_user
+from app.core.config import settings
 from app.core.datetime_utils import ensure_aware_utc, utc_isoformat
 from app.core.db.mongodb import mongodb
 from app.core.security import content_disposition_header
@@ -50,6 +54,7 @@ from app.services.storage_service import storage_service
 router = APIRouter(prefix="/admin/data", tags=["admin-data"])
 logger = logging.getLogger(__name__)
 EXPORT_DIR = os.path.join(tempfile.gettempdir(), "aiscl_exports")
+EXPORT_DOWNLOAD_LINK_TTL_SECONDS = 10 * 60
 
 
 class RetentionCleanupRequest(BaseModel):
@@ -102,6 +107,29 @@ def _stream_file(path: str, chunk_size: int = 1024 * 1024):
             if not chunk:
                 break
             yield chunk
+
+
+def _export_download_signature(job: ExportJob, expires: int) -> str:
+    payload = f"{job.id}:{expires}:{job.file_path or ''}:{job.file_size or 0}"
+    return hmac.new(settings.SECRET_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _verify_export_download_signature(job: ExportJob, expires: int, signature: str) -> None:
+    if expires < int(time.time()):
+        raise HTTPException(status_code=403, detail="Download link has expired")
+    expected = _export_download_signature(job, expires)
+    if not hmac.compare_digest(expected, signature):
+        raise HTTPException(status_code=403, detail="Invalid download signature")
+
+
+def _export_file_response(job: ExportJob) -> StreamingResponse:
+    if job.status != "completed" or not job.file_path or not os.path.exists(job.file_path):
+        raise HTTPException(status_code=409, detail="Export job is not ready for download")
+    return StreamingResponse(
+        _stream_file(job.file_path),
+        media_type="application/zip",
+        headers={"Content-Disposition": content_disposition_header(job.filename or f"aiscl-export-{job.id}.zip")},
+    )
 
 
 def _write_csv(archive: zipfile.ZipFile, path: str, rows: List[Dict[str, Any]], fieldnames: List[str]) -> None:
@@ -962,6 +990,28 @@ async def get_export_job(
     return _export_job_response(job)
 
 
+@router.get("/export-jobs/{job_id}/download-link")
+async def get_export_job_download_link(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Return a short-lived browser-native download URL for a completed export."""
+    await _require_admin(current_user)
+    job = await ExportJob.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    if job.status != "completed" or not job.file_path or not os.path.exists(job.file_path):
+        raise HTTPException(status_code=409, detail="Export job is not ready for download")
+    expires = int(time.time()) + EXPORT_DOWNLOAD_LINK_TTL_SECONDS
+    signature = _export_download_signature(job, expires)
+    return {
+        "download_url": f"/api/v1/admin/data/export-jobs/{job_id}/signed-download?expires={expires}&signature={signature}",
+        "expires_at": utc_isoformat(datetime.fromtimestamp(expires, tz=timezone.utc)),
+        "filename": job.filename,
+        "file_size": job.file_size,
+    }
+
+
 @router.get("/export-jobs/{job_id}/download")
 async def download_export_job(
     job_id: str,
@@ -972,13 +1022,21 @@ async def download_export_job(
     job = await ExportJob.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Export job not found")
-    if job.status != "completed" or not job.file_path or not os.path.exists(job.file_path):
-        raise HTTPException(status_code=409, detail="Export job is not ready for download")
-    return StreamingResponse(
-        _stream_file(job.file_path),
-        media_type="application/zip",
-        headers={"Content-Disposition": content_disposition_header(job.filename or f"aiscl-export-{job_id}.zip")},
-    )
+    return _export_file_response(job)
+
+
+@router.get("/export-jobs/{job_id}/signed-download")
+async def signed_download_export_job(
+    job_id: str,
+    expires: int = Query(...),
+    signature: str = Query(...),
+) -> StreamingResponse:
+    """Download a completed export job through a short-lived signed URL."""
+    job = await ExportJob.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    _verify_export_download_signature(job, expires, signature)
+    return _export_file_response(job)
 
 
 async def _run_course_research_export_job(job_id: str) -> None:

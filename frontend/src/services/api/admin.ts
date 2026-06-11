@@ -1,5 +1,6 @@
 import api from './client'
 import { API_ENDPOINTS } from '../../config/api'
+import { config } from '../../config/env'
 
 export interface User {
     id: string
@@ -115,6 +116,13 @@ export interface ExportJob {
     download_url?: string | null
 }
 
+export interface ExportJobDownloadLink {
+    download_url: string
+    expires_at: string
+    filename?: string
+    file_size?: number
+}
+
 export interface BehaviorStreamItem {
     timestamp?: string
     metadata?: Record<string, unknown>
@@ -189,6 +197,12 @@ function filenameFromContentDisposition(header?: string): string | null {
     }
     const fallbackMatch = header.match(/filename="?([^";]+)"?/i)
     return fallbackMatch?.[1] || null
+}
+
+function absoluteDownloadUrl(pathOrUrl: string): string {
+    if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl
+    const baseUrl = config.apiBaseUrl || window.location.origin
+    return `${baseUrl.replace(/\/$/, '')}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`
 }
 
 export const adminService = {
@@ -421,14 +435,14 @@ export const adminService = {
         return response.data
     },
 
+    getExportJobDownloadLink: async (jobId: string): Promise<ExportJobDownloadLink> => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_EXPORT_JOB_DOWNLOAD_LINK(jobId))
+        return response.data
+    },
+
     downloadExportJob: async (job: ExportJob) => {
-        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_EXPORT_JOB_DOWNLOAD(job.id), {
-            responseType: 'blob'
-        })
-        const filename = filenameFromContentDisposition(response.headers?.['content-disposition'])
-            || job.filename
-            || `aiscl_export_${job.id}.zip`
-        triggerBlobDownload(new Blob([response.data], { type: 'application/zip' }), filename)
+        const link = await adminService.getExportJobDownloadLink(job.id)
+        window.location.assign(absoluteDownloadUrl(link.download_url))
     },
 
     backupConfigs: async () => {

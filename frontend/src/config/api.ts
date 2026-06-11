@@ -60,6 +60,7 @@ export const API_ENDPOINTS = {
         DATA_COURSE_RESEARCH_PACKAGE_JOBS: (id: string) => `/admin/data/courses/${id}/research-package/jobs`,
         DATA_EXPORT_JOB: (id: string) => `/admin/data/export-jobs/${id}`,
         DATA_EXPORT_JOB_DOWNLOAD: (id: string) => `/admin/data/export-jobs/${id}/download`,
+        DATA_EXPORT_JOB_DOWNLOAD_LINK: (id: string) => `/admin/data/export-jobs/${id}/download-link`,
         DATA_EXPORT: '/admin/data/export',
         DATA_BACKUP_CONFIG: '/admin/data/backup/config',
         DATA_RESTORE_CONFIG: '/admin/data/backup/config/restore',

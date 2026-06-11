@@ -5,7 +5,6 @@ from typing import Optional
 
 from beanie import Document as BeanieDocument
 from pydantic import Field
-from pymongo import IndexModel
 
 
 class Document(BeanieDocument):
@@ -57,5 +56,4 @@ class DocumentVersion(BeanieDocument):
         indexes = [
             [("document_id", 1)],
             [("document_id", 1), ("version_number", 1)],
-            IndexModel([("created_at", 1)], expireAfterSeconds=2592000),
         ]

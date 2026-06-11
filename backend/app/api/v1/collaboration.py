@@ -1,5 +1,7 @@
 """Collaboration API routes."""
 
+import base64
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from typing import Dict, Any
 
@@ -53,6 +55,18 @@ async def get_snapshot(
 ) -> Dict[str, Any]:
     """Get the latest snapshot for a project/resource."""
     await get_accessible_snapshot_project(project_id, type, current_user)
+    if type == "document":
+        document = await Document.get(project_id)
+        if not document:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        if not document.content_state:
+            return {"project_id": project_id, "snapshot": None}
+        return {
+            "project_id": project_id,
+            "snapshot": {"data": base64.b64encode(document.content_state).decode("utf-8"), "type": "document"},
+            "updated_at": document.updated_at,
+        }
+
     # Note: Currently project_id field in DB is used as generic resource ID.
     snapshot = await CollaborationSnapshot.get_latest(project_id)
     
@@ -75,6 +89,19 @@ async def save_snapshot(
     """Save a snapshot."""
     effective_type = snapshot_data.get("type") or type
     project = await get_accessible_snapshot_project(project_id, effective_type, current_user)
+    if effective_type == "document":
+        document = await Document.get(project_id)
+        if not document:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        try:
+            document.content_state = base64.b64decode(snapshot_data.get("data") or "")
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid document snapshot")
+        document.last_modified_by = str(current_user.id)
+        document.updated_at = datetime.utcnow()
+        await document.save()
+        return SuccessResponse(message="Snapshot saved successfully")
+
     if effective_type != "document" and not await can_edit_project_content(current_user, project):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission")
     snapshot = CollaborationSnapshot(

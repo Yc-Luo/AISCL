@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
 import logging
 import os
+import re
 import tempfile
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -30,6 +32,8 @@ from app.repositories.chat_log import ChatLog
 from app.repositories.course import Course
 from app.repositories.course_task_release import CourseTaskRelease
 from app.repositories.document import Document
+from app.repositories.doc_comment import DocComment
+from app.repositories.export_job import ExportJob
 from app.repositories.inquiry_snapshot import InquirySnapshot
 from app.repositories.learning_object_memory import LearningObjectMemory
 from app.repositories.project import Project
@@ -45,6 +49,7 @@ from app.services.storage_service import storage_service
 
 router = APIRouter(prefix="/admin/data", tags=["admin-data"])
 logger = logging.getLogger(__name__)
+EXPORT_DIR = os.path.join(tempfile.gettempdir(), "aiscl_exports")
 
 
 class RetentionCleanupRequest(BaseModel):
@@ -59,6 +64,13 @@ class ConfigRestoreRequest(BaseModel):
     """System configuration restore request."""
 
     configs: List[Dict[str, Any]]
+
+
+class CourseResearchExportJobRequest(BaseModel):
+    """Create course research export job request."""
+
+    include_files: bool = False
+    include_raw_heartbeat: bool = False
 
 
 async def _require_admin(current_user: User) -> None:
@@ -197,6 +209,18 @@ def _behavior_codebook_rows() -> List[Dict[str, str]]:
 
 def _data_dictionary_rows() -> List[Dict[str, str]]:
     return [
+        {"file": "01_class_index/*.csv", "field": "*", "meaning": "班级层索引与汇总", "analysis_note": "用于确认班级、小组、匿名成员和实验条件，不作为过程挖掘主表。"},
+        {"file": "02_groups/*/process/process_event_log_full.csv", "field": "case_id", "meaning": "过程挖掘主案例 ID，固定为小组 project_id", "analysis_note": "一个班包含多个小组，正式过程分析应先按 case_id/小组隔离。"},
+        {"file": "02_groups/*/process/process_event_log_full.csv", "field": "subcase_id", "meaning": "小组-阶段子案例 ID", "analysis_note": "用于问题构建、意义探索、解释整合、应用解决等阶段内过程分析。"},
+        {"file": "02_groups/*/process/process_event_log_full.csv", "field": "event_id", "meaning": "统一事件锚点", "analysis_note": "跨 process/content/raw 表对齐时优先使用 event_id。"},
+        {"file": "02_groups/*/process/process_event_log_full.csv", "field": "content_ref", "meaning": "内容证据引用 ID", "analysis_note": "用于连接聊天全文、AI 回复、文档快照、批注、资源清单等 content 表。"},
+        {"file": "02_groups/*/process/process_event_log_balanced.csv", "field": "*", "meaning": "平衡后的分析事件表", "analysis_note": "保留关键节点并弱化过密低层操作，适合直接导入过程挖掘工具。"},
+        {"file": "02_groups/*/process/event_object_links.csv", "field": "relation_type", "meaning": "事件与对象的关系", "analysis_note": "用于追踪同一文档、资源、任务或探究对象在多个事件中的连续变化。"},
+        {"file": "02_groups/*/content/chat_transcript.csv", "field": "message_text", "meaning": "小组聊天原文", "analysis_note": "可人工/AI 编码后按 event_id 或 content_ref 合回过程事件表。"},
+        {"file": "02_groups/*/content/ai_transcript.csv", "field": "message_text", "meaning": "个人 AI/助手对话内容", "analysis_note": "用于分析 AI 支架暴露和学生后续响应，需结合 process/intervention_windows。"},
+        {"file": "02_groups/*/content/document_snapshots.csv", "field": "plain_text/html", "meaning": "共享/个人文档保存时的文本和 HTML", "analysis_note": "用于分析撰写成果和修订方向。"},
+        {"file": "02_groups/*/content/document_comments.csv", "field": "comment_text", "meaning": "文档批注、回复和解决状态", "analysis_note": "用于分析同伴反馈、修订协商和观点澄清。"},
+        {"file": "02_groups/*/content/document_update_operations.csv", "field": "timestamp/actor_id/document_id/payload_size", "meaning": "共享文档协同编辑原始更新的过程索引", "analysis_note": "用于分析写作密度、共同编辑时序和保存前编辑活动；标准导出不包含二进制 Yjs 更新正文。"},
         {"file": "metadata/users_anonymized.csv", "field": "anonymous_id", "meaning": "匿名学习者/教师编号", "analysis_note": "用于替代真实 user_id。"},
         {"file": "metadata/group_conditions.csv", "field": "condition_label", "meaning": "小组实验条件标签", "analysis_note": "用于实验组/对照组、AI 支架模式和过程支架模式比较。"},
         {"file": "groups/*", "field": "*", "meaning": "按小组拆分后的原始、清洗和分析就绪数据", "analysis_note": "避免研究者从全班混合表手工筛选小组数据。"},
@@ -282,6 +306,155 @@ EVENT_SEQUENCE_FIELDNAMES = [
     "semantic_tags",
     "ai_related",
     "teacher_related",
+]
+
+PROCESS_EVENT_LOG_FIELDNAMES = [
+    "case_id",
+    "subcase_id",
+    "event_id",
+    "timestamp",
+    "activity",
+    "activity_label_zh",
+    "actor_id",
+    "actor_type",
+    "role_in_group",
+    "space",
+    "stage_id",
+    "object_type",
+    "object_id",
+    "content_ref",
+    "content_length",
+    "source_table",
+    "source_id",
+    "previous_event_id",
+    "previous_activity",
+    "time_since_previous_sec",
+    "is_ai_intervention",
+    "ai_role",
+    "is_teacher_intervention",
+    "condition_label",
+    "group_condition",
+    "ai_scaffold_mode",
+    "process_scaffold_mode",
+    "stage_control_mode",
+]
+
+EVENT_OBJECT_LINK_FIELDNAMES = [
+    "case_id",
+    "event_id",
+    "object_type",
+    "object_id",
+    "relation_type",
+    "content_ref",
+    "source_table",
+    "source_id",
+]
+
+CHAT_TRANSCRIPT_FIELDNAMES = [
+    "case_id",
+    "event_id",
+    "content_ref",
+    "speaker_id",
+    "speaker_type",
+    "message_type",
+    "message_text",
+    "content_length",
+    "mentions",
+    "metadata",
+    "created_at",
+]
+
+AI_TRANSCRIPT_FIELDNAMES = [
+    "case_id",
+    "event_id",
+    "content_ref",
+    "conversation_id",
+    "actor_id",
+    "role",
+    "persona_id",
+    "category",
+    "message_text",
+    "content_length",
+    "citations",
+    "metadata",
+    "created_at",
+]
+
+DOCUMENT_SNAPSHOT_FIELDNAMES = [
+    "case_id",
+    "event_id",
+    "content_ref",
+    "document_id",
+    "title",
+    "scope",
+    "owner_id",
+    "last_modified_by",
+    "plain_text",
+    "html",
+    "content_length",
+    "source_type",
+    "course_task_release_id",
+    "created_at",
+    "updated_at",
+]
+
+DOCUMENT_COMMENT_FIELDNAMES = [
+    "case_id",
+    "event_id",
+    "content_ref",
+    "comment_id",
+    "document_id",
+    "message_index",
+    "author_id",
+    "comment_text",
+    "status",
+    "anchor_context",
+    "mentioned_user_ids",
+    "created_at",
+    "updated_at",
+]
+
+DOCUMENT_UPDATE_OPERATION_FIELDNAMES = [
+    "case_id",
+    "event_id",
+    "content_ref",
+    "document_id",
+    "actor_id",
+    "operation_type",
+    "operation_id",
+    "client_id",
+    "payload_size",
+    "timestamp",
+]
+
+RESOURCE_MANIFEST_FIELDNAMES = [
+    "case_id",
+    "event_id",
+    "content_ref",
+    "resource_id",
+    "filename",
+    "size",
+    "mime_type",
+    "source_type",
+    "uploaded_by",
+    "uploaded_at",
+    "parse_status",
+    "parsed_markdown_available",
+    "parsed_content_available",
+]
+
+INQUIRY_OBJECT_FIELDNAMES = [
+    "case_id",
+    "event_id",
+    "content_ref",
+    "snapshot_id",
+    "snapshot_version",
+    "snapshot_type",
+    "data_size",
+    "compressed",
+    "created_by",
+    "created_at",
+    "analysis_note",
 ]
 
 INTERVENTION_WINDOW_FIELDNAMES = [
@@ -692,7 +865,7 @@ async def unarchive_project(
 @router.get("/courses/{course_id}/research-package")
 async def export_course_research_package(
     course_id: str,
-    include_files: bool = Query(True),
+    include_files: bool = Query(False),
     include_raw_heartbeat: bool = Query(False),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
@@ -728,6 +901,148 @@ async def export_course_research_package(
     )
 
 
+def _export_job_response(job: ExportJob) -> Dict[str, Any]:
+    return {
+        "id": str(job.id),
+        "job_type": job.job_type,
+        "status": job.status,
+        "course_id": job.course_id,
+        "course_name": job.course_name,
+        "include_files": job.include_files,
+        "include_raw_heartbeat": job.include_raw_heartbeat,
+        "progress": job.progress,
+        "message": job.message,
+        "filename": job.filename,
+        "file_size": job.file_size,
+        "error": job.error,
+        "created_at": utc_isoformat(job.created_at),
+        "started_at": utc_isoformat(job.started_at) if job.started_at else None,
+        "completed_at": utc_isoformat(job.completed_at) if job.completed_at else None,
+        "updated_at": utc_isoformat(job.updated_at),
+        "download_url": f"/api/v1/admin/data/export-jobs/{job.id}/download" if job.status == "completed" else None,
+    }
+
+
+@router.post("/courses/{course_id}/research-package/jobs", status_code=status.HTTP_202_ACCEPTED)
+async def create_course_research_package_job(
+    course_id: str,
+    request: CourseResearchExportJobRequest,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Create an asynchronous course research package export job."""
+    await _require_admin(current_user)
+    course = await Course.get(course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    job = ExportJob(
+        course_id=course_id,
+        course_name=course.name,
+        requested_by=str(current_user.id),
+        include_files=request.include_files,
+        include_raw_heartbeat=request.include_raw_heartbeat,
+        progress=0,
+        message="导出任务已创建，等待后台生成。",
+    )
+    await job.insert()
+    asyncio.create_task(_run_course_research_export_job(str(job.id)))
+    return _export_job_response(job)
+
+
+@router.get("/export-jobs/{job_id}")
+async def get_export_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Return export job state."""
+    await _require_admin(current_user)
+    job = await ExportJob.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    return _export_job_response(job)
+
+
+@router.get("/export-jobs/{job_id}/download")
+async def download_export_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download a completed export job ZIP file."""
+    await _require_admin(current_user)
+    job = await ExportJob.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    if job.status != "completed" or not job.file_path or not os.path.exists(job.file_path):
+        raise HTTPException(status_code=409, detail="Export job is not ready for download")
+    return StreamingResponse(
+        _stream_file(job.file_path),
+        media_type="application/zip",
+        headers={"Content-Disposition": content_disposition_header(job.filename or f"aiscl-export-{job_id}.zip")},
+    )
+
+
+async def _run_course_research_export_job(job_id: str) -> None:
+    job = await ExportJob.get(job_id)
+    if not job:
+        return
+    try:
+        job.status = "running"
+        job.progress = 5
+        job.message = "正在读取班级与小组研究数据。"
+        job.started_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        await job.save()
+
+        course = await Course.get(job.course_id)
+        if not course:
+            raise ValueError("Course not found")
+
+        package_data = await _collect_course_research_package(course, include_raw_heartbeat=job.include_raw_heartbeat)
+        job.progress = 45
+        job.message = "正在生成小组隔离的过程挖掘数据包。"
+        job.updated_at = datetime.utcnow()
+        await job.save()
+
+        os.makedirs(EXPORT_DIR, exist_ok=True)
+        filename = f"aiscl-course-research-{_zip_safe_segment(course.name, str(course.id))}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.zip"
+        temp_path = os.path.join(EXPORT_DIR, f"{job_id}.zip.tmp")
+        final_path = os.path.join(EXPORT_DIR, f"{job_id}.zip")
+        await run_in_threadpool(
+            _write_course_research_zip,
+            temp_path,
+            course,
+            package_data,
+            job.include_files,
+        )
+        os.replace(temp_path, final_path)
+
+        job.status = "completed"
+        job.progress = 100
+        job.message = "导出完成，可以下载。"
+        job.filename = filename
+        job.file_path = final_path
+        job.file_size = os.path.getsize(final_path)
+        job.completed_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        await job.save()
+    except Exception as exc:
+        logger.exception("Failed to run course research export job job_id=%s", job_id)
+        try:
+            if job.file_path and os.path.exists(job.file_path):
+                _remove_temp_file(job.file_path)
+            temp_path = os.path.join(EXPORT_DIR, f"{job_id}.zip.tmp")
+            _remove_temp_file(temp_path)
+        except Exception:
+            logger.warning("Failed to cleanup export job temp files job_id=%s", job_id, exc_info=True)
+        job.status = "failed"
+        job.progress = 100
+        job.message = "导出失败。"
+        job.error = str(exc)
+        job.completed_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        await job.save()
+
+
 async def _collect_course_research_package(course: Course, *, include_raw_heartbeat: bool) -> Dict[str, Any]:
     db = mongodb.get_database()
     projects = await Project.find(Project.course_id == str(course.id)).sort("name").to_list()
@@ -756,6 +1071,8 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
     activity_logs = await ActivityLog.find({"project_id": {"$in": project_ids}}).sort("timestamp").to_list() if project_ids else []
     resources = await Resource.find({"$or": [{"project_id": {"$in": project_ids}}, {"course_id": str(course.id)}]}).sort("uploaded_at").to_list()
     documents = await Document.find({"project_id": {"$in": project_ids}}).sort("updated_at").to_list() if project_ids else []
+    document_ids = [str(document.id) for document in documents]
+    doc_comments = await DocComment.find({"document_id": {"$in": document_ids}}).sort("updated_at").to_list() if document_ids else []
     wiki_items = await WikiItem.find({"project_id": {"$in": project_ids}}).sort("updated_at").to_list() if project_ids else []
     tasks = await Task.find({"project_id": {"$in": project_ids}}).sort("updated_at").to_list() if project_ids else []
     task_ids = [str(task.id) for task in tasks]
@@ -768,12 +1085,16 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
 
     behavior_stream = await db["behavior_stream"].find(
         {"metadata.project_id": {"$in": project_ids}},
-        {"_id": 0},
+        {"_id": 0, "timestamp": 1, "metadata.project_id": 1, "metadata.user_id": 1, "metadata.module": 1, "metadata.action": 1, "metadata.resource_id": 1, "metadata.duration": 1, "metadata.event_metadata": 1},
     ).sort("timestamp", 1).to_list(length=None) if project_ids else []
     heartbeat_stream = await db["heartbeat_stream"].find(
         {"metadata.project_id": {"$in": project_ids}},
-        {"_id": 0},
+        {"_id": 0, "timestamp": 1, "metadata.project_id": 1, "metadata.user_id": 1, "metadata.module": 1, "metadata.resource_id": 1},
     ).sort("timestamp", 1).to_list(length=None) if project_ids else []
+    document_update_stream = await db["document_update_stream"].find(
+        {"document_id": {"$in": document_ids}},
+        {"_id": 1, "timestamp": 1, "document_id": 1, "room_id": 1, "user_id": 1, "operation_id": 1, "operation_type": 1, "client_id": 1, "payload_size": 1},
+    ).sort("timestamp", 1).to_list(length=None) if document_ids else []
 
     heartbeat_sessions = _sessionize_heartbeats(heartbeat_stream, user_code_map)
     event_sequence = _build_event_sequence(
@@ -782,8 +1103,12 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
         activity_logs=activity_logs,
         resources=resources,
         documents=documents,
+        doc_comments=doc_comments,
         tasks=tasks,
         wiki_items=wiki_items,
+        inquiry_snapshots=inquiry_snapshots,
+        ai_conversations=ai_conversations,
+        ai_messages=ai_messages,
         heartbeat_sessions=heartbeat_sessions,
         user_code_map=user_code_map,
         project_name_map=project_name_map,
@@ -810,6 +1135,8 @@ async def _collect_course_research_package(course: Course, *, include_raw_heartb
         "heartbeat_sessions": heartbeat_sessions,
         "resources": resources,
         "documents": documents,
+        "doc_comments": doc_comments,
+        "document_update_stream": document_update_stream,
         "wiki_items": wiki_items,
         "tasks": tasks,
         "task_artifacts": task_artifacts,
@@ -885,14 +1212,19 @@ def _build_event_sequence(
     activity_logs: List[ActivityLog],
     resources: List[Resource],
     documents: List[Document],
+    doc_comments: List[DocComment],
     tasks: List[Task],
     wiki_items: List[WikiItem],
+    inquiry_snapshots: List[InquirySnapshot],
+    ai_conversations: List[AIConversation],
+    ai_messages: List[AIMessage],
     heartbeat_sessions: List[Dict[str, Any]],
     user_code_map: Dict[str, str],
     project_name_map: Dict[str, str],
     project_condition_map: Dict[str, Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     events: List[Dict[str, Any]] = []
+    conversation_by_id = {str(item.id): item for item in ai_conversations}
     for item in chat_logs:
         events.append(_sequence_row(
             event_id=f"chat:{item.id}",
@@ -972,6 +1304,27 @@ def _build_event_sequence(
             metadata={"title": item.title, "source_type": item.source_type},
             user_code_map=user_code_map,
         ))
+    document_project_map = {str(item.id): item.project_id for item in documents}
+    for item in doc_comments:
+        project_id = document_project_map.get(item.document_id, "")
+        if not project_id:
+            continue
+        comment_text = " ".join(str(message.get("content") or "") for message in item.messages or [])
+        events.append(_sequence_row(
+            event_id=f"doc_comment:{item.id}",
+            project_id=project_id,
+            project_name=project_name_map.get(project_id, ""),
+            user_id=item.created_by,
+            actor_type="student",
+            space="document",
+            action="document_comment_update",
+            object_type="doc_comment",
+            object_id=str(item.id),
+            timestamp=item.updated_at,
+            content_length=len(comment_text),
+            metadata={"document_id": item.document_id, "status": item.status},
+            user_code_map=user_code_map,
+        ))
     for item in tasks:
         timestamp = item.submitted_at or item.updated_at
         events.append(_sequence_row(
@@ -989,6 +1342,45 @@ def _build_event_sequence(
             metadata={"title": item.title, "review_status": item.review_status},
             user_code_map=user_code_map,
         ))
+    for item in inquiry_snapshots:
+        events.append(_sequence_row(
+            event_id=f"inquiry_snapshot:{item.id}",
+            project_id=item.project_id,
+            project_name=project_name_map.get(item.project_id, ""),
+            user_id=item.created_by,
+            actor_type="student" if item.created_by else "system",
+            space="inquiry",
+            action="inquiry_snapshot_save",
+            object_type="inquiry_snapshot",
+            object_id=str(item.id),
+            timestamp=item.created_at,
+            content_length=len(item.data or b""),
+            metadata={"snapshot_version": item.snapshot_version, "snapshot_type": item.snapshot_type},
+            user_code_map=user_code_map,
+        ))
+    for item in ai_messages:
+        conversation = conversation_by_id.get(item.conversation_id)
+        if not conversation:
+            continue
+        actor_type = "ai_tutor" if item.role == "assistant" else "student"
+        row = _sequence_row(
+            event_id=f"ai_message:{item.id}",
+            project_id=conversation.project_id,
+            project_name=project_name_map.get(conversation.project_id, ""),
+            user_id=conversation.user_id if item.role == "user" else None,
+            actor_type=actor_type,
+            space="ai",
+            action="ai_message_assistant" if item.role == "assistant" else "ai_message_user",
+            object_type="ai_message",
+            object_id=str(item.id),
+            timestamp=item.created_at,
+            content_length=len(item.content or ""),
+            metadata={"conversation_id": item.conversation_id, "persona_id": conversation.persona_id, "category": conversation.category},
+            user_code_map=user_code_map,
+        )
+        if item.role == "assistant":
+            row["anonymous_id"] = "AI"
+        events.append(row)
     for item in wiki_items:
         events.append(_sequence_row(
             event_id=f"wiki:{item.id}",
@@ -1146,6 +1538,415 @@ def _build_intervention_windows(
     return rows
 
 
+def _plain_text_from_html(html: Optional[str]) -> str:
+    if not html:
+        return ""
+    text = re.sub(r"<(br|/p|/div|/li|/h[1-6])\b[^>]*>", "\n", html, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _source_info(event_id: str) -> tuple[str, str]:
+    prefix, _, source_id = event_id.partition(":")
+    table_map = {
+        "chat": "chat_logs",
+        "research": "research_events",
+        "activity": "activity_logs",
+        "resource": "resources",
+        "document": "documents",
+        "doc_comment": "doc_comments",
+        "task": "tasks",
+        "wiki": "wiki_items",
+        "presence": "heartbeat_sessions",
+        "ai_message": "ai_messages",
+        "inquiry_snapshot": "inquiry_snapshots",
+    }
+    return table_map.get(prefix, prefix), source_id
+
+
+def _activity_label(space: str, action: str) -> str:
+    labels = {
+        "message_send": "发送小组消息",
+        "ai_message_user": "向 AI 提问",
+        "ai_message_assistant": "收到 AI 回复",
+        "resource_upload": "上传资料",
+        "document_update": "保存/更新文档",
+        "document_comment_update": "更新文档批注",
+        "inquiry_snapshot_save": "保存论证空间",
+        "online_session": "在线会话",
+    }
+    if action in labels:
+        return labels[action]
+    if space == "task":
+        return "更新/提交任务"
+    if space == "wiki":
+        return "更新知识沉淀"
+    return action
+
+
+def _content_ref_for_event(row: Dict[str, Any]) -> str:
+    source_table, source_id = _source_info(row.get("event_id", ""))
+    if not source_id:
+        return ""
+    if source_table == "chat_logs":
+        return f"chat_{source_id}"
+    if source_table == "ai_messages":
+        return f"ai_{source_id}"
+    if source_table == "documents":
+        return f"doc_snapshot_{source_id}"
+    if source_table == "doc_comments":
+        return f"doc_comment_{source_id}"
+    if source_table == "resources":
+        return f"resource_{source_id}"
+    if source_table == "wiki_items":
+        return f"wiki_{source_id}"
+    if source_table == "tasks":
+        return f"task_{source_id}"
+    if source_table == "inquiry_snapshots":
+        return f"inquiry_snapshot_{source_id}"
+    return ""
+
+
+def _member_role_lookup(data: Dict[str, Any], user_code_map: Dict[str, str]) -> Dict[tuple[str, str], str]:
+    roles: Dict[tuple[str, str], str] = {}
+    for project in data["projects"]:
+        project_id = str(project.id)
+        if project.leader_id:
+            roles[(project_id, _anonymize_user_id(project.leader_id, user_code_map))] = "leader"
+        for member in project.members or []:
+            anonymous_id = _anonymize_user_id(member.get("user_id"), user_code_map)
+            roles[(project_id, anonymous_id)] = "leader" if member.get("user_id") == project.leader_id else (member.get("role") or "member")
+    return roles
+
+
+def _process_event_rows(data: Dict[str, Any], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    roles = _member_role_lookup(data, user_code_map)
+    rows: List[Dict[str, Any]] = []
+    for event in data["event_sequence"]:
+        source_table, source_id = _source_info(event["event_id"])
+        stage_id = event.get("stage_id") or "unspecified"
+        actor_id = event.get("anonymous_id") or ("AI" if event.get("actor_type", "").startswith("ai") else "")
+        rows.append({
+            "case_id": event["project_id"],
+            "subcase_id": f"{event['project_id']}::{stage_id}",
+            "event_id": event["event_id"],
+            "timestamp": event["timestamp"],
+            "activity": event["action"],
+            "activity_label_zh": _activity_label(event["space"], event["action"]),
+            "actor_id": actor_id,
+            "actor_type": event["actor_type"],
+            "role_in_group": "ai" if actor_id == "AI" else roles.get((event["project_id"], actor_id), ""),
+            "space": event["space"],
+            "stage_id": stage_id,
+            "object_type": event["object_type"],
+            "object_id": event["object_id"],
+            "content_ref": _content_ref_for_event(event),
+            "content_length": event.get("content_length", 0),
+            "source_table": source_table,
+            "source_id": source_id,
+            "previous_event_id": event.get("previous_event_id", ""),
+            "previous_activity": event.get("previous_action", ""),
+            "time_since_previous_sec": event.get("time_since_previous_seconds", ""),
+            "is_ai_intervention": event.get("ai_related", False),
+            "ai_role": event.get("actor_type", "") if event.get("ai_related") else "",
+            "is_teacher_intervention": event.get("teacher_related", False),
+            **_condition_event_fields(data["project_condition_map"].get(event["project_id"])),
+        })
+    return rows
+
+
+def _balanced_process_event_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep all meaningful events while thinning repeated low-level operations."""
+    kept: List[Dict[str, Any]] = []
+    last_low_level: Dict[tuple[str, str, str, str, str], datetime] = {}
+    protected_spaces = {"chat", "ai", "task"}
+    protected_actions = {"resource_upload", "document_update", "document_comment_update", "inquiry_snapshot_save"}
+    for row in rows:
+        if row["space"] in protected_spaces or row["activity"] in protected_actions or row["is_ai_intervention"] or row["is_teacher_intervention"]:
+            kept.append(row)
+            continue
+        timestamp = _datetime_or_none(row["timestamp"])
+        key = (row["case_id"], row["actor_id"], row["space"], row["activity"], row["object_id"])
+        previous = last_low_level.get(key)
+        if timestamp and previous and (timestamp - previous).total_seconds() < 60:
+            continue
+        if timestamp:
+            last_low_level[key] = timestamp
+        kept.append(row)
+    return kept
+
+
+def _event_object_link_rows(process_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = []
+    for row in process_rows:
+        rows.append({
+            "case_id": row["case_id"],
+            "event_id": row["event_id"],
+            "object_type": row["object_type"],
+            "object_id": row["object_id"],
+            "relation_type": row["activity"],
+            "content_ref": row["content_ref"],
+            "source_table": row["source_table"],
+            "source_id": row["source_id"],
+        })
+    return rows
+
+
+def _chat_transcript_rows(items: List[ChatLog], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "case_id": item.project_id,
+            "event_id": f"chat:{item.id}",
+            "content_ref": f"chat_{item.id}",
+            "speaker_id": _anonymize_user_id(item.user_id, user_code_map),
+            "speaker_type": "student" if item.message_type == "text" else item.message_type,
+            "message_type": item.message_type,
+            "message_text": item.content,
+            "content_length": len(item.content or ""),
+            "mentions": [_anonymize_user_id(user_id, user_code_map) for user_id in item.mentions or []],
+            "metadata": item.metadata,
+            "created_at": item.created_at,
+        }
+        for item in items
+    ]
+
+
+def _ai_transcript_rows(items: List[AIMessage], conversations: List[AIConversation], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    conversation_by_id = {str(item.id): item for item in conversations}
+    rows = []
+    for item in items:
+        conversation = conversation_by_id.get(item.conversation_id)
+        if not conversation:
+            continue
+        rows.append({
+            "case_id": conversation.project_id,
+            "event_id": f"ai_message:{item.id}",
+            "content_ref": f"ai_{item.id}",
+            "conversation_id": item.conversation_id,
+            "actor_id": "AI" if item.role == "assistant" else _anonymize_user_id(conversation.user_id, user_code_map),
+            "role": item.role,
+            "persona_id": conversation.persona_id,
+            "category": conversation.category,
+            "message_text": item.content,
+            "content_length": len(item.content or ""),
+            "citations": item.citations,
+            "metadata": item.metadata,
+            "created_at": item.created_at,
+        })
+    return rows
+
+
+def _document_snapshot_rows(items: List[Document], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "case_id": item.project_id,
+            "event_id": f"document:{item.id}",
+            "content_ref": f"doc_snapshot_{item.id}",
+            "document_id": str(item.id),
+            "title": item.title,
+            "scope": getattr(item, "scope", None) or "shared",
+            "owner_id": _anonymize_user_id(getattr(item, "owner_id", None) or item.last_modified_by, user_code_map),
+            "last_modified_by": _anonymize_user_id(item.last_modified_by, user_code_map),
+            "plain_text": _plain_text_from_html(item.content),
+            "html": item.content or "",
+            "content_length": len(_plain_text_from_html(item.content)),
+            "source_type": item.source_type,
+            "course_task_release_id": item.course_task_release_id,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in items
+    ]
+
+
+def _document_comment_rows(items: List[DocComment], document_project_map: Dict[str, str], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for item in items:
+        project_id = document_project_map.get(item.document_id, "")
+        if not project_id:
+            continue
+        messages = item.messages or [{"user_id": item.created_by, "content": "", "created_at": item.created_at}]
+        for index, message in enumerate(messages):
+            rows.append({
+                "case_id": project_id,
+                "event_id": f"doc_comment:{item.id}",
+                "content_ref": f"doc_comment_{item.id}" if index == 0 else f"doc_comment_{item.id}_{index + 1}",
+                "comment_id": str(item.id),
+                "document_id": item.document_id,
+                "message_index": index + 1,
+                "author_id": _anonymize_user_id(message.get("user_id") or item.created_by, user_code_map),
+                "comment_text": message.get("content") or "",
+                "status": item.status,
+                "anchor_context": item.anchor_context,
+                "mentioned_user_ids": [_anonymize_user_id(user_id, user_code_map) for user_id in item.mentioned_user_ids or []],
+                "created_at": message.get("created_at") or item.created_at,
+                "updated_at": item.updated_at,
+            })
+    return rows
+
+
+def _document_update_operation_rows(
+    items: List[Dict[str, Any]],
+    document_project_map: Dict[str, str],
+    user_code_map: Dict[str, str],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for item in items:
+        document_id = item.get("document_id")
+        project_id = document_project_map.get(document_id, "")
+        if not project_id:
+            continue
+        source_id = str(item.get("_id") or item.get("operation_id") or "")
+        rows.append({
+            "case_id": project_id,
+            "event_id": f"document_update_op:{source_id}",
+            "content_ref": f"doc_update_{source_id}",
+            "document_id": document_id,
+            "actor_id": _anonymize_user_id(item.get("user_id"), user_code_map),
+            "operation_type": item.get("operation_type"),
+            "operation_id": item.get("operation_id"),
+            "client_id": item.get("client_id"),
+            "payload_size": item.get("payload_size"),
+            "timestamp": item.get("timestamp"),
+        })
+    return rows
+
+
+def _resource_manifest_rows(items: List[Resource], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "case_id": item.project_id or "",
+            "event_id": f"resource:{item.id}" if item.project_id else "",
+            "content_ref": f"resource_{item.id}",
+            "resource_id": str(item.id),
+            "filename": item.filename,
+            "size": item.size,
+            "mime_type": item.mime_type,
+            "source_type": item.source_type,
+            "uploaded_by": _anonymize_user_id(item.uploaded_by, user_code_map),
+            "uploaded_at": item.uploaded_at,
+            "parse_status": item.parse_status,
+            "parsed_markdown_available": bool(item.parsed_markdown_key),
+            "parsed_content_available": bool(item.parsed_content_key),
+        }
+        for item in items
+    ]
+
+
+def _inquiry_object_rows(items: List[InquirySnapshot], user_code_map: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "case_id": item.project_id,
+            "event_id": f"inquiry_snapshot:{item.id}",
+            "content_ref": f"inquiry_snapshot_{item.id}",
+            "snapshot_id": str(item.id),
+            "snapshot_version": item.snapshot_version,
+            "snapshot_type": item.snapshot_type,
+            "data_size": len(item.data or b""),
+            "compressed": item.compressed,
+            "created_by": _anonymize_user_id(item.created_by, user_code_map),
+            "created_at": item.created_at,
+            "analysis_note": "当前导出保留快照锚点和大小；节点/边解析可在后续版本中从 Yjs 快照解码后补充。",
+        }
+        for item in items
+    ]
+
+
+def _research_package_readme() -> str:
+    return """AISCL 班级研究数据包
+
+推荐分析路径：
+1. 先查看 01_class_index/，确认班级、小组、成员匿名编号和实验条件。
+2. 以 02_groups/{group}/process/process_event_log_full.csv 作为小组过程挖掘主表。
+3. 若需要降低高频低层操作影响，使用 process_event_log_balanced.csv。
+4. 通过 event_id、content_ref、source_table/source_id 将 process 表与 content 表对齐。
+5. 03_comparative_analysis/ 用于跨小组比较，不能替代小组内过程分析。
+
+研究单位说明：
+- course 是实验场域。
+- group/project 是主要 case。
+- student 是嵌套在小组内的个体。
+- event 是过程挖掘和行为链分析的最小单位。
+
+解释边界：
+- 心跳已经默认会话化，表示在线机会，不直接代表有效参与。
+- 文档快照表示保存时的阶段性文本，不等同于逐字编辑记录。
+- AI/教师介入后的响应需结合 intervention_windows 和 content 表人工复核。
+"""
+
+
+def _write_researcher_oriented_package(archive: zipfile.ZipFile, course: Course, data: Dict[str, Any], user_code_map: Dict[str, str]) -> None:
+    process_rows = _process_event_rows(data, user_code_map)
+    balanced_rows = _balanced_process_event_rows(process_rows)
+    link_rows = _event_object_link_rows(process_rows)
+    document_project_map = {str(item.id): item.project_id for item in data["documents"]}
+    chat_rows = _chat_transcript_rows(data["chat_logs"], user_code_map)
+    ai_rows = _ai_transcript_rows(data["ai_messages"], data["ai_conversations"], user_code_map)
+    document_rows = _document_snapshot_rows(data["documents"], user_code_map)
+    comment_rows = _document_comment_rows(data["doc_comments"], document_project_map, user_code_map)
+    document_update_rows = _document_update_operation_rows(data["document_update_stream"], document_project_map, user_code_map)
+    resource_rows = _resource_manifest_rows(data["resources"], user_code_map)
+    inquiry_rows = _inquiry_object_rows(data["inquiry_snapshots"], user_code_map)
+
+    archive.writestr("00_README/README.md", _research_package_readme().encode("utf-8"))
+    _write_csv(archive, "00_README/data_dictionary.csv", _data_dictionary_rows(), ["file", "field", "meaning", "analysis_note"])
+    _write_csv(archive, "00_README/event_codebook.csv", _behavior_codebook_rows(), ["space", "action", "analysis_use", "interpretation_note"])
+    archive.writestr(
+        "00_README/export_manifest.json",
+        json.dumps({
+            "exported_at": utc_isoformat(datetime.utcnow()),
+            "course_id": str(course.id),
+            "course_name": course.name,
+            "main_case_unit": "group/project",
+            "primary_process_table": "02_groups/{group}/process/process_event_log_full.csv",
+            "balanced_process_table": "02_groups/{group}/process/process_event_log_balanced.csv",
+            "alignment_keys": ["event_id", "content_ref", "source_table", "source_id", "object_id"],
+        }, ensure_ascii=False, indent=2).encode("utf-8"),
+    )
+
+    _write_csv(archive, "01_class_index/course_info.csv", [{
+        "course_id": str(course.id),
+        "course_name": course.name,
+        "semester": course.semester,
+        "teacher_id": _anonymize_user_id(course.teacher_id, user_code_map),
+        "student_count": len(course.students or []),
+        "project_count": len(data["projects"]),
+        "created_at": course.created_at,
+        "updated_at": course.updated_at,
+    }], ["course_id", "course_name", "semester", "teacher_id", "student_count", "project_count", "created_at", "updated_at"])
+    _write_csv(archive, "01_class_index/group_conditions.csv", data["project_condition_rows"], CONDITION_FIELDNAMES)
+    _write_csv(archive, "01_class_index/group_members.csv", _group_member_rows(data, user_code_map), ["project_id", "project_name", "anonymous_id", "project_role", "is_leader", "joined_at"])
+    _write_csv(archive, "01_class_index/group_summary.csv", _group_summary_rows(data["project_ids"], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_SUMMARY_FIELDNAMES)
+    _write_csv(archive, "01_class_index/student_summary.csv", _student_summary_rows(data["event_sequence"], data["heartbeat_sessions"], data), STUDENT_SUMMARY_FIELDNAMES)
+
+    _write_csv(archive, "03_comparative_analysis/all_groups_process_event_log_full.csv", process_rows, PROCESS_EVENT_LOG_FIELDNAMES)
+    _write_csv(archive, "03_comparative_analysis/all_groups_process_event_log_balanced.csv", balanced_rows, PROCESS_EVENT_LOG_FIELDNAMES)
+    _write_csv(archive, "03_comparative_analysis/all_groups_event_object_links.csv", link_rows, EVENT_OBJECT_LINK_FIELDNAMES)
+    _write_csv(archive, "03_comparative_analysis/group_stage_summary.csv", _group_stage_summary_rows(data["project_ids"], data["event_sequence"], data["heartbeat_sessions"], data), GROUP_STAGE_SUMMARY_FIELDNAMES)
+    _write_csv(archive, "03_comparative_analysis/intervention_exposure.csv", _intervention_exposure_rows(data["project_ids"], data["event_sequence"], data), INTERVENTION_EXPOSURE_FIELDNAMES)
+
+    for project_id in data["project_ids"]:
+        group_dir = f"02_groups/{_group_dir_name(project_id, data['project_name_map'])}"
+        _write_csv(archive, f"{group_dir}/metadata/group_info.csv", [row for row in _group_rows(data, user_code_map) if row["project_id"] == project_id], ["project_id", "project_name", "course_id", "condition_label", "group_condition", "ai_scaffold_mode", "process_scaffold_mode", "stage_control_mode", "leader_anonymous_id", "member_count", "is_archived", "created_at", "updated_at"])
+        _write_csv(archive, f"{group_dir}/metadata/members.csv", [row for row in _group_member_rows(data, user_code_map) if row["project_id"] == project_id], ["project_id", "project_name", "anonymous_id", "project_role", "is_leader", "joined_at"])
+        _write_csv(archive, f"{group_dir}/metadata/condition.csv", [data["project_condition_map"].get(project_id, {})], CONDITION_FIELDNAMES)
+        group_process = [row for row in process_rows if row["case_id"] == project_id]
+        _write_csv(archive, f"{group_dir}/process/process_event_log_full.csv", group_process, PROCESS_EVENT_LOG_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/process/process_event_log_balanced.csv", [row for row in balanced_rows if row["case_id"] == project_id], PROCESS_EVENT_LOG_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/process/event_object_links.csv", [row for row in link_rows if row["case_id"] == project_id], EVENT_OBJECT_LINK_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/process/intervention_windows.csv", [row for row in data["intervention_windows"] if row["project_id"] == project_id], INTERVENTION_WINDOW_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/content/chat_transcript.csv", [row for row in chat_rows if row["case_id"] == project_id], CHAT_TRANSCRIPT_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/content/ai_transcript.csv", [row for row in ai_rows if row["case_id"] == project_id], AI_TRANSCRIPT_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/content/document_snapshots.csv", [row for row in document_rows if row["case_id"] == project_id], DOCUMENT_SNAPSHOT_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/content/document_comments.csv", [row for row in comment_rows if row["case_id"] == project_id], DOCUMENT_COMMENT_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/content/document_update_operations.csv", [row for row in document_update_rows if row["case_id"] == project_id], DOCUMENT_UPDATE_OPERATION_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/content/inquiry_objects.csv", [row for row in inquiry_rows if row["case_id"] == project_id], INQUIRY_OBJECT_FIELDNAMES)
+        _write_csv(archive, f"{group_dir}/content/wiki_items.csv", [row for row in _wiki_item_rows(data["wiki_items"], user_code_map) if row["project_id"] == project_id], ["id", "project_id", "stage_id", "item_type", "title", "content", "summary", "source_type", "created_by", "updated_by", "confidence_level", "created_at", "updated_at"])
+        _write_csv(archive, f"{group_dir}/content/task_submissions.csv", [row for row in _task_rows(data["tasks"], user_code_map) if row["project_id"] == project_id], ["id", "project_id", "title", "column", "source_type", "course_task_release_id", "submission_status", "submitted_by", "submitted_at", "review_status", "created_at", "updated_at"])
+        _write_csv(archive, f"{group_dir}/content/resource_manifest.csv", [row for row in resource_rows if row["case_id"] == project_id], RESOURCE_MANIFEST_FIELDNAMES)
+
+
 def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, Any], include_files: bool) -> None:
     file_errors: List[Dict[str, Any]] = []
     user_code_map = data["user_code_map"]
@@ -1163,7 +1964,22 @@ def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, A
                     "raw_heartbeat_included": bool(data["heartbeat_stream"]),
                     "raw_heartbeat_count": data["raw_heartbeat_count"],
                     "heartbeat_session_gap_seconds": 180,
-                    "structure": ["metadata", "raw", "cleaned", "analysis_ready", "all_groups", "groups", "files"],
+                    "structure": [
+                        "00_README",
+                        "01_class_index",
+                        "02_groups",
+                        "03_comparative_analysis",
+                        "metadata",
+                        "raw",
+                        "cleaned",
+                        "analysis_ready",
+                        "all_groups",
+                        "groups",
+                        "files",
+                    ],
+                    "primary_structure": "Use 00_README, 01_class_index, 02_groups, and 03_comparative_analysis for research analysis. Legacy folders are retained for compatibility.",
+                    "main_case_unit": "group/project",
+                    "alignment_keys": ["event_id", "content_ref", "source_table", "source_id", "object_id"],
                     "analysis_ready_files": [
                         "event_sequence.csv",
                         "intervention_windows.csv",
@@ -1178,6 +1994,7 @@ def _write_course_research_zip(temp_path: str, course: Course, data: Dict[str, A
                 indent=2,
             ).encode("utf-8"),
         )
+        _write_researcher_oriented_package(archive, course, data, user_code_map)
         _write_csv(archive, "metadata/course.csv", [{
             "course_id": str(course.id),
             "course_name": course.name,

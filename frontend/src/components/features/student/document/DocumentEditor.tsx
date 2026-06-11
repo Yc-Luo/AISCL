@@ -606,14 +606,10 @@ export default function DocumentEditor({
         return
       }
 
-      // 1. Sync HTML to database
-      const savedDocument = await documentService.updateDocument(documentId, undefined, html)
+      const contentState = Y.encodeStateAsUpdate(ydoc)
+      const savedDocument = await documentService.updateDocument(documentId, undefined, html, undefined, contentState)
       setDocument((current) => current ? { ...current, ...savedDocument, content: html } : savedDocument)
       setDocuments((current) => current.map((item) => item.id === documentId ? { ...item, ...savedDocument, content: html } : item))
-
-      // Manual save canonicalizes the HTML record. The collaboration snapshot can lag
-      // behind the editor, so loading ignores older snapshots instead of letting them
-      // overwrite this saved HTML on the next open.
 
       if (projectId) {
         trackingService.trackResearchEvent({
@@ -638,7 +634,7 @@ export default function DocumentEditor({
       setToastMessage('保存失败')
       setShowToast(true)
     }
-  }, [currentStage, document?.content, documentId, editor, experimentVersionId, projectId])
+  }, [currentStage, document?.content, documentId, editor, experimentVersionId, projectId, ydoc])
 
   const handleCreateNewDocument = async (scope: 'shared' | 'personal' = 'shared') => {
     if (!projectId || !onDocumentChange) return

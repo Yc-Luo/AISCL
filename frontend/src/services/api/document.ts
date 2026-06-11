@@ -1,5 +1,6 @@
 import api from './client'
 import { API_ENDPOINTS } from '../../config/api'
+import { fromUint8Array } from '../../utils/encoding'
 
 export interface Document {
   id: string
@@ -128,12 +129,14 @@ export const documentService = {
     documentId: string,
     title?: string,
     content?: string,
-    scope?: 'shared' | 'personal'
+    scope?: 'shared' | 'personal',
+    contentState?: Uint8Array
   ): Promise<Document> {
     const response = await api.put(`${API_ENDPOINTS.DOCUMENTS.BASE}/${documentId}`, {
       title,
       content,
       scope,
+      content_state: contentState ? fromUint8Array(contentState) : undefined,
     })
     return response.data
   },

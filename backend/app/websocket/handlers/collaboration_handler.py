@@ -3,11 +3,14 @@
 import logging
 from typing import Dict, Any, Optional
 import base64
+import asyncio
+from datetime import datetime
 
 from app.core.db.mongodb import mongodb
 from app.services.inquiry_service import inquiry_service
 from app.repositories.document import Document
 from app.repositories.collaboration_snapshot import CollaborationSnapshot
+from app.services.collaboration_service import collaboration_service
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +95,28 @@ async def handle_collaboration_op(sio, sid, data: Dict[str, Any], user_id: str, 
     
     # CRITICAL: Ensure data.roomId matches the prefixed room_id for frontend matching
     data["roomId"] = room_id
+
+    if module == "document" and data.get("type") in {"update", "sync-step-2"}:
+        update_blob = (data.get("data") or {}).get("update")
+        if update_blob:
+            try:
+                doc_id = room_id.replace("doc:", "")
+                update = base64.b64decode(update_blob)
+                db = mongodb.get_database()
+                await db["document_update_stream"].insert_one({
+                    "timestamp": datetime.utcnow(),
+                    "document_id": doc_id,
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "operation_id": data.get("id"),
+                    "operation_type": data.get("type"),
+                    "client_id": data.get("clientId"),
+                    "payload_size": len(update_blob),
+                    "update": update_blob,
+                })
+                asyncio.create_task(collaboration_service.merge_yjs_update(doc_id, update, "document"))
+            except Exception:
+                logger.warning("Failed to queue document state persistence for room %s", room_id, exc_info=True)
     
     # Broadcast as a unified operation to support SyncService on the frontend
     await sio.emit("operation", data, room=room_id, skip_sid=sid)

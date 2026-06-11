@@ -52,16 +52,12 @@ async def create_timeseries_collections():
     # Indexes for behavior_stream
     await behavior_collection.create_index([("metadata.project_id", 1), ("timestamp", -1)])
     await behavior_collection.create_index([("metadata.user_id", 1), ("timestamp", -1)])
-    await behavior_collection.create_index(
-        [("timestamp", 1)], expireAfterSeconds=31536000
-    )  # TTL: 365 days
+    await behavior_collection.create_index([("timestamp", 1)])
 
     # Indexes for heartbeat_stream
     await heartbeat_collection.create_index([("metadata.project_id", 1), ("timestamp", -1)])
     await heartbeat_collection.create_index([("metadata.user_id", 1), ("timestamp", -1)])
-    await heartbeat_collection.create_index(
-        [("timestamp", 1)], expireAfterSeconds=31536000
-    )  # TTL: 365 days
+    await heartbeat_collection.create_index([("timestamp", 1)])
 
     print("Created indexes for Time Series Collections")
     client.close()
@@ -69,4 +65,3 @@ async def create_timeseries_collections():
 
 if __name__ == "__main__":
     asyncio.run(create_timeseries_collections())
-

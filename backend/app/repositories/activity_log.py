@@ -32,8 +32,3 @@ class ActivityLog(Document):
             [("module", 1), ("timestamp", 1)],  # For analytics queries
             [("project_id", 1), ("module", 1), ("timestamp", 1)],  # For project analytics
         ]
-
-        # TTL index: automatically delete documents after 365 days
-        # Note: TTL indexes in MongoDB automatically remove documents based on a timestamp field
-        # This will be created via database migration or manual MongoDB command
-

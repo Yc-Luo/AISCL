@@ -19,6 +19,7 @@ class DocumentUpdateRequest(BaseModel):
 
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     content: Optional[str] = None
+    content_state: Optional[str] = None
     scope: Optional[str] = Field(None, pattern="^(shared|personal)$")
 
 

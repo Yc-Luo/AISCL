@@ -1,7 +1,7 @@
 import api from '../api/client';
 import { useAuthStore } from '../../stores/authStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { API_ENDPOINTS } from '../../config/api';
+import { API_CONFIG, API_ENDPOINTS } from '../../config/api';
 
 export interface TrackEvent {
     module: 'whiteboard' | 'document' | 'chat' | 'resources' | 'ai' | 'task' | 'calendar' | 'dashboard' | 'analytics' | 'inquiry' | 'wiki';
@@ -51,15 +51,25 @@ interface ResearchEventData {
     payload?: Record<string, any>;
 }
 
+function createClientEventId(prefix: string) {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `${prefix}_${crypto.randomUUID()}`;
+    }
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 class TrackingService {
     private buffer: BehaviorData[] = [];
     private researchBuffer: ResearchEventData[] = [];
     private readonly BATCH_SIZE = 10;
     private readonly RESEARCH_BATCH_SIZE = 20;
     private readonly FLUSH_INTERVAL = 5000;
+    private readonly BEHAVIOR_STORAGE_KEY = 'aiscl_pending_behavior_events';
+    private readonly RESEARCH_STORAGE_KEY = 'aiscl_pending_research_events';
     private timer: NodeJS.Timeout | null = null;
 
     constructor() {
+        this.restoreBuffers();
         this.startFlushTimer();
         this.setupUnloadHandler();
     }
@@ -88,6 +98,7 @@ class TrackingService {
 
         const enhancedMetadata = {
             ...(event.metadata || {}),
+            client_event_id: event.metadata?.client_event_id || createClientEventId('behavior'),
             user_role: user.role, // Global role (student/teacher)
             project_role: projectRole // Project context role
         };
@@ -103,6 +114,7 @@ class TrackingService {
         };
 
         this.buffer.push(behaviorData);
+        this.persistBuffers();
 
         if (this.buffer.length >= this.BATCH_SIZE) {
             this.flush();
@@ -125,10 +137,12 @@ class TrackingService {
 
         try {
             await api.post(API_ENDPOINTS.ANALYTICS.BATCH, { behaviors: batch });
+            this.persistBuffers();
         } catch (error) {
             console.error('[TrackingService] Failed to flush events', error);
             // Optional: Retry logic or re-add to buffer (careful with overflow)
             this.buffer = [...batch, ...this.buffer].slice(0, 500);
+            this.persistBuffers();
         }
     }
 
@@ -154,10 +168,14 @@ class TrackingService {
             event_time: event.event_time || new Date().toISOString(),
             stage_id: event.stage_id,
             sequence_index: event.sequence_index,
-            payload: event.payload || {},
+            payload: {
+                ...(event.payload || {}),
+                client_event_id: event.payload?.client_event_id || createClientEventId('research'),
+            },
         };
 
         this.researchBuffer.push(researchEvent);
+        this.persistBuffers();
 
         if (this.researchBuffer.length >= this.RESEARCH_BATCH_SIZE) {
             this.flushResearch();
@@ -181,9 +199,69 @@ class TrackingService {
             await api.post(API_ENDPOINTS.ANALYTICS.RESEARCH_EVENTS_BATCH, {
                 events: batch,
             });
+            this.persistBuffers();
         } catch (error) {
             console.error('[TrackingService] Failed to flush research events', error);
             this.researchBuffer = [...batch, ...this.researchBuffer].slice(0, 1000);
+            this.persistBuffers();
+        }
+    }
+
+    private restoreBuffers() {
+        if (typeof window === 'undefined') return;
+        try {
+            const behavior = window.localStorage.getItem(this.BEHAVIOR_STORAGE_KEY);
+            const research = window.localStorage.getItem(this.RESEARCH_STORAGE_KEY);
+            if (behavior) {
+                this.buffer = JSON.parse(behavior).slice(-500);
+            }
+            if (research) {
+                this.researchBuffer = JSON.parse(research).slice(-1000);
+            }
+        } catch (error) {
+            console.warn('[TrackingService] Failed to restore pending tracking events', error);
+            window.localStorage.removeItem(this.BEHAVIOR_STORAGE_KEY);
+            window.localStorage.removeItem(this.RESEARCH_STORAGE_KEY);
+        }
+    }
+
+    private persistBuffers() {
+        if (typeof window === 'undefined') return;
+        try {
+            if (this.buffer.length > 0) {
+                window.localStorage.setItem(this.BEHAVIOR_STORAGE_KEY, JSON.stringify(this.buffer.slice(-500)));
+            } else {
+                window.localStorage.removeItem(this.BEHAVIOR_STORAGE_KEY);
+            }
+            if (this.researchBuffer.length > 0) {
+                window.localStorage.setItem(this.RESEARCH_STORAGE_KEY, JSON.stringify(this.researchBuffer.slice(-1000)));
+            } else {
+                window.localStorage.removeItem(this.RESEARCH_STORAGE_KEY);
+            }
+        } catch (error) {
+            console.warn('[TrackingService] Failed to persist pending tracking events', error);
+        }
+    }
+
+    private sendKeepalive(endpoint: string, payload: Record<string, any>) {
+        const token = localStorage.getItem('access_token');
+        if (!token) return false;
+        try {
+            const body = JSON.stringify(payload);
+            if (body.length > 60000) return false;
+            void fetch(`${API_CONFIG.BASE_URL}/api/v1${endpoint}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body,
+                keepalive: true,
+            });
+            return true;
+        } catch (error) {
+            console.warn('[TrackingService] Failed to send keepalive tracking events', error);
+            return false;
         }
     }
 
@@ -196,7 +274,13 @@ class TrackingService {
 
     private setupUnloadHandler() {
         window.addEventListener('beforeunload', () => {
-            this.flush();
+            this.persistBuffers();
+            if (this.buffer.length > 0) {
+                this.sendKeepalive(API_ENDPOINTS.ANALYTICS.BATCH, { behaviors: this.buffer.slice(0, 50) });
+            }
+            if (this.researchBuffer.length > 0) {
+                this.sendKeepalive(API_ENDPOINTS.ANALYTICS.RESEARCH_EVENTS_BATCH, { events: this.researchBuffer.slice(0, 50) });
+            }
         });
     }
 }

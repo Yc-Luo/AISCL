@@ -91,11 +91,7 @@ def setup_persistence(room: YRoom, room_name: str):
 
     def on_update(event):
         try:
-            state = (
-                event.get_update()
-                if event is not None and hasattr(event, "get_update")
-                else Y.encode_state_as_update(room.ydoc)
-            )
+            state = Y.encode_state_as_update(room.ydoc)
             if state and len(state) > 0:
                 asyncio.create_task(
                     collaboration_service.debounced_save(project_id, state, snapshot_type)

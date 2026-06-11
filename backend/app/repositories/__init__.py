@@ -41,6 +41,7 @@ from .course import Course
 from .refresh_token import RefreshToken
 from .system_config import SystemConfig
 from .system_log import SystemLog
+from .export_job import ExportJob
 
 __all__ = [
     # User management
@@ -58,5 +59,5 @@ __all__ = [
     # Course management
     "Course",
     # System
-    "RefreshToken", "SystemConfig", "SystemLog"
+    "RefreshToken", "SystemConfig", "SystemLog", "ExportJob"
 ]

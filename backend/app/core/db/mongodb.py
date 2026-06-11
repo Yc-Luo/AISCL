@@ -51,6 +51,7 @@ class MongoDB:
         from app.repositories.group_memory_summary import GroupMemorySummary
         from app.repositories.learning_object_memory import LearningObjectMemory
         from app.repositories.scaffold_round_memory import ScaffoldRoundMemory
+        from app.repositories.export_job import ExportJob
 
         await init_beanie(
             database=database,
@@ -86,6 +87,7 @@ class MongoDB:
                 GroupMemorySummary,
                 LearningObjectMemory,
                 ScaffoldRoundMemory,
+                ExportJob,
             ],
             recreate_views=False,  # Prevent index recreation conflicts
         )

@@ -72,6 +72,14 @@ async def optimize_indexes():
     await doc_comments_collection.create_index("mentioned_user_ids")
     print("Created indexes for doc_comments collection")
 
+    # Indexes for document_update_stream collection
+    document_update_stream_collection = db["document_update_stream"]
+    await document_update_stream_collection.create_index("document_id")
+    await document_update_stream_collection.create_index("user_id")
+    await document_update_stream_collection.create_index([("document_id", 1), ("timestamp", 1)])
+    await document_update_stream_collection.create_index([("room_id", 1), ("timestamp", 1)])
+    print("Created indexes for document_update_stream collection")
+
     # Indexes for whiteboard_snapshots collection
     whiteboard_collection = db["whiteboard_snapshots"]
     await whiteboard_collection.create_index("project_id")
@@ -96,9 +104,7 @@ async def optimize_indexes():
     await activity_logs_collection.create_index(
         [("project_id", 1), ("user_id", 1), ("timestamp", -1)]
     )
-    await activity_logs_collection.create_index(
-        [("timestamp", 1)], expireAfterSeconds=31536000
-    )  # TTL: 365 days
+    await activity_logs_collection.create_index([("timestamp", 1)])
     print("Created indexes for activity_logs collection")
 
     # Indexes for courses collection
@@ -139,4 +145,3 @@ async def optimize_indexes():
 
 if __name__ == "__main__":
     asyncio.run(optimize_indexes())
-

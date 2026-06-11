@@ -94,6 +94,21 @@ def to_document_response(document: Document) -> DocumentResponse:
     )
 
 
+async def create_document_version(document: Document, user_id: str) -> None:
+    """Persist a restorable Yjs snapshot for manual document saves."""
+    if not document.content_state:
+        return
+
+    latest_version = await DocumentVersion.find({"document_id": str(document.id)}).sort("-version_number").first_or_none()
+    next_version_number = (latest_version.version_number + 1) if latest_version else 1
+    await DocumentVersion(
+        document_id=str(document.id),
+        content_state=document.content_state,
+        version_number=next_version_number,
+        created_by=user_id,
+    ).insert()
+
+
 async def ensure_project_access(current_user: User, project: Project, detail: str) -> None:
     """Ensure current user can access a project-scoped document resource."""
     if not await check_project_member_permission(current_user, project):
@@ -335,6 +350,14 @@ async def update_document(
         # Update preview text from content (stripped tags usually, but simple slice for now)
         # In real app, strip HTML tags
         document.preview_text = document_data.content[:200] if document_data.content else None
+    if document_data.content_state:
+        try:
+            document.content_state = base64.b64decode(document_data.content_state)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid document content state",
+            )
     if document_data.scope:
         if document_data.scope == "personal" and document_scope(document) == "shared":
             raise HTTPException(
@@ -355,6 +378,8 @@ async def update_document(
     document.updated_at = datetime.utcnow()
 
     await document.save()
+    if document_data.content_state:
+        await create_document_version(document, str(current_user.id))
 
     # Log activity
     from app.services.activity_service import activity_service

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Archive, BarChart3, Database, Download, FileArchive, Loader2, RotateCcw, ShieldAlert, Trash2 } from 'lucide-react'
 import { Button, Input, Badge } from '../../../ui'
-import { adminService, type DataProject, type DataRetentionPreview, type DataStorageOverview, type DataStorageProject } from '../../../../services/api/admin'
+import { adminService, type DataProject, type DataRetentionPreview, type DataStorageOverview, type DataStorageProject, type ExportJob } from '../../../../services/api/admin'
 import { courseService, type Course } from '../../../../services/api/course'
 
 export default function DataManager() {
@@ -10,12 +10,13 @@ export default function DataManager() {
     const [projects, setProjects] = useState<DataProject[]>([])
     const [courses, setCourses] = useState<Course[]>([])
     const [selectedCourseId, setSelectedCourseId] = useState('')
-    const [includeFiles, setIncludeFiles] = useState(true)
+    const [includeFiles, setIncludeFiles] = useState(false)
     const [includeRawHeartbeat, setIncludeRawHeartbeat] = useState(false)
     const [retention, setRetention] = useState<DataRetentionPreview | null>(null)
     const [search, setSearch] = useState('')
     const [olderThanDays, setOlderThanDays] = useState(90)
     const [notice, setNotice] = useState('')
+    const [exportJob, setExportJob] = useState<ExportJob | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isBusy, setIsBusy] = useState(false)
     const [isExportingCourse, setIsExportingCourse] = useState(false)
@@ -124,17 +125,47 @@ export default function DataManager() {
         }
         try {
             setIsExportingCourse(true)
-            await adminService.exportCourseResearchPackage(selectedCourseId, {
+            const job = await adminService.createCourseResearchPackageJob(selectedCourseId, {
                 include_files: includeFiles,
                 include_raw_heartbeat: includeRawHeartbeat,
             })
+            setExportJob(job)
             const course = courses.find((item) => item.id === selectedCourseId)
-            setNotice(`已生成班级研究数据包：${course?.name || selectedCourseId}`)
+            setNotice(`已创建班级研究数据包导出任务：${course?.name || selectedCourseId}`)
         } catch (error) {
             console.error('Failed to export course research package:', error)
-            setNotice(await getDownloadErrorDetail(error, '班级研究数据包导出失败，请检查后端日志或稍后重试。'))
+            setNotice(await getDownloadErrorDetail(error, '班级研究数据包导出任务创建失败，请检查后端日志或稍后重试。'))
         } finally {
             setIsExportingCourse(false)
+        }
+    }
+
+    useEffect(() => {
+        if (!exportJob?.id || !['queued', 'running'].includes(exportJob.status)) return
+        const timer = window.setInterval(async () => {
+            try {
+                const latest = await adminService.getExportJob(exportJob.id)
+                setExportJob(latest)
+                if (latest.status === 'completed') {
+                    setNotice('班级研究数据包已生成，可以下载。')
+                }
+                if (latest.status === 'failed') {
+                    setNotice(`班级研究数据包生成失败：${latest.error || latest.message || '未知错误'}`)
+                }
+            } catch (error) {
+                console.error('Failed to refresh export job:', error)
+            }
+        }, 2500)
+        return () => window.clearInterval(timer)
+    }, [exportJob?.id, exportJob?.status])
+
+    const downloadCompletedExportJob = async () => {
+        if (!exportJob || exportJob.status !== 'completed') return
+        try {
+            await adminService.downloadExportJob(exportJob)
+        } catch (error) {
+            console.error('Failed to download export job:', error)
+            setNotice(await getDownloadErrorDetail(error, '下载导出文件失败，请稍后重试。'))
         }
     }
 
@@ -192,7 +223,7 @@ export default function DataManager() {
                             班级研究数据包
                         </h3>
                         <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-                            按班级集中导出 raw 原始记录、cleaned 清洗数据、analysis-ready 行为序列、数据字典和资料文件。心跳默认会被压缩成在线会话，原始心跳可按需附带。
+                            默认生成轻量研究包：以小组为主要分析单位，按小组隔离 process/content 数据，并通过 event_id、content_ref 对齐行为与对话、文档、AI 回复等内容。资料文件和原始心跳只在复核时按需附带。
                         </p>
                     </div>
                     <Button
@@ -229,8 +260,8 @@ export default function DataManager() {
                                 className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                             />
                             <span>
-                                <span className="block text-sm font-bold text-slate-800">包含资料文件</span>
-                                <span className="mt-1 block text-xs leading-5 text-slate-500">打包资源、任务成果附件和共享文档 HTML；文件多时导出会更慢。</span>
+                                <span className="block text-sm font-bold text-slate-800">附带资料文件</span>
+                                <span className="mt-1 block text-xs leading-5 text-slate-500">额外打包资源、任务成果附件和文档 HTML；文件多时会显著延长导出时间，默认不勾选。</span>
                             </span>
                         </label>
                         <label className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
@@ -247,6 +278,39 @@ export default function DataManager() {
                         </label>
                     </div>
                 </div>
+                {exportJob ? (
+                    <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-800">
+                                    <span>导出任务</span>
+                                    <Badge variant={exportJob.status === 'completed' ? 'default' : exportJob.status === 'failed' ? 'destructive' : 'secondary'}>
+                                        {exportJob.status === 'completed' ? '已完成' : exportJob.status === 'failed' ? '失败' : exportJob.status === 'running' ? '生成中' : '排队中'}
+                                    </Badge>
+                                    <span className="text-xs font-mono text-slate-400">{exportJob.id}</span>
+                                </div>
+                                <p className="mt-1 text-xs leading-5 text-slate-500">
+                                    {exportJob.message || '正在处理导出任务。'}{exportJob.error ? ` ${exportJob.error}` : ''}
+                                </p>
+                            </div>
+                            <Button
+                                variant={exportJob.status === 'completed' ? 'default' : 'outline'}
+                                disabled={exportJob.status !== 'completed'}
+                                onClick={downloadCompletedExportJob}
+                                className={exportJob.status === 'completed' ? 'gap-2 bg-indigo-600 text-white hover:bg-indigo-700' : 'gap-2'}
+                            >
+                                {exportJob.status === 'running' || exportJob.status === 'queued' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                                {exportJob.status === 'completed' ? '下载数据包' : `${exportJob.progress || 0}%`}
+                            </Button>
+                        </div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+                            <div
+                                className={`h-full rounded-full ${exportJob.status === 'failed' ? 'bg-red-500' : 'bg-indigo-600'}`}
+                                style={{ width: `${Math.max(4, Math.min(100, exportJob.progress || 0))}%` }}
+                            />
+                        </div>
+                    </div>
+                ) : null}
             </section>
 
             <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">

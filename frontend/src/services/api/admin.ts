@@ -95,6 +95,26 @@ export interface ActivityLog {
     timestamp: string
 }
 
+export interface ExportJob {
+    id: string
+    job_type: string
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'expired'
+    course_id: string
+    course_name?: string
+    include_files: boolean
+    include_raw_heartbeat: boolean
+    progress: number
+    message: string
+    filename?: string
+    file_size: number
+    error?: string
+    created_at: string
+    started_at?: string | null
+    completed_at?: string | null
+    updated_at: string
+    download_url?: string | null
+}
+
 export interface BehaviorStreamItem {
     timestamp?: string
     metadata?: Record<string, unknown>
@@ -364,6 +384,30 @@ export const adminService = {
         const link = document.createElement('a')
         link.href = url
         link.setAttribute('download', `aiscl_course_research_${courseId}_${new Date().toISOString().slice(0, 10)}.zip`)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+    },
+
+    createCourseResearchPackageJob: async (courseId: string, params: { include_files?: boolean, include_raw_heartbeat?: boolean }): Promise<ExportJob> => {
+        const response = await api.post(API_ENDPOINTS.ADMIN.DATA_COURSE_RESEARCH_PACKAGE_JOBS(courseId), params)
+        return response.data
+    },
+
+    getExportJob: async (jobId: string): Promise<ExportJob> => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_EXPORT_JOB(jobId))
+        return response.data
+    },
+
+    downloadExportJob: async (job: ExportJob) => {
+        const response = await api.get(API_ENDPOINTS.ADMIN.DATA_EXPORT_JOB_DOWNLOAD(job.id), {
+            responseType: 'blob'
+        })
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }))
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', job.filename || `aiscl_export_${job.id}.zip`)
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)

@@ -72,7 +72,7 @@ async def ensure_project_export_access(current_user: User, project: Project) -> 
 
 
 async def log_behaviors_to_stream(obs: list):
-    """Log behaviors to Time Series stream in background."""
+    """Log behaviors to the append-only behavior stream."""
     try:
         from app.core.db.mongodb import mongodb
         db = mongodb.get_database()
@@ -84,6 +84,9 @@ async def log_behaviors_to_stream(obs: list):
                     "user_id": b.get("user_id"),
                     "module": b.get("module"),
                     "action": b.get("action"),
+                    "resource_id": b.get("target_id") or b.get("resource_id"),
+                    "duration": b.get("duration"),
+                    "event_metadata": b.get("metadata") or {},
                 }
             } for b in obs
         ]
@@ -91,30 +94,32 @@ async def log_behaviors_to_stream(obs: list):
             await db["behavior_stream"].insert_many(stream_data)
     except Exception as e:
         logger.error(f"Error logging behaviors to stream: {e}", exc_info=True)
+        raise
 
 
 async def log_heartbeat_to_stream(hb_data_dict: dict):
-    """Log heartbeat to Time Series stream in background."""
+    """Log heartbeat to the append-only heartbeat stream."""
     try:
         from app.core.db.mongodb import mongodb
         db = mongodb.get_database()
         await db["heartbeat_stream"].insert_one({
-            "timestamp": datetime.utcnow(),
+            "timestamp": hb_data_dict.get("timestamp") or datetime.utcnow(),
             "metadata": {
                 "project_id": hb_data_dict.get("project_id"),
                 "user_id": hb_data_dict.get("user_id"),
                 "module": hb_data_dict.get("module"),
                 "resource_id": hb_data_dict.get("resource_id"),
+                "server_received_at": datetime.utcnow(),
             }
         })
     except Exception as e:
         logger.error(f"Error logging heartbeat to stream: {e}", exc_info=True)
+        raise
 
 
 @router.post("/behavior", response_model=SuccessResponse)
 async def receive_behavior_data(
     behavior_data: BehaviorDataRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ) -> SuccessResponse:
     """Receive behavior data from frontend (single entry)."""
@@ -126,9 +131,7 @@ async def receive_behavior_data(
         )
     await ensure_project_id_access(current_user, behavior_data.project_id)
 
-    # Queue for async processing
-    background_tasks.add_task(
-        activity_service.log_activity,
+    await activity_service.log_activity(
         project_id=behavior_data.project_id,
         user_id=behavior_data.user_id,
         module=behavior_data.module,
@@ -144,7 +147,6 @@ async def receive_behavior_data(
 @router.post("/behavior/batch", response_model=SuccessResponse)
 async def receive_behavior_data_batch(
     batch_data: BehaviorDataBatchRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ) -> SuccessResponse:
     """Receive behavior data in batch (up to 100 entries)."""
@@ -185,9 +187,9 @@ async def receive_behavior_data_batch(
         if any(token in a["action"] for token in modification_actions)
     ]
 
-    background_tasks.add_task(log_behaviors_to_stream, activities)
+    await log_behaviors_to_stream(activities)
     if activities_to_promote:
-        background_tasks.add_task(activity_service.log_batch_activities, activities_to_promote)
+        await activity_service.log_batch_activities(activities_to_promote)
 
     return SuccessResponse(message=f"Batch behavior data received: {len(activities)} entries")
 
@@ -224,7 +226,6 @@ async def receive_research_events_batch(
 @router.post("/heartbeat", response_model=SuccessResponse)
 async def receive_heartbeat(
     heartbeat_data: HeartbeatRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ) -> SuccessResponse:
     """Receive heartbeat data from frontend (every 30 seconds)."""
@@ -236,7 +237,7 @@ async def receive_heartbeat(
         )
     await ensure_project_id_access(current_user, heartbeat_data.project_id)
 
-    background_tasks.add_task(log_heartbeat_to_stream, heartbeat_data.model_dump())
+    await log_heartbeat_to_stream(heartbeat_data.model_dump())
 
     return SuccessResponse(message="Heartbeat received")
 
